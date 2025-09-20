@@ -5,11 +5,14 @@ import { signInWithEmailAndPassword, signInWithPopup, signInWithPhoneNumber } fr
 import axios from "@utils/apiClient";
 import { useAppDispatch } from "@store/index";
 import { setTokens } from "@store/authSlice";
+import { useRouter } from "next/router";
+import { saveTokens } from "@utils/tokenStorage";
 
 type Tab = "login" | "signup";
 
 export default function LoginSignupPage() {
     const dispatch = useAppDispatch();
+    const router = useRouter();
     const [tab, setTab] = useState<Tab>("login");
 
     const [message, setMessage] = useState("");
@@ -38,13 +41,17 @@ export default function LoginSignupPage() {
     // backend helpers
     async function finishLogin(idToken: string) {
         const r = await axios.post("/api/login", { idToken });
-        dispatch(setTokens({ accessToken: r.data.accessToken, refreshToken: r.data.refreshToken }));
-        window.location.href = "/";
+        const tokens = { accessToken: r.data.accessToken, refreshToken: r.data.refreshToken };
+        dispatch(setTokens(tokens));
+        saveTokens(tokens);
+        router.replace("/");
     }
     async function finishSignupWithIdToken(idToken: string, provider: "google" | "phone") {
         const r = await axios.post("/api/signup", { provider, idToken });
-        dispatch(setTokens({ accessToken: r.data.accessToken, refreshToken: r.data.refreshToken }));
-        window.location.href = "/";
+        const tokens = { accessToken: r.data.accessToken, refreshToken: r.data.refreshToken };
+        dispatch(setTokens(tokens));
+        saveTokens(tokens);
+        router.replace("/");
     }
 
     // LOGIN FLOWS
@@ -111,13 +118,15 @@ export default function LoginSignupPage() {
                 password: suPassword,
                 sendVerifyEmail: suSendVerify,
             });
-            dispatch(setTokens({ accessToken: r.data.accessToken, refreshToken: r.data.refreshToken }));
+            const tokens = { accessToken: r.data.accessToken, refreshToken: r.data.refreshToken };
+            dispatch(setTokens(tokens));
+            saveTokens(tokens);
             try {
                 await signInWithEmailAndPassword(auth, suEmail, suPassword);
             } catch {
                 // best-effort: user may need to login again to refresh Firebase session
             }
-            window.location.href = "/";
+            router.replace("/");
         } catch (e: any) {
             setLastError({ code: e?.response?.data?.code || e?.code, message: e?.response?.data?.error || e?.message });
             setMessage(e?.response?.data?.error || e?.message || "Signup failed");
