@@ -1,0 +1,25 @@
+# ----- DB (use your existing) -----
+NEXT_PUBLIC_DB_URL=REPLACE_ME              # e.g. postgres://user:pass@host:5432/db
+NEXT_PUBLIC_DB_USERNAME=REPLACE_ME
+NEXT_PUBLIC_DB_PASSWORD=REPLACE_ME
+NEXT_PUBLIC_DB_NAME=REPLACE_ME
+
+# ----- S3 (unused here but kept) -----
+NEXT_PUBLIC_S3_ACCESSKEY=REPLACE_ME
+NEXT_PUBLIC_S3_SECRET_KEY=REPLACE_ME
+NEXT_PUBLIC_S3_NAME=REPLACE_ME
+
+# ----- Firebase (client) -----
+NEXT_PUBLIC_FIREBASE_API_KEY=REPLACE_ME
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=REPLACE_ME         # e.g. your-project.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=REPLACE_ME
+
+# ----- Firebase (server/admin) -----
+# Put the full JSON of your service account, base64-encoded:
+#   cat serviceAccount.json | base64 | pbcopy
+FIREBASE_SERVICE_ACCOUNT_B64=REPLACE_ME
+
+# ----- JWT (server) -----
+JWT_SECRET=replace_me_with_a_long_random_string
+JWT_EXPIRES_IN=900            # seconds (15m)
+REFRESH_TOKEN_EXPIRES_IN=604800   # seconds (7d)
