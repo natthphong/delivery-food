@@ -3,6 +3,7 @@ import Axios from "axios";
 import Router from "next/router";
 import { store } from "@/store";
 import { setTokens, logout } from "@/store/authSlice";
+import { saveTokens } from "@utils/tokenStorage";
 
 const axios = Axios.create({     baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || '', withCredentials: false });
 
@@ -37,6 +38,7 @@ axios.interceptors.response.use(
                     if (!rt) throw new Error("no_refresh");
                     const r = await Axios.post("/api/refresh-token", { refreshToken: rt });
                     store.dispatch(setTokens({ accessToken: r.data.accessToken, refreshToken: r.data.refreshToken }));
+                    saveTokens({ accessToken: r.data.accessToken, refreshToken: r.data.refreshToken });
                     isRefreshing = false;
                     flush(r.data.accessToken);
                     original.headers.Authorization = `Bearer ${r.data.accessToken}`;

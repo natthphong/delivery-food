@@ -1,0 +1,21 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "noEmit": false,
+        "outDir": "./.test-dist",
+        "module": "commonjs",
+        "moduleResolution": "node",
+        "target": "ES2019",
+        "jsx": "react-jsx",
+        "types": ["node"],
+        "isolatedModules": false
+    },
+    "include": [
+        "tests/**/*.ts",
+        "tests/**/*.tsx",
+        "src/utils/tokenStorage.ts",
+        "src/utils/apiClient.tsx",
+        "src/store/**/*.ts"
+    ],
+    "exclude": ["node_modules", ".next", ".test-dist"]
+}

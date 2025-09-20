@@ -19,6 +19,7 @@ sql
 
 # production
 /build
+/.test-dist
 
 # misc
 .DS_Store
