@@ -71,8 +71,8 @@ Create `.env.local` at repo root (copy from `env_example` if present):
 ### Supabase (HTTPS client)
 
 ```
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=replace_with_project_anon_key
+NEXT_PUBLIC_DELIVERY_NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_DELIVERY_SUPABASE_SERVICE_ROLE_KEY=replace_with_project_service_role_key
 ```
 
 > These envs are used server-side via `supabaseServer.ts`. Configure them for both **Preview** and **Production** deployments.
@@ -369,7 +369,7 @@ src/pages/api/__tests__/login.test.ts
   Make sure login/signup code calls `dispatch(setTokens(...))` **and** `saveTokens(...)`, and uses `router.replace("/")`. Ensure `RequireAuth` hydrates from localStorage before redirecting.
 
 * **`getaddrinfo ENOTFOUND base`**
-  Supabase envs are placeholders. Set real `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` values.
+  Supabase envs are placeholders. Set real `NEXT_PUBLIC_DELIVERY_NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_DELIVERY_SUPABASE_SERVICE_ROLE_KEY` values.
 
 * **`Invalid next.config.ts options: Unrecognized key(s) 'rules'`**
   Remove top-level `rules`. Add loaders via `webpack(config) { config.module.rules.push(...); }`.

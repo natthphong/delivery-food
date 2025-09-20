@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Layout from "@components/Layout";
-import axios from "@utils/apiClient";
+import axios, { type ApiResponse } from "@utils/apiClient";
 import { auth, makeRecaptcha } from "@utils/firebaseClient";
 import { useAppDispatch } from "@store/index";
 import { logout, setTokens } from "@store/authSlice";
@@ -14,6 +14,18 @@ type Me = {
     is_email_verified: boolean;
     is_phone_verified: boolean;
 };
+
+type AuthTokens = { accessToken: string; refreshToken: string };
+
+function extractTokens(body: { accessToken?: string | null; refreshToken?: string | null } | null | undefined): AuthTokens {
+    if (!body?.accessToken || !body?.refreshToken) {
+        throw new Error("Invalid authentication response");
+    }
+    return {
+        accessToken: body.accessToken,
+        refreshToken: body.refreshToken,
+    };
+}
 
 function Chip({ ok, label }: { ok: boolean; label: string }) {
     return (
@@ -51,10 +63,14 @@ export default function AccountPage() {
         setErr("");
         setMsg("");
         try {
-            const r = await axios.get("/api/user/me");
-            setMe(r.data.user);
+            const r = await axios.get<ApiResponse<{ user: Me }>>("/api/user/me");
+            const user = r.data.body?.user;
+            if (!user) {
+                throw new Error("Invalid profile response");
+            }
+            setMe(user);
         } catch (e: any) {
-            setErr(e?.response?.data?.error || e?.message || "Failed to load profile");
+            setErr(e?.response?.data?.message || e?.message || "Failed to load profile");
         } finally {
             setLoading(false);
         }
@@ -73,7 +89,7 @@ export default function AccountPage() {
             await axios.post("/api/user/send-verify-email", { idToken });
             setMsg("Verification email sent.");
         } catch (e: any) {
-            setErr(e?.response?.data?.error || e?.message || "Failed to send verification email");
+            setErr(e?.response?.data?.message || e?.message || "Failed to send verification email");
         }
     }
 
@@ -85,13 +101,17 @@ export default function AccountPage() {
             if (!auth.currentUser) throw new Error("No firebase session; please re-login");
             await updateEmail(auth.currentUser, newEmail);
             const idToken = await auth.currentUser.getIdToken(true);
-            const r = await axios.post("/api/login", { idToken });
-            dispatch(setTokens({ accessToken: r.data.accessToken, refreshToken: r.data.refreshToken }));
+            const r = await axios.post<ApiResponse<AuthTokens & { user: Me }>>(
+                "/api/login",
+                { idToken }
+            );
+            const tokens = extractTokens(r.data.body);
+            dispatch(setTokens(tokens));
             setMsg("Email updated. If required, please verify via email.");
             setNewEmail("");
             await fetchMe();
         } catch (e: any) {
-            setErr(e?.code || e?.message || "Failed to update email");
+            setErr(e?.response?.data?.message || e?.code || e?.message || "Failed to update email");
         }
     }
 
@@ -121,15 +141,19 @@ export default function AccountPage() {
             await confirmation.confirm(otp);
             const idToken = await auth.currentUser?.getIdToken(true);
             if (!idToken) throw new Error("No firebase session after phone link");
-            const r = await axios.post("/api/login", { idToken });
-            dispatch(setTokens({ accessToken: r.data.accessToken, refreshToken: r.data.refreshToken }));
+            const r = await axios.post<ApiResponse<AuthTokens & { user: Me }>>(
+                "/api/login",
+                { idToken }
+            );
+            const tokens = extractTokens(r.data.body);
+            dispatch(setTokens(tokens));
             setMsg("Phone linked & verified.");
             setPhone("");
             setOtp("");
             confirmRef.current = null;
             await fetchMe();
         } catch (e: any) {
-            setErr(e?.code || e?.message || "Failed to confirm OTP");
+            setErr(e?.response?.data?.message || e?.code || e?.message || "Failed to confirm OTP");
         }
     }
 

@@ -9,7 +9,7 @@ import {
     signInWithPhoneNumber,
     signInWithPopup,
 } from "firebase/auth";
-import axios from "@utils/apiClient";
+import axios, { type ApiResponse } from "@utils/apiClient";
 import { useAppDispatch } from "@store/index";
 import { logout, setTokens } from "@store/authSlice";
 import { useRouter } from "next/router";
@@ -18,7 +18,27 @@ import { clearTokens, saveTokens } from "@utils/tokenStorage";
 const OTP_ERROR_DEFAULT = "OTP confirm failed";
 type Tab = "login" | "signup";
 
-type ApiTokenResponse = { accessToken: string; refreshToken: string };
+type AuthTokens = { accessToken: string; refreshToken: string };
+type AuthSuccessBody = AuthTokens & {
+    user: {
+        id: number;
+        email: string | null;
+        phone: string | null;
+        provider: string | null;
+        is_email_verified: boolean;
+        is_phone_verified: boolean;
+    };
+};
+
+function extractTokens(body: AuthSuccessBody | null | undefined): AuthTokens {
+    if (!body?.accessToken || !body?.refreshToken) {
+        throw new Error("Invalid authentication response");
+    }
+    return {
+        accessToken: body.accessToken,
+        refreshToken: body.refreshToken,
+    };
+}
 
 export default function LoginSignupPage() {
     const dispatch = useAppDispatch();
@@ -37,16 +57,16 @@ export default function LoginSignupPage() {
     };
 
     const finishLogin = async (idToken: string) => {
-        const response = await axios.post<ApiTokenResponse>("/api/login", { idToken });
-        const tokens = { accessToken: response.data.accessToken, refreshToken: response.data.refreshToken };
+        const response = await axios.post<ApiResponse<AuthSuccessBody>>("/api/login", { idToken });
+        const tokens = extractTokens(response.data.body);
         dispatch(setTokens(tokens));
         saveTokens(tokens);
         router.replace("/");
     };
 
     const finishSignupWithIdToken = async (idToken: string, provider: "google" | "phone") => {
-        const response = await axios.post<ApiTokenResponse>("/api/signup", { provider, idToken });
-        const tokens = { accessToken: response.data.accessToken, refreshToken: response.data.refreshToken };
+        const response = await axios.post<ApiResponse<AuthSuccessBody>>("/api/signup", { provider, idToken });
+        const tokens = extractTokens(response.data.body);
         dispatch(setTokens(tokens));
         saveTokens(tokens);
         router.replace("/");
@@ -60,7 +80,7 @@ export default function LoginSignupPage() {
             const idToken = await credential.user.getIdToken();
             await finishLogin(idToken);
         } catch (error: any) {
-            const msg = error?.message || "Login failed";
+            const msg = error?.response?.data?.message || error?.message || "Login failed";
             setLastError({ code: error?.code, message: msg });
             setMessage(msg);
             throw new Error(msg);
@@ -74,13 +94,13 @@ export default function LoginSignupPage() {
             boot();
             setSubmitting(true);
             if (!email || !password) throw new Error("Email and password required");
-            const response = await axios.post<ApiTokenResponse>("/api/signup", {
+            const response = await axios.post<ApiResponse<AuthSuccessBody>>("/api/signup", {
                 provider: "password",
                 email,
                 password,
                 sendVerifyEmail,
             });
-            const tokens = { accessToken: response.data.accessToken, refreshToken: response.data.refreshToken };
+            const tokens = extractTokens(response.data.body);
             dispatch(setTokens(tokens));
             saveTokens(tokens);
             try {
@@ -90,7 +110,7 @@ export default function LoginSignupPage() {
             }
             router.replace("/");
         } catch (error: any) {
-            const msg = error?.response?.data?.error || error?.message || "Signup failed";
+            const msg = error?.response?.data?.message || error?.message || "Signup failed";
             const code = error?.response?.data?.code || error?.code;
             setLastError({ code, message: msg });
             setMessage(msg);
@@ -108,7 +128,7 @@ export default function LoginSignupPage() {
             const idToken = await credential.user.getIdToken();
             await finishLogin(idToken);
         } catch (error: any) {
-            const msg = error?.message || "Login failed";
+            const msg = error?.response?.data?.message || error?.message || "Login failed";
             setLastError({ code: error?.code, message: msg });
             setMessage(msg);
         } finally {
@@ -124,7 +144,7 @@ export default function LoginSignupPage() {
             const idToken = await credential.user.getIdToken();
             await finishSignupWithIdToken(idToken, "google");
         } catch (error: any) {
-            const msg = error?.message || "Signup failed";
+            const msg = error?.response?.data?.message || error?.message || "Signup failed";
             setLastError({ code: error?.code, message: msg });
             setMessage(msg);
         } finally {
