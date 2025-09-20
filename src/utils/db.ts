@@ -23,7 +23,7 @@ function getEnv(name: string, fallback?: string) {
 function buildPgConfig(): PoolConfig {
     const connectionString =
         getEnv("DATABASE_URL") ||
-        getEnv("NEXT_PUBLIC_DB_URL"); // Compatibility with your current setup
+        getEnv("NEXT_PUBLIC_DB_URL");
 
     if (connectionString && /^postgres/i.test(connectionString)) {
         return {

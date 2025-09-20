@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+export const config = { runtime: 'nodejs' }
 import { withAuth } from "@utils/authMiddleware";
 import { getUserById } from "@repository/user";
 

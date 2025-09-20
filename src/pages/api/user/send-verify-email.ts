@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sendVerifyEmail } from "@utils/firebaseRest";
-
+export const config = { runtime: 'nodejs' }
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
         if (req.method !== "POST") {

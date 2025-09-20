@@ -1,4 +1,5 @@
 // src/pages/api/signup.ts
+export const config = { runtime: 'nodejs' }
 import type { NextApiRequest, NextApiResponse } from "next";
 import { signUpEmailPassword, sendVerifyEmail } from "@utils/firebaseRest";
 import { verifyFirebaseIdToken } from "@utils/firebaseVerify";

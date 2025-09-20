@@ -1,3 +1,4 @@
+export const config = { runtime: 'nodejs' }
 import type { NextApiRequest, NextApiResponse } from "next";
 import { db } from "@/utils/db";
 import { logError } from "@/utils/logger";

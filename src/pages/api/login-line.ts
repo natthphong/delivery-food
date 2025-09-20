@@ -1,3 +1,4 @@
+export const config = { runtime: 'nodejs' }
 import type { NextApiRequest, NextApiResponse } from "next";
 import { verifyLineIdToken } from "@/utils/lineVerify";
 import { upsertUser } from "@/repository/user";

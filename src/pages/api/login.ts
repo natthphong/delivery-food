@@ -1,4 +1,5 @@
 // src/pages/api/login.ts
+export const config = { runtime: 'nodejs' }
 import type { NextApiRequest, NextApiResponse } from "next";
 import { verifyFirebaseIdToken } from "@utils/firebaseVerify";
 import { upsertUser } from "@repository/user";

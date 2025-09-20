@@ -1,4 +1,5 @@
 // src/pages/api/refresh-token.ts
+export const config = { runtime: 'nodejs' }
 import type { NextApiRequest, NextApiResponse } from "next";
 import { rotateRefreshToken, signAccessToken } from "@/utils/jwt";
 
