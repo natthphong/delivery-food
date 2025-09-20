@@ -17,6 +17,19 @@ bun dev
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 Use `npm run dev` and open `/convert` (Pages Router) and `/` (App Router) to verify Tailwind styles.
 
+## Environment variables
+
+Configure the standard [Vercel Postgres](https://vercel.com/docs/storage/vercel-postgres/quickstart) environment variables for every Preview/Production deployment:
+
+- `POSTGRES_URL`
+- `POSTGRES_URL_NON_POOLING`
+- `POSTGRES_PRISMA_URL`
+- `POSTGRES_USER`
+- `POSTGRES_HOST`
+- `POSTGRES_PASSWORD`
+- `POSTGRES_DATABASE`
+
+For local development the helper in `src/utils/db.ts` also accepts the existing `NEXT_PUBLIC_DELIVERY_POSTGRES_*` values as fallbacks, so you can reuse the current `.env.local` without renaming.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
