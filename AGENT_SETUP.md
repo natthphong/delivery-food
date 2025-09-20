@@ -39,14 +39,14 @@
 │   │   ├── login.tsx                # Combined Login/Signup with tabs
 │   │   └── render.tsx               # Example protected page
 │   ├── repository/
-│   │   └── user.tsx                 # DB access for tbl_user (upsert & return record)
+│   │   └── user.ts                 # DB access for tbl_user (upsert & return record)
 │   ├── store/
 │   │   ├── authSlice.ts             # Redux slice: access/refresh tokens
 │   │   └── index.ts                 # Store setup + typed hooks
 │   ├── utils/
 │   │   ├── apiClient.tsx            # Axios instance + refresh-once interceptor
 │   │   ├── authMiddleware.ts        # withAuth() for protected API routes (JWT verify)
-│   │   ├── db.ts                    # Postgres Pool (supports DATABASE_URL or DB_* envs)
+│   │   ├── supabaseServer.ts        # Supabase server client (https) for repositories
 │   │   ├── externalApiClient.tsx    # (optional) other APIs
 │   │   ├── firebaseClient.ts        # Firebase Web SDK (client-side)
 │   │   ├── firebaseRest.ts          # Identity Toolkit REST helper (server-side)
@@ -68,27 +68,14 @@
 
 Create `.env.local` at repo root (copy from `env_example` if present):
 
-### Database (choose one scheme)
-
-**Single URL (preferred)**
+### Supabase (HTTPS client)
 
 ```
-DATABASE_URL=postgres://<user>:<pass>@<host>:5432/<db>
-DB_SSL=false
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=replace_with_project_anon_key
 ```
 
-**OR individual fields (server-only recommended)**
-
-```
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=youruser
-DB_PASSWORD=yourpass
-DB_NAME=delivery_app
-DB_SSL=false
-```
-
-> Avoid using `NEXT_PUBLIC_DB_*` for DB; those leak to the client bundle. The current `db.ts` supports both but **use server-only names** in production.
+> These envs are used server-side via `supabaseServer.ts`. Configure them for both **Preview** and **Production** deployments.
 
 ### JWT
 
@@ -365,12 +352,12 @@ src/pages/api/__tests__/login.test.ts
 ## 10) Coding conventions
 
 * **Controllers** (API routes): validate, orchestrate repositories & utils, and return DTOs. No DB logic here.
-* **Repositories**: parametric SQL only; return typed records.
+* **Repositories**: call Supabase tables; map/compose results server-side.
 * **Utils**:
 
     * `firebaseVerify` uses JWKS validation via `jose` (no Admin SDK).
     * `jwt.ts`: keep demo in-memory refresh tokens; if production, switch to DB persistence.
-    * `db.ts`: reads `DATABASE_URL` or `DB_*` fields. Logs mode, host, db, SSL, pool size.
+    * `supabaseServer.ts`: creates the HTTPS Supabase client from env vars (no session persistence).
 * **Logging**: `logger.ts` redacts secrets/JWTs.
 * **UI**: Tailwind; rounded `2xl`, soft borders/shadows; accessible buttons/labels.
 
@@ -382,7 +369,7 @@ src/pages/api/__tests__/login.test.ts
   Make sure login/signup code calls `dispatch(setTokens(...))` **and** `saveTokens(...)`, and uses `router.replace("/")`. Ensure `RequireAuth` hydrates from localStorage before redirecting.
 
 * **`getaddrinfo ENOTFOUND base`**
-  Your DB envs are placeholders. Set proper `DATABASE_URL` or `DB_HOST/DB_NAME/...`.
+  Supabase envs are placeholders. Set real `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` values.
 
 * **`Invalid next.config.ts options: Unrecognized key(s) 'rules'`**
   Remove top-level `rules`. Add loaders via `webpack(config) { config.module.rules.push(...); }`.
@@ -443,7 +430,7 @@ const r = await axios.get("/api/user/me"); // Authorization added by interceptor
 
 ## 15) Contacts
 
-* **DB owner**: `src/utils/db.ts`
+* **DB owner**: `src/utils/supabaseServer.ts`
 * **Auth owner**: `src/utils/firebaseVerify.ts`, `src/utils/jwt.ts`, `src/components/RequireAuth.tsx`
 * **API surface**: `src/pages/api/*`
 

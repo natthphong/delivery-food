@@ -1,8 +1,6 @@
-# ----- DB (use your existing) -----
-NEXT_PUBLIC_DB_URL=REPLACE_ME              # e.g. postgres://user:pass@host:5432/db
-NEXT_PUBLIC_DB_USERNAME=REPLACE_ME
-NEXT_PUBLIC_DB_PASSWORD=REPLACE_ME
-NEXT_PUBLIC_DB_NAME=REPLACE_ME
+# ----- Supabase (HTTPS) -----
+NEXT_PUBLIC_SUPABASE_URL=REPLACE_ME              # e.g. https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=REPLACE_ME        # anon key from Supabase project settings
 
 # ----- S3 (unused here but kept) -----
 NEXT_PUBLIC_S3_ACCESSKEY=REPLACE_ME

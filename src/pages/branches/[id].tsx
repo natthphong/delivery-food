@@ -246,20 +246,6 @@ const BranchPage: NextPage = () => {
         setSelectedAddOns((prev) => ({ ...prev, [addonId]: !prev[addonId] }));
     };
 
-    // Group hours by day → [slots...], in Mon..Sun order, for a vertical list:
-    const groupedHours = useMemo(() => {
-        if (!branch?.hours || branch.hours.length === 0) return [];
-        const order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-        const map = new Map<string, Array<{ open: string; close: string }>>();
-        for (const h of branch.hours) {
-            if (!map.has(h.day)) map.set(h.day, []);
-            map.get(h.day)!.push({ open: h.open, close: h.close });
-        }
-        return order
-            .filter((d) => map.has(d))
-            .map((d) => ({ day: d, slots: map.get(d)! }));
-    }, [branch?.hours]);
-
     const modalFooter = (
         <div className="flex items-center justify-end gap-3">
             <button
@@ -304,20 +290,6 @@ const BranchPage: NextPage = () => {
                                 )}
                             </div>
 
-                            {/*/!* Opening hours (simple vertical list) *!/*/}
-                            {/*{groupedHours.length > 0 && (*/}
-                            {/*    <div>*/}
-                            {/*        <p className="text-sm font-medium text-slate-700">Opening hours</p>*/}
-                            {/*        <div className="mt-2 space-y-3">*/}
-                            {/*            {groupedHours.map(({ day, slots }) => (*/}
-                            {/*                <div key={day}>*/}
-                            {/*                    <div className="text-sm font-medium text-slate-800">{day}</div>*/}
-                            {/*                    {slots.map((s, i) => (*/}
-                            {/*                        <div key={`${day}-${i}`} className="text-sm text-slate-600">*/}
-                            {/*                            {s.open} - {s.close}*/}
-                            {/*                        </div>*/}
-                            {/*                    ))}*/}
-                            {/*                </div>*/}
                             {/*            ))}*/}
                             {/*        </div>*/}
                             {/*    </div>*/}

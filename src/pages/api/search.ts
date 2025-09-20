@@ -1,101 +1,76 @@
-export const config = { runtime: 'nodejs' }
 import type { NextApiRequest, NextApiResponse } from "next";
-import { db } from "@/utils/db";
-import { logError } from "@/utils/logger";
+import { searchBranches } from "@repository/branch";
+import { logError } from "@utils/logger";
 
-/**
- * GET /api/search?q=กระเพรา&categoryId=2&lat=13.74&lng=100.53&limit=20
- * Returns branches with match_count, distance (if lat/lng provided), and sample products
- */
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export const config = { runtime: "nodejs" };
+
+type JsonResponse = { code: string; message: string; body: any };
+
+function parseNumber(input: string | string[] | undefined): number | null {
+    if (Array.isArray(input)) return parseNumber(input[0]);
+    if (typeof input !== "string" || input.trim() === "") return null;
+    const num = Number(input);
+    return Number.isFinite(num) ? num : null;
+}
+
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const R = 6371000; // meters
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse<JsonResponse>) {
     try {
         if (req.method !== "GET") {
             res.setHeader("Allow", "GET");
-            return res.status(405).json({ code: "METHOD_NOT_ALLOWED", message: "Method Not Allowed", body: null });
-        }
-        const { q = "", categoryId, lat, lng, limit = "20" } = req.query as Record<string, string>;
-        const qText = (q || "").trim();
-        const hasGeo = !!lat && !!lng;
-
-        // Build where conditions (FTS + fallback ILIKE)
-        const whereParts: string[] = [];
-        const params: any[] = [];
-        let p = 1;
-
-        if (qText) {
-            whereParts.push(`(
-        p.search_tsv @@ plainto_tsquery('simple', $${p})
-        OR p.name ILIKE '%' || $${p} || '%'
-        OR coalesce(p.search_terms,'') ILIKE '%' || $${p} || '%'
-        OR coalesce(bp.search_terms,'') ILIKE '%' || $${p} || '%'
-        OR bp.search_tsv @@ plainto_tsquery('simple', $${p})
-      )`);
-            params.push(qText); p++;
+            return res
+                .status(405)
+                .json({ code: "METHOD_NOT_ALLOWED", message: "Method Not Allowed", body: null });
         }
 
-        if (categoryId) {
-            whereParts.push(`EXISTS (
-        SELECT 1 FROM tbl_product_category pc
-        WHERE pc.product_id = p.id AND pc.category_id = $${p}
-      )`);
-            params.push(Number(categoryId)); p++;
-        }
+        const { q = "", categoryId, lat, lng, limit } = req.query;
+        const category = parseNumber(categoryId);
+        const limitNum = parseNumber(limit);
+        const latNum = parseNumber(lat);
+        const lngNum = parseNumber(lng);
+        const hasGeo = latNum !== null && lngNum !== null;
 
-        const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+        const results = await searchBranches({
+            query: typeof q === "string" ? q : Array.isArray(q) ? q[0] : "",
+            categoryId: category ?? undefined,
+            limit: limitNum ?? undefined,
+        });
 
-        // Distance expression
-        let selectDistance = `NULL::float as distance_m`;
-        let orderDistance = ``;
-        if (hasGeo) {
-            params.push(Number(lat), Number(lng)); const latIdx = p++, lngIdx = p++;
-            // Haversine (in meters), avoids requiring PostGIS
-            selectDistance = `
-        (6371000 * 2 * ASIN(SQRT(
-          POWER(SIN(RADIANS(ABS(b.lat - $${latIdx})/2)),2) +
-          COS(RADIANS(b.lat)) * COS(RADIANS($${latIdx})) *
-          POWER(SIN(RADIANS(ABS(b.lng - $${lngIdx})/2)),2)
-        ))) as distance_m
-      `;
-            orderDistance = `, distance_m ASC`;
-        }
+        const enriched = results.map((branch) => {
+            if (!hasGeo || typeof branch.lat !== "number" || typeof branch.lng !== "number") {
+                return { ...branch, distance_m: null };
+            }
+            return {
+                ...branch,
+                distance_m: haversineDistance(latNum!, lngNum!, branch.lat, branch.lng),
+            };
+        });
 
-        params.push(Number(limit)); const limIdx = p++;
+        const body = hasGeo
+            ? [...enriched].sort((a, b) => {
+                  const distA = typeof a.distance_m === "number" ? a.distance_m : Number.POSITIVE_INFINITY;
+                  const distB = typeof b.distance_m === "number" ? b.distance_m : Number.POSITIVE_INFINITY;
+                  if (distA === distB) {
+                      return (b.match_count ?? 0) - (a.match_count ?? 0);
+                  }
+                  return distA - distB;
+              })
+            : enriched;
 
-        const sql = `
-      WITH matches AS (
-        SELECT
-          b.id AS branch_id,
-          b.name AS branch_name,
-          b.image_url,
-          b.lat, b.lng, b.address_line,
-          b.is_force_closed,
-          ${selectDistance},
-          COUNT(DISTINCT p.id) AS match_count,
-          -- sample top matches
-          JSON_AGG(
-            JSON_BUILD_OBJECT(
-              'product_id', p.id,
-              'name', p.name,
-              'image_url', p.image_url,
-              'price', COALESCE(bp.price_override, p.base_price)
-            )
-            ORDER BY p.id
-          ) FILTER (WHERE bp.is_enabled) AS products_sample
-        FROM tbl_branch b
-        JOIN tbl_branch_product bp ON bp.branch_id = b.id AND bp.is_enabled = TRUE
-        JOIN tbl_product p ON p.id = bp.product_id
-        ${whereSql}
-        GROUP BY b.id
-      )
-      SELECT * FROM matches
-      ORDER BY match_count DESC ${orderDistance}
-      LIMIT $${limIdx};
-    `;
-
-        const { rows } = await db.query(sql, params);
-        return res.status(200).json({ code: "OK", message: "success", body: rows });
+        return res.status(200).json({ code: "OK", message: "success", body });
     } catch (e: any) {
         logError("search API error", { message: e?.message, stack: e?.stack });
-        return res.status(500).json({ code: "INTERNAL_ERROR", message: e?.message || "Search failed", body: null });
+        return res.status(500).json({ code: "INTERNAL_ERROR", message: "Search failed", body: null });
     }
 }

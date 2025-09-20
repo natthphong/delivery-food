@@ -1,17 +1,23 @@
-// src/pages/api/login.ts
-export const config = { runtime: 'nodejs' }
 import type { NextApiRequest, NextApiResponse } from "next";
 import { verifyFirebaseIdToken } from "@utils/firebaseVerify";
 import { upsertUser } from "@repository/user";
 import { signAccessToken, mintRefreshToken } from "@utils/jwt";
 import { logInfo, logError } from "@utils/logger";
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-    const reqId = Math.random().toString(36).slice(2, 8); // simple correlation id
+export const config = { runtime: "nodejs" };
+
+type JsonResponse = { code: string; message: string; body: any };
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse<JsonResponse>) {
+    const reqId = Math.random().toString(36).slice(2, 8);
+
     try {
         if (req.method !== "POST") {
             res.setHeader("Allow", "POST");
-            return res.status(405).json({ error: "Method Not Allowed" });
+            res.setHeader("x-req-id", reqId);
+            return res
+                .status(405)
+                .json({ code: "METHOD_NOT_ALLOWED", message: "Method Not Allowed", body: null });
         }
 
         logInfo("login API: request", {
@@ -24,14 +30,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const { idToken } = req.body || {};
         if (!idToken) {
             logError("login API: missing idToken", { reqId });
-            return res.status(400).json({ error: "Missing idToken" });
+            res.setHeader("x-req-id", reqId);
+            return res.status(400).json({ code: "BAD_REQUEST", message: "Missing idToken", body: null });
         }
 
         const decoded = await verifyFirebaseIdToken(idToken);
         const firebaseUid: string = (decoded.user_id as string) || (decoded.uid as string);
         if (!firebaseUid) {
-            logError("login API: decoded token missing uid", { reqId, decodedKeys: Object.keys(decoded || {}) });
-            return res.status(400).json({ error: "Invalid token: no uid" });
+            logError("login API: decoded token missing uid", {
+                reqId,
+                decodedKeys: Object.keys(decoded || {}),
+            });
+            res.setHeader("x-req-id", reqId);
+            return res.status(400).json({ code: "BAD_REQUEST", message: "Invalid token", body: null });
         }
 
         const email = (decoded.email as string) || null;
@@ -65,16 +76,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         logInfo("login API: success", { reqId, userId: user.id });
         res.setHeader("x-req-id", reqId);
         return res.status(200).json({
+            code: "OK",
             message: "Login success",
-            accessToken,
-            refreshToken,
-            user: {
-                id: user.id,
-                email: user.email,
-                phone: user.phone,
-                provider: user.provider,
-                is_email_verified: user.is_email_verified,
-                is_phone_verified: user.is_phone_verified,
+            body: {
+                accessToken,
+                refreshToken,
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    phone: user.phone,
+                    provider: user.provider,
+                    is_email_verified: user.is_email_verified,
+                    is_phone_verified: user.is_phone_verified,
+                },
             },
         });
     } catch (e: any) {
@@ -90,11 +104,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         });
 
         res.setHeader("x-req-id", reqId);
-        // surface the code if known (helps client to branch on Firebase codes)
-        return res.status(400).json({
-            error: e?.message || "Login failed",
-            code: e?.code || "unknown_error",
-            reqId,
-        });
+        return res
+            .status(400)
+            .json({ code: "LOGIN_FAILED", message: "Login failed", body: null });
     }
 }
