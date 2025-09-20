@@ -7,14 +7,8 @@ const Navbar: React.FC = () => (
                 FoodieGo
             </Link>
             <div className="flex items-center gap-2 text-sm text-gray-700">
-                <Link href="/render" className="px-3 py-2 rounded-lg hover:bg-gray-100">
-                    Render
-                </Link>
                 <Link href="/account" className="px-3 py-2 rounded-lg hover:bg-gray-100">
                     Account
-                </Link>
-                <Link href="/login" className="px-3 py-2 rounded-lg hover:bg-gray-100">
-                    Login
                 </Link>
             </div>
         </div>

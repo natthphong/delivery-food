@@ -10,6 +10,7 @@
     "test": "node scripts/run-tests.js"
   },
   "dependencies": {
+    "@line/liff": "^2.27.2",
     "@reduxjs/toolkit": "^2.9.0",
     "axios": "^1.12.2",
     "firebase": "^12.3.0",
