@@ -130,6 +130,7 @@ const SearchPage: NextPage = () => {
 
                 if (!ignore) {
                     setBranches(sorted);
+                    setCategories([]);
                     // No categories in current response → keep empty; UI still works
                     setError(null);
                 }

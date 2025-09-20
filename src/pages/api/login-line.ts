@@ -1,34 +1,44 @@
-export const config = { runtime: 'nodejs' }
 import type { NextApiRequest, NextApiResponse } from "next";
 import { verifyLineIdToken } from "@/utils/lineVerify";
 import { upsertUser } from "@/repository/user";
 import { signAccessToken, mintRefreshToken } from "@/utils/jwt";
 import { logInfo, logError } from "@/utils/logger";
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export const config = { runtime: "nodejs" };
+
+type JsonResponse = { code: string; message: string; body: any };
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse<JsonResponse>) {
     const reqId = Math.random().toString(36).slice(2, 8);
+
     try {
         if (req.method !== "POST") {
             res.setHeader("Allow", "POST");
-            return res.status(405).json({ code: "METHOD_NOT_ALLOWED", message: "Method Not Allowed", body: null });
+            return res
+                .status(405)
+                .json({ code: "METHOD_NOT_ALLOWED", message: "Method Not Allowed", body: null });
         }
 
         logInfo("login-line: request", {
-            reqId, ua: req.headers["user-agent"], ip: req.socket.remoteAddress,
+            reqId,
+            ua: req.headers["user-agent"],
+            ip: req.socket.remoteAddress,
             bodyKeys: Object.keys(req.body || {}),
         });
 
         const { idToken } = req.body || {};
-        if (!idToken) return res.status(400).json({ code: "BAD_REQUEST", message: "Missing idToken", body: null });
+        if (!idToken) {
+            return res.status(400).json({ code: "BAD_REQUEST", message: "Missing idToken", body: null });
+        }
 
         const payload = await verifyLineIdToken(idToken);
-        const lineUid = payload.sub;               // LINE user id
+        const lineUid = payload.sub;
         const email = payload.email || null;
         const provider = "line";
-        const isEmailVerified = !!email;           // email is trusted if present
+        const isEmailVerified = !!email;
 
         const user = await upsertUser({
-            firebaseUid: lineUid, // we can reuse this field as "externalUid" or add a new column if you prefer
+            firebaseUid: lineUid,
             email,
             phone: null,
             provider,
@@ -58,6 +68,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         });
     } catch (e: any) {
         logError("login-line: exception", { reqId, message: e?.message, stack: e?.stack });
-        return res.status(400).json({ code: "LOGIN_FAILED", message: e?.message || "Login failed", body: null });
+        return res.status(400).json({ code: "LOGIN_FAILED", message: "Login failed", body: null });
     }
 }

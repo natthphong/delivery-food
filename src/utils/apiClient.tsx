@@ -5,11 +5,19 @@ import { store } from "@/store";
 import { setTokens, logout } from "@/store/authSlice";
 import { saveTokens } from "@utils/tokenStorage";
 
-const axios = Axios.create({     baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || '', withCredentials: false });
+export type ApiResponse<T> = { code: string; message: string; body: T };
+
+const axios = Axios.create({
+    baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || "",
+    withCredentials: false,
+});
 
 let isRefreshing = false;
 let queue: Array<(t: string | null) => void> = [];
-const flush = (t: string | null) => { queue.forEach(fn => fn(t)); queue = []; };
+const flush = (t: string | null) => {
+    queue.forEach((fn) => fn(t));
+    queue = [];
+};
 
 axios.interceptors.request.use((config) => {
     const token = store.getState().auth.accessToken;
@@ -36,12 +44,21 @@ axios.interceptors.response.use(
                 try {
                     const rt = store.getState().auth.refreshToken;
                     if (!rt) throw new Error("no_refresh");
-                    const r = await Axios.post("/api/refresh-token", { refreshToken: rt });
-                    store.dispatch(setTokens({ accessToken: r.data.accessToken, refreshToken: r.data.refreshToken }));
-                    saveTokens({ accessToken: r.data.accessToken, refreshToken: r.data.refreshToken });
+                    const r = await Axios.post<ApiResponse<{ accessToken: string; refreshToken: string }>>("/api/refresh-token", {
+                        refreshToken: rt,
+                    });
+                    const tokens = r.data?.body;
+                    if (!tokens?.accessToken || !tokens?.refreshToken) {
+                        throw new Error("Invalid refresh response");
+                    }
+                    store.dispatch(setTokens(tokens));
+                    saveTokens(tokens);
                     isRefreshing = false;
-                    flush(r.data.accessToken);
-                    original.headers.Authorization = `Bearer ${r.data.accessToken}`;
+                    flush(tokens.accessToken);
+                    original.headers = {
+                        ...(original.headers || {}),
+                        Authorization: `Bearer ${tokens.accessToken}`,
+                    };
                     return axios(original);
                 } catch {
                     isRefreshing = false;
@@ -59,7 +76,10 @@ axios.interceptors.response.use(
                         Router.replace("/login");
                         return reject(error);
                     }
-                    original.headers.Authorization = `Bearer ${token}`;
+                    original.headers = {
+                        ...(original.headers || {}),
+                        Authorization: `Bearer ${token}`,
+                    };
                     resolve(axios(original));
                 });
             });
