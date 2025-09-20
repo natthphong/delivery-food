@@ -5,7 +5,8 @@ import { auth, makeRecaptcha } from "@utils/firebaseClient";
 import { useAppDispatch } from "@store/index";
 import { logout, setTokens } from "@store/authSlice";
 import { linkWithPhoneNumber, signOut, updateEmail } from "firebase/auth";
-
+import {clearTokens} from "@utils/tokenStorage";
+import { useRouter } from "next/router";
 type Me = {
     id: number;
     email: string | null;
@@ -40,6 +41,7 @@ function Chip({ ok, label }: { ok: boolean; label: string }) {
 }
 
 export default function AccountPage() {
+    const router = useRouter();
     const dispatch = useAppDispatch();
     const [me, setMe] = useState<Me | null>(null);
     const [loading, setLoading] = useState(true);
@@ -160,7 +162,8 @@ export default function AccountPage() {
     async function onLogout() {
         await signOut(auth).catch(() => {});
         dispatch(logout());
-        window.location.href = "/login";
+        clearTokens()
+        router.replace("/login");
     }
 
     return (

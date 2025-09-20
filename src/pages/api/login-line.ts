@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { verifyLineIdToken } from "@/utils/lineVerify";
+// import { verifyLineIdToken } from "@/utils/lineVerify";
 import { upsertUser } from "@/repository/user";
 import { signAccessToken, mintRefreshToken } from "@/utils/jwt";
 import { logInfo, logError } from "@/utils/logger";
@@ -26,24 +26,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             bodyKeys: Object.keys(req.body || {}),
         });
 
-        const { idToken } = req.body || {};
-        if (!idToken) {
-            return res.status(400).json({ code: "BAD_REQUEST", message: "Missing idToken", body: null });
+        const { profile } = req.body || {};
+        if (!profile) {
+            return res.status(400).json({ code: "BAD_REQUEST", message: "Missing profile", body: null });
         }
 
-        const payload = await verifyLineIdToken(idToken);
-        const lineUid = payload.sub;
-        const email = payload.email || null;
+        // const payload = await verifyLineIdToken(idToken);
+        const lineUid = profile.userId;
+        const email =  null;
         const provider = "line";
-        const isEmailVerified = !!email;
 
         const user = await upsertUser({
             firebaseUid: lineUid,
             email,
             phone: null,
             provider,
-            isEmailVerified,
-            isPhoneVerified: false,
+            isEmailVerified:false,
+            isPhoneVerified:false,
         });
 
         const accessToken = signAccessToken({ uid: lineUid, userId: user.id });
@@ -68,6 +67,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         });
     } catch (e: any) {
         logError("login-line: exception", { reqId, message: e?.message, stack: e?.stack });
-        return res.status(400).json({ code: "LOGIN_FAILED", message: "Login failed", body: null });
+        return res.status(402).json({ code: "LOGIN_FAILED", message: "Login failed", body: null });
     }
 }

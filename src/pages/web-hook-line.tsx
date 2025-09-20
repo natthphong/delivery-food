@@ -25,22 +25,20 @@ export default function WebHookLinePage() {
 
         const run = async () => {
             try {
-                setStatus("init");
-
                 await liff.init({ liffId: process.env.NEXT_PUBLIC_LINE_LIFF_ID as string });
+                setStatus("init");
                 if (!liff.isLoggedIn()) {
                     setStatus("login");
                     liff.login();
                 }
-
-                const idToken = liff.getIDToken();
-                if (!idToken) {
+                const profile  = await liff.getProfile()
+                if (!profile) {
                     throw new Error(
                         "LINE returned no idToken. Enable OpenID Connect and add 'openid profile' (and 'email' if needed) scopes in your LINE Login channel."
                     );
                 }
                 setStatus("post");
-                const r = await axios.post("/api/login-line", { idToken });
+                const r = await axios.post("/api/login-line", { profile });
                 if (cancelled) return;
                 const tokens = {
                     accessToken: r.data?.body?.accessToken,
@@ -54,6 +52,7 @@ export default function WebHookLinePage() {
                 setStatus("done");
                 router.replace("/");
             } catch (e: any) {
+
                 if (cancelled) return;
                 setErr(e?.message || "LINE callback error");
                 setStatus("error");

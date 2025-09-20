@@ -28,39 +28,66 @@ function mapUser(row: any): UserRecord {
 }
 
 export async function upsertUser(params: {
-    firebaseUid: string;
+    firebaseUid: string;                    // must be the conflict key
     email?: string | null;
     phone?: string | null;
     provider: string;
-    isEmailVerified: boolean;
-    isPhoneVerified: boolean;
+    isEmailVerified: boolean | null;
+    isPhoneVerified: boolean | null;
 }): Promise<UserRecord> {
-    const { firebaseUid, email, phone, provider, isEmailVerified, isPhoneVerified } = params;
+    const {
+        firebaseUid,
+        email,
+        phone,
+        provider,
+        isEmailVerified,
+        isPhoneVerified,
+    } = params;
+
     const supabase = getSupabase();
 
-    const { data, error } = await supabase
+    const updateFields = {
+        last_login: new Date(),
+    }
+
+    const { data: updatedRow, error: updErr } = await supabase
         .from("tbl_user")
-        .upsert(
-            {
-                firebase_uid: firebaseUid,
-                email: email ?? null,
-                phone: phone ?? null,
-                provider,
-                is_email_verified: isEmailVerified,
-                is_phone_verified: isPhoneVerified,
-            },
-            { onConflict: "firebase_uid" }
+        .update(updateFields)
+        .eq("firebase_uid", firebaseUid)
+        .select(
+            "id, firebase_uid, email, phone, provider, is_email_verified, is_phone_verified, created_at, updated_at"
         )
+        .maybeSingle();
+
+    if (updErr) {
+        throw new Error(updErr.message || "Failed to update user");
+    }
+    if (updatedRow) {
+        return mapUser(updatedRow);
+    }
+
+    const insertPayload = {
+        firebase_uid: firebaseUid,
+        email: email ?? null,
+        phone: phone ?? null,
+        provider,
+        is_email_verified: isEmailVerified ?? null,
+        is_phone_verified: isPhoneVerified ?? null,
+    };
+
+    const { data: insertedRow, error: insErr } = await supabase
+        .from("tbl_user")
+        .insert(insertPayload)
         .select(
             "id, firebase_uid, email, phone, provider, is_email_verified, is_phone_verified, created_at, updated_at"
         )
         .single();
 
-    if (error || !data) {
-        throw new Error(error?.message || "Failed to upsert user");
+    if (insErr || !insertedRow) {
+        throw new Error(insErr?.message || "Failed to insert user");
     }
 
-    return mapUser(data);
+    return mapUser(insertedRow);
 }
 
 export async function getUserById(userId: number): Promise<UserRecord | null> {
