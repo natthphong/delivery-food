@@ -41,7 +41,7 @@ axios.interceptors.response.use(
                     flush(r.data.accessToken);
                     original.headers.Authorization = `Bearer ${r.data.accessToken}`;
                     return axios(original);
-                } catch (e) {
+                } catch {
                     isRefreshing = false;
                     flush(null);
                     store.dispatch(logout());
