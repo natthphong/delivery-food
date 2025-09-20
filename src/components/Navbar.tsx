@@ -1,13 +1,23 @@
-import Link from 'next/link';
+import Link from "next/link";
 
 const Navbar: React.FC = () => (
-    <nav style={{ padding: '10px', background: '#333', color: '#fff' }}>
-        <Link href="/render" style={{ marginRight: '10px', color: '#fff' }}>
-            Render
-        </Link>
-        <Link href="/login" style={{ color: '#fff' }}>
-            Login
-        </Link>
+    <nav className="bg-white border-b">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
+            <Link href="/" className="text-lg font-semibold text-emerald-600">
+                FoodieGo
+            </Link>
+            <div className="flex items-center gap-2 text-sm text-gray-700">
+                <Link href="/render" className="px-3 py-2 rounded-lg hover:bg-gray-100">
+                    Render
+                </Link>
+                <Link href="/account" className="px-3 py-2 rounded-lg hover:bg-gray-100">
+                    Account
+                </Link>
+                <Link href="/login" className="px-3 py-2 rounded-lg hover:bg-gray-100">
+                    Login
+                </Link>
+            </div>
+        </div>
     </nav>
 );
 

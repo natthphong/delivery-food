@@ -40,3 +40,13 @@ export async function upsertUser(params: {
     const { rows } = await db.query(sql, vals);
     return rows[0];
 }
+
+export async function getUserById(userId: number): Promise<UserRecord | null> {
+    const sql = `
+        SELECT id, firebase_uid, email, phone, provider, is_email_verified, is_phone_verified, created_at, updated_at
+        FROM tbl_user
+        WHERE id = $1
+    `;
+    const { rows } = await db.query(sql, [userId]);
+    return rows[0] || null;
+}
