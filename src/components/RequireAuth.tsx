@@ -14,7 +14,6 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
     const [hydrated, setHydrated] = useState(false);
     const redirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // 1) Hydrate once from localStorage if Redux empty
     useEffect(() => {
         const hasRedux = !!accessToken && !!refreshToken;
         if (!hasRedux) {
@@ -24,10 +23,8 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
             }
         }
         setHydrated(true);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // 2) Persist whenever Redux tokens change (after hydration)
     useEffect(() => {
         if (!hydrated) return;
         if (accessToken && refreshToken) {
@@ -37,7 +34,6 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
         }
     }, [accessToken, refreshToken, hydrated]);
 
-    // 3) Redirect to /login only after hydration confirms no token
     useEffect(() => {
         if (!hydrated) return;
         if (accessToken) return;
