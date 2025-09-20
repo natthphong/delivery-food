@@ -47,6 +47,9 @@ try {
     }
 
     run(`node --test ${path.join(outDir, "tests")}`);
+
+    const jestPath = path.resolve(__dirname, "../node_modules/.bin/jest");
+    run(`${jestPath} --config ${path.resolve(__dirname, "../jest.config.js")} --runInBand`);
 } finally {
     if (existsSync(outDir)) {
         rmSync(outDir, { recursive: true, force: true });
