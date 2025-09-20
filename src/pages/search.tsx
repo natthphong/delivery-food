@@ -7,9 +7,8 @@ import { formatTHB } from "@utils/currency";
 import { getCurrentPositionWithPermission } from "@utils/geo";
 import { LoaderOverlay } from "@components/common";
 
-/** ---------- Internal UI types (unchanged) ---------- */
 export type Category = { id: number; name: string };
-export type BranchSampleProduct = { id: number; name: string; price?: number; price_effective?: number; image_url?: string | null };
+export type BranchSampleProduct = { id: number; name: string; price?: number; price_effective?: number };
 export type BranchItem = {
     id: number;
     name: string;
@@ -21,135 +20,80 @@ export type BranchItem = {
     address_line?: string | null;
 };
 export type SearchBody = { branches: BranchItem[]; categories?: Category[] };
+
+type SearchResponse = { code: string; message: string; body: SearchBody };
+
 type Coordinates = { lat: number; lng: number } | null;
 
-/** ---------- API response types (NEW: matches your example) ---------- */
-type ApiBranchProduct = {
-    product_id: number;
-    name: string;
-    image_url?: string | null;
-    price?: number | null;
-};
-
-type ApiBranchRecord = {
-    branch_id: number;
-    branch_name: string;
-    image_url?: string | null;
-    lat?: number | null;
-    lng?: number | null;
-    address_line?: string | null;
-    is_force_closed: boolean;
-    distance_m?: number | null;
-    match_count?: string | number | null;
-    products_sample?: ApiBranchProduct[];
-};
-
-type ApiSearchResponse = {
-    code: string;            // "OK"
-    message: string;         // "success"
-    body: ApiBranchRecord[]; // ARRAY of branches
-};
-
-/** ---------- Page ---------- */
 const SearchPage: NextPage = () => {
     const router = useRouter();
-
-    // search bar state
     const [query, setQuery] = useState("");
     const [submittedQuery, setSubmittedQuery] = useState("");
-
-    // optional category filter (your current API doesn’t return categories, we keep the UI for future)
     const [categoryId, setCategoryId] = useState<number | null>(null);
     const [categories, setCategories] = useState<Category[]>([]);
-
-    // results
     const [branches, setBranches] = useState<BranchItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-
-    // geolocation for distance sort
     const [coords, setCoords] = useState<Coordinates>(null);
 
-    // get geolocation on mount
     useEffect(() => {
         let cancelled = false;
         (async () => {
             const position = await getCurrentPositionWithPermission();
-            if (!cancelled) setCoords(position);
+            if (!cancelled) {
+                setCoords(position);
+            }
         })();
         return () => {
             cancelled = true;
         };
     }, []);
 
-    // run search whenever query/category/coords change
     useEffect(() => {
         let ignore = false;
-
         const runSearch = async () => {
             setLoading(true);
             try {
-                const { data } = await axios.get<ApiSearchResponse>("/api/search", {
+                const response = await axios.get<SearchResponse>("/api/search", {
                     params: {
                         q: submittedQuery,
-                        categoryId: categoryId ?? undefined, // kept for future use
+                        categoryId: categoryId ?? undefined,
                         lat: coords?.lat,
                         lng: coords?.lng,
                     },
                 });
-
-                if (data.code !== "OK") {
-                    throw new Error(data.message || "Search failed");
+                if (response.data.code !== "OK") {
+                    throw new Error(response.data.message || "Search failed");
                 }
-
-                // Map backend array -> internal BranchItem[]
-                const mapped: BranchItem[] = (data.body ?? []).map((b) => ({
-                    id: b.branch_id,
-                    name: b.branch_name,
-                    image_url: b.image_url ?? null,
-                    // API only gives manual force-closed flag; treat others as "open" by default
-                    is_force_closed: !!b.is_force_closed,
-                    is_open: !b.is_force_closed,
-                    distance_km: typeof b.distance_m === "number" && !isNaN(b.distance_m) ? b.distance_m / 1000 : null,
-                    address_line: b.address_line ?? null,
-                    products_sample: (b.products_sample ?? []).map((p) => ({
-                        id: p.product_id,
-                        name: p.name,
-                        price: p.price ?? undefined,
-                        price_effective: undefined,
-                        image_url: p.image_url ?? null,
-                    })),
-                }));
-
-                // sort by distance if available
-                const sorted = mapped.sort((a, b) => {
-                    const A = typeof a.distance_km === "number" ? a.distance_km : Number.POSITIVE_INFINITY;
-                    const B = typeof b.distance_km === "number" ? b.distance_km : Number.POSITIVE_INFINITY;
-                    return A - B;
+                const body = response.data.body;
+                if (ignore) return;
+                if (body.categories) {
+                    setCategories(body.categories);
+                }
+                const sortedBranches = [...(body.branches ?? [])].sort((a, b) => {
+                    const distA = typeof a.distance_km === "number" ? a.distance_km : Number.POSITIVE_INFINITY;
+                    const distB = typeof b.distance_km === "number" ? b.distance_km : Number.POSITIVE_INFINITY;
+                    return distA - distB;
                 });
-
-                if (!ignore) {
-                    setBranches(sorted);
-                    // No categories in current response → keep empty; UI still works
-                    setError(null);
-                }
+                setBranches(sortedBranches);
+                setError(null);
             } catch (err: any) {
-                if (!ignore) {
-                    setError(err?.message || "Unable to fetch results");
-                    setBranches([]);
-                }
+                if (ignore) return;
+                const msg = err?.message || "Unable to fetch results";
+                setError(msg);
+                setBranches([]);
             } finally {
-                if (!ignore) setLoading(false);
+                if (!ignore) {
+                    setLoading(false);
+                }
             }
         };
-
         void runSearch();
         return () => {
             ignore = true;
         };
     }, [submittedQuery, categoryId, coords?.lat, coords?.lng]);
 
-    // form handlers
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         setSubmittedQuery(query.trim());
@@ -160,7 +104,6 @@ const SearchPage: NextPage = () => {
         setCategoryId(value ? Number(value) : null);
     };
 
-    // UI helpers
     const badgeForBranch = (branch: BranchItem) => {
         if (branch.is_force_closed) {
             return { label: "Closed (manual)", className: "border-rose-200 bg-rose-50 text-rose-700" };
@@ -174,10 +117,11 @@ const SearchPage: NextPage = () => {
     const distanceLabel = (branch: BranchItem) => {
         if (typeof branch.distance_km !== "number") return null;
         return `${branch.distance_km.toFixed(1)} km`;
-        // You can show "~" if it's approximate: `~${...} km`
     };
 
-    const samplesForBranch = (branch: BranchItem) => (branch.products_sample ?? []).slice(0, 3);
+    const samplesForBranch = (branch: BranchItem) => {
+        return (branch.products_sample ?? []).slice(0, 3);
+    };
 
     const branchCards = useMemo(
         () =>
@@ -193,7 +137,11 @@ const SearchPage: NextPage = () => {
                         <div className="grid gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
                             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
                                 {branch.image_url ? (
-                                    <img src={branch.image_url} alt={branch.name} className="h-40 w-full object-cover" />
+                                    <img
+                                        src={branch.image_url}
+                                        alt={branch.name}
+                                        className="h-40 w-full object-cover"
+                                    />
                                 ) : (
                                     <div className="flex h-40 items-center justify-center text-sm text-slate-400">No image</div>
                                 )}
@@ -202,7 +150,9 @@ const SearchPage: NextPage = () => {
                                 <div className="flex items-start justify-between gap-3">
                                     <div>
                                         <h3 className="text-lg font-semibold text-slate-900">{branch.name}</h3>
-                                        {branch.address_line && <p className="text-sm text-slate-500">{branch.address_line}</p>}
+                                        {branch.address_line && (
+                                            <p className="text-sm text-slate-500">{branch.address_line}</p>
+                                        )}
                                     </div>
                                     <div className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${badge.className}`}>
                                         {badge.label}
@@ -218,9 +168,9 @@ const SearchPage: NextPage = () => {
                                                     key={item.id}
                                                     className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1"
                                                 >
-                          <span className="font-medium text-slate-700">{item.name}</span>
-                          <span className="text-xs text-slate-500">{formatTHB(price as number | null | undefined)}</span>
-                        </span>
+                                                    <span className="font-medium text-slate-700">{item.name}</span>
+                                                    <span className="text-xs text-slate-500">{formatTHB(price)}</span>
+                                                </span>
                                             );
                                         })}
                                     </div>
@@ -245,7 +195,6 @@ const SearchPage: NextPage = () => {
     return (
         <Layout>
             <div className="mx-auto flex max-w-5xl flex-col gap-6">
-                {/* Sticky search bar */}
                 <div className="sticky top-4 z-10 rounded-3xl border border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur">
                     <form onSubmit={handleSubmit} className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
                         <div className="flex-1">
@@ -288,7 +237,9 @@ const SearchPage: NextPage = () => {
                     </form>
                 </div>
 
-                {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>}
+                {error && (
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>
+                )}
 
                 {!loading && branches.length === 0 && !error && (
                     <div className="rounded-3xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
