@@ -11,32 +11,27 @@ import {
 } from "firebase/auth";
 import axios, { type ApiResponse } from "@utils/apiClient";
 import { useAppDispatch } from "@store/index";
-import { logout, setTokens } from "@store/authSlice";
+import { logout, setTokens, setUser } from "@store/authSlice";
 import { useRouter } from "next/router";
-import { clearTokens, saveTokens } from "@utils/tokenStorage";
+import { clearTokens, clearUser, saveTokens, saveUser } from "@utils/tokenStorage";
+import type { UserRecord } from "@/types";
 
 const OTP_ERROR_DEFAULT = "OTP confirm failed";
 type Tab = "login" | "signup";
 
 type AuthTokens = { accessToken: string; refreshToken: string };
-type AuthSuccessBody = AuthTokens & {
-    user: {
-        id: number;
-        email: string | null;
-        phone: string | null;
-        provider: string | null;
-        is_email_verified: boolean;
-        is_phone_verified: boolean;
-    };
-};
+type AuthSuccessBody = AuthTokens & { user: UserRecord };
 
-function extractTokens(body: AuthSuccessBody | null | undefined): AuthTokens {
-    if (!body?.accessToken || !body?.refreshToken) {
+function extractAuth(body: AuthSuccessBody | null | undefined): { tokens: AuthTokens; user: UserRecord } {
+    if (!body?.accessToken || !body?.refreshToken || !body?.user) {
         throw new Error("Invalid authentication response");
     }
     return {
-        accessToken: body.accessToken,
-        refreshToken: body.refreshToken,
+        tokens: {
+            accessToken: body.accessToken,
+            refreshToken: body.refreshToken,
+        },
+        user: body.user,
     };
 }
 
@@ -58,17 +53,21 @@ export default function LoginSignupPage() {
 
     const finishLogin = async (idToken: string) => {
         const response = await axios.post<ApiResponse<AuthSuccessBody>>("/api/login", { idToken });
-        const tokens = extractTokens(response.data.body);
+        const { tokens, user } = extractAuth(response.data.body);
         dispatch(setTokens(tokens));
+        dispatch(setUser(user));
         saveTokens(tokens);
+        saveUser(user);
         router.replace("/");
     };
 
     const finishSignupWithIdToken = async (idToken: string, provider: "google" | "phone") => {
         const response = await axios.post<ApiResponse<AuthSuccessBody>>("/api/signup", { provider, idToken });
-        const tokens = extractTokens(response.data.body);
+        const { tokens, user } = extractAuth(response.data.body);
         dispatch(setTokens(tokens));
+        dispatch(setUser(user));
         saveTokens(tokens);
+        saveUser(user);
         router.replace("/");
     };
 
@@ -100,9 +99,11 @@ export default function LoginSignupPage() {
                 password,
                 sendVerifyEmail,
             });
-            const tokens = extractTokens(response.data.body);
+            const { tokens, user } = extractAuth(response.data.body);
             dispatch(setTokens(tokens));
+            dispatch(setUser(user));
             saveTokens(tokens);
+            saveUser(user);
             try {
                 await signInWithEmailAndPassword(auth, email, password);
             } catch {
@@ -156,6 +157,7 @@ export default function LoginSignupPage() {
         try {
             dispatch(logout());
             clearTokens();
+            clearUser();
             router.replace("/web-hook-line");
         } catch (error: any) {
             const msg = error?.message || "LINE login failed";

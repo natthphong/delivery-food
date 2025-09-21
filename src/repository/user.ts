@@ -1,34 +1,37 @@
 // src/repository/user.ts
+import { CartBranchGroup, UserRecord } from "@/types";
 import { getSupabase } from "@utils/supabaseServer";
 
-export type UserRecord = {
-    id: number;
-    firebase_uid: string;
-    email: string | null;
-    phone: string | null;
-    provider: string | null;
-    is_email_verified: boolean;
-    is_phone_verified: boolean;
-    card: any[] | null;
-    created_at: string;
-    updated_at: string;
-};
-
-const USER_SELECT =
+export const USER_SELECT =
     "id, firebase_uid, email, phone, provider, is_email_verified, is_phone_verified, card, created_at, updated_at";
 
+function normalizeCard(input: unknown): CartBranchGroup[] {
+    if (!Array.isArray(input)) {
+        return [];
+    }
+    return input as CartBranchGroup[];
+}
+
 function mapUser(row: any): UserRecord {
+    if (!row) {
+        throw new Error("User row is empty");
+    }
+    const isEmailVerified =
+        typeof row.is_email_verified === "boolean" ? row.is_email_verified : row.is_email_verified == null ? null : !!row.is_email_verified;
+    const isPhoneVerified =
+        typeof row.is_phone_verified === "boolean" ? row.is_phone_verified : row.is_phone_verified == null ? null : !!row.is_phone_verified;
+
     return {
-        id: row.id,
-        firebase_uid: row.firebase_uid,
+        id: Number(row.id),
+        firebase_uid: String(row.firebase_uid),
         email: row.email ?? null,
         phone: row.phone ?? null,
         provider: row.provider ?? null,
-        is_email_verified: !!row.is_email_verified,
-        is_phone_verified: !!row.is_phone_verified,
-        card: Array.isArray(row.card) ? row.card : row.card ?? null,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
+        is_email_verified: isEmailVerified,
+        is_phone_verified: isPhoneVerified,
+        card: normalizeCard(row.card),
+        created_at: String(row.created_at ?? new Date().toISOString()),
+        updated_at: String(row.updated_at ?? new Date().toISOString()),
     };
 }
 
@@ -91,11 +94,11 @@ export async function upsertUser(params: {
     return mapUser(insertedRow);
 }
 
-export async function getUserById(userId: number): Promise<UserRecord | null> {
+export async function getUserById(userId: number, columns: string = USER_SELECT): Promise<UserRecord | null> {
     const supabase = getSupabase();
     const { data, error } = await supabase
         .from("tbl_user")
-        .select(USER_SELECT)
+        .select(columns)
         .eq("id", userId)
         .maybeSingle();
 
@@ -106,11 +109,11 @@ export async function getUserById(userId: number): Promise<UserRecord | null> {
     return data ? mapUser(data) : null;
 }
 
-export async function getUserByFirebaseUid(uid: string): Promise<UserRecord | null> {
+export async function getUserByFirebaseUid(uid: string, columns: string = USER_SELECT): Promise<UserRecord | null> {
     const supabase = getSupabase();
     const { data, error } = await supabase
         .from("tbl_user")
-        .select(USER_SELECT)
+        .select(columns)
         .eq("firebase_uid", uid)
         .maybeSingle();
 
@@ -197,7 +200,7 @@ export async function updateUserContact(uid: string, patch: UserContactPatch): P
     return mapUser(inserted);
 }
 
-export async function getUserCard(uid: string): Promise<any[]> {
+export async function getUserCard(uid: string): Promise<CartBranchGroup[]> {
     const supabase = getSupabase();
     const { data, error } = await supabase
         .from("tbl_user")
@@ -209,21 +212,17 @@ export async function getUserCard(uid: string): Promise<any[]> {
         throw new Error(error.message || "Failed to fetch user card");
     }
 
-    const card = data?.card;
-    if (Array.isArray(card)) {
-        return card;
-    }
-    return [];
+    return normalizeCard(data?.card);
 }
 
-export async function saveUserCard(uid: string, card: any[]): Promise<any[]> {
+export async function saveUserCard(uid: string, card: CartBranchGroup[]): Promise<UserRecord> {
     const supabase = getSupabase();
 
     const { data, error } = await supabase
         .from("tbl_user")
         .update({ card })
         .eq("firebase_uid", uid)
-        .select("card")
+        .select(USER_SELECT)
         .maybeSingle();
 
     if (error) {
@@ -231,18 +230,22 @@ export async function saveUserCard(uid: string, card: any[]): Promise<any[]> {
     }
 
     if (data?.card) {
-        return Array.isArray(data.card) ? data.card : [];
+        return mapUser(data);
     }
 
     const { data: inserted, error: insertError } = await supabase
         .from("tbl_user")
         .insert({ firebase_uid: uid, card })
-        .select("card")
+        .select(USER_SELECT)
         .single();
 
     if (insertError) {
         throw new Error(insertError.message || "Failed to insert user card");
     }
 
-    return Array.isArray(inserted?.card) ? inserted.card : [];
+    if (!inserted) {
+        throw new Error("Failed to persist user card");
+    }
+
+    return mapUser(inserted);
 }

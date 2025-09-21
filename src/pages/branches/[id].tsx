@@ -2,9 +2,13 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { NextPage } from "next";
 import { useRouter } from "next/router";
 import Layout from "@components/Layout";
-import axios from "@utils/apiClient";
+import axios, { type ApiResponse } from "@utils/apiClient";
 import { formatTHB } from "@utils/currency";
 import { LoaderOverlay, Modal, QuantityInput } from "@components/common";
+import { useAppDispatch } from "@store/index";
+import { setUser } from "@store/authSlice";
+import { saveUser } from "@utils/tokenStorage";
+import type { UserRecord } from "@/types";
 
 /** ---------- Internal UI types ---------- */
 export type AddOn = { id: number; name: string; price: number };
@@ -185,6 +189,7 @@ function mapApiToInternal(data: ApiBranchMenuResponse): BranchMenuBody {
 /** ---------- Page ---------- */
 const BranchPage: NextPage = () => {
     const router = useRouter();
+    const dispatch = useAppDispatch();
     const { id } = router.query;
 
     const [branch, setBranch] = useState<BranchMenuBody["branch"] | null>(null);
@@ -294,7 +299,15 @@ const BranchPage: NextPage = () => {
                 },
             ];
 
-            await axios.post("/api/card/save", { card: cardPayload });
+            const response = await axios.post<ApiResponse<{ user: UserRecord }>>("/api/card/save", { card: cardPayload });
+            if (response.data.code !== "OK") {
+                throw new Error(response.data.message || "Failed to save card");
+            }
+            const updatedUser = response.data.body?.user;
+            if (updatedUser) {
+                dispatch(setUser(updatedUser));
+                saveUser(updatedUser);
+            }
             setActionMessage(`${selectedProduct.name} added to your card.`);
             setSelectedProduct(null);
             setSelectedAddOns({});

@@ -14,3 +14,13 @@ export async function getConfigValue(name: string): Promise<string | null> {
 
     return data?.config_value ?? null;
 }
+
+export async function getNumberConfig(name: string, defaultValue: number): Promise<number> {
+    const raw = await getConfigValue(name);
+    if (raw == null) {
+        return defaultValue;
+    }
+
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : defaultValue;
+}

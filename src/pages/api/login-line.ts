@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 // import { verifyLineIdToken } from "@/utils/lineVerify";
-import { upsertUser } from "@/repository/user";
+import { getUserByFirebaseUid, upsertUser } from "@/repository/user";
 import { signAccessToken, mintRefreshToken } from "@/utils/jwt";
 import { logInfo, logError } from "@/utils/logger";
 
@@ -41,9 +41,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             email,
             phone: null,
             provider,
-            isEmailVerified:false,
-            isPhoneVerified:false,
+            isEmailVerified: false,
+            isPhoneVerified: false,
         });
+
+        const freshUser = await getUserByFirebaseUid(lineUid);
 
         const accessToken = signAccessToken({ uid: lineUid, userId: user.id });
         const refreshToken = mintRefreshToken({ uid: lineUid, userId: user.id });
@@ -57,11 +59,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
                 refreshToken,
                 user: {
                     id: user.id,
-                    email: user.email,
-                    phone: user.phone,
-                    provider: user.provider,
-                    is_email_verified: user.is_email_verified,
-                    is_phone_verified: user.is_phone_verified,
+                    firebase_uid: freshUser?.firebase_uid ?? user.firebase_uid,
+                    email: freshUser?.email ?? user.email,
+                    phone: freshUser?.phone ?? user.phone,
+                    provider: freshUser?.provider ?? user.provider,
+                    is_email_verified: freshUser?.is_email_verified ?? user.is_email_verified ?? null,
+                    is_phone_verified: freshUser?.is_phone_verified ?? user.is_phone_verified ?? null,
+                    card: freshUser?.card ?? [],
+                    created_at: freshUser?.created_at ?? user.created_at,
+                    updated_at: freshUser?.updated_at ?? user.updated_at,
                 },
             },
         });

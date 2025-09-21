@@ -3,9 +3,9 @@ import Layout from "@components/Layout";
 import axios, { type ApiResponse } from "@utils/apiClient";
 import { auth, makeRecaptcha } from "@utils/firebaseClient";
 import { useAppDispatch } from "@store/index";
-import { logout } from "@store/authSlice";
-import {linkWithPhoneNumber, signInWithPhoneNumber, signOut} from "firebase/auth";
-import { clearTokens } from "@utils/tokenStorage";
+import { logout, setUser } from "@store/authSlice";
+import { linkWithPhoneNumber, signInWithPhoneNumber, signOut } from "firebase/auth";
+import { clearTokens, clearUser, saveUser } from "@utils/tokenStorage";
 import { useRouter } from "next/router";
 
 type Me = {
@@ -88,6 +88,8 @@ export default function AccountPage() {
                 throw new Error("Invalid profile response");
             }
             setMe(normalizeUser(user));
+            dispatch(setUser(user));
+            saveUser(user);
             setError("");
         } catch (e: any) {
             setError(e?.response?.data?.message || e?.message || "Failed to load profile");
@@ -111,6 +113,8 @@ export default function AccountPage() {
             throw new Error("Invalid account response");
         }
         setMe(normalizeUser(user));
+        dispatch(setUser(user));
+        saveUser(user);
     }
 
     async function handleVerifyEmail() {
@@ -216,6 +220,7 @@ export default function AccountPage() {
         await signOut(auth).catch(() => {});
         dispatch(logout());
         clearTokens();
+        clearUser();
         router.replace("/login");
     }
 
