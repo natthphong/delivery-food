@@ -22,7 +22,20 @@
 │   ├── components/
 │   │   ├── Layout.tsx               # Page shell
 │   │   ├── Navbar.tsx               # Top nav
-│   │   └── RequireAuth.tsx          # Client-side route guard (+ hydration from localStorage)
+│   │   ├── RequireAuth.tsx          # Client-side route guard (+ hydration from localStorage)
+│   │   ├── i18n/
+│   │   │   └── LocaleSwitcher.tsx   # EN/TH toggle (writes ?lang= and localStorage)
+│   │   ├── account/
+│   │   │   ├── ProfileCard.tsx      # Account overview (provider/email/phone rows)
+│   │   │   └── VerifyUpdateCard.tsx # Email/phone verification + updates
+│   │   └── search/
+│   │       ├── BranchCard.tsx
+│   │       ├── BranchList.tsx
+│   │       └── SearchBar.tsx
+│   ├── config/
+│   │   └── index.json               # EN/TH translation dictionary
+│   ├── constants/
+│   │   └── i18nKeys.ts              # Centralised i18n key exports
 │   ├── pages/
 │   │   ├── _app.tsx                 # Wrap all pages; gate every route except /login
 │   │   ├── api/
@@ -51,6 +64,7 @@
 │   │   ├── firebaseClient.ts        # Firebase Web SDK (client-side)
 │   │   ├── firebaseRest.ts          # Identity Toolkit REST helper (server-side)
 │   │   ├── firebaseVerify.ts        # Verify Firebase ID token via JWKS (no Admin SDK)
+│   │   ├── i18n.ts                  # Locale resolution + translation helper/hook
 │   │   ├── jwt.ts                   # sign/verify JWT, in-memory refresh tokens (demo)
 │   │   ├── logger.ts                # Safe console logger with redaction
 │   │   └── tokenStorage.ts          # Save/load/clear tokens in localStorage
@@ -61,6 +75,28 @@
 ├── tsconfig.json                    # Path aliases (@/ @utils etc) + moduleResolution
 └── package.json
 ```
+
+* **Account & Search containers**: `pages/account.tsx` and `pages/search.tsx` orchestrate data fetching/state, then render the presentational components in `src/components/account/*` and `src/components/search/*`.
+* **Locale switcher**: the navbar mounts `components/i18n/LocaleSwitcher`, which toggles between EN/TH and persists the choice.
+
+### Localization quickstart
+
+* Translations live in `src/config/index.json` and are typed via `src/constants/i18nKeys.ts`. Only keys declared in that file can be passed to `t(...)`.
+* Locale resolution order: query string `?lang=th|en` (and persisted to `localStorage.locale`), then existing `localStorage` value, then `navigator.language` (Thai → `th`, everything else → `en`). Server default is `en`.
+* Use the helper from `src/utils/i18n.ts`:
+
+  ```tsx
+  import { useI18n } from "@/utils/i18n";
+  import { I18N_KEYS } from "@/constants/i18nKeys";
+
+  const Component = () => {
+      const { t } = useI18n();
+      return <span>{t(I18N_KEYS.COMMON_LOADING)}</span>;
+  };
+  ```
+
+* Adding a string: update both `index.json` and `i18nKeys.ts`, then replace hard-coded copy with `t(I18N_KEYS.YOUR_KEY)`.
+* To verify the switcher: load any page, append `?lang=th` or `?lang=en`, or toggle using the navbar control. The selection is persisted across navigations.
 
 ---
 

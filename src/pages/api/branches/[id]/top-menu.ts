@@ -1,6 +1,6 @@
-// src/pages/api/branches/[id]/menu.ts
+// src/pages/api/branches/[id]/top-menu.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { getBranchMenu } from "@repository/branch";
+import { getTopMenu } from "@repository/branch";
 import { logError } from "@utils/logger";
 
 export const config = { runtime: "nodejs" };
@@ -19,34 +19,23 @@ export default async function handler(
                 .json({ code: "METHOD_NOT_ALLOWED", message: "Method Not Allowed", body: null });
         }
 
-        // Cache (edge/CDN friendly)
-        res.setHeader("Cache-Control", "public, s-maxage=1, stale-while-revalidate=59");
+        // Cache
+        res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=120");
 
-        const { id, searchBy, page, size } = req.query as {
-            id?: string;
-            searchBy?: string;
-            page?: string;
-            size?: string;
-        };
-
+        const { id } = req.query as { id?: string };
         const branchId = id ? Number(id) : NaN;
         if (!Number.isFinite(branchId) || branchId <= 0) {
             return res.status(400).json({ code: "BAD_REQUEST", message: "Invalid branch id", body: null });
         }
 
-        const payload = await getBranchMenu(branchId, {
-            searchBy: searchBy ?? "",
-            page: page ? Number(page) : 0,
-            size: size ? Number(size) : 12,
-        });
-
+        const payload = await getTopMenu(branchId);
         if (!payload) {
             return res.status(404).json({ code: "NOT_FOUND", message: "Branch not found", body: null });
         }
 
         return res.status(200).json({ code: "OK", message: "success", body: payload });
     } catch (e: any) {
-        logError?.("branch menu API error", { message: e?.message, stack: e?.stack });
-        return res.status(500).json({ code: "INTERNAL_ERROR", message: "Menu failed", body: null });
+        logError?.("top-menu API error", { message: e?.message, stack: e?.stack });
+        return res.status(500).json({ code: "INTERNAL_ERROR", message: "Top menu failed", body: null });
     }
 }

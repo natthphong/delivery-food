@@ -1,5 +1,7 @@
 import React, { useMemo, useRef, useState } from "react";
 import OtpModal from "@components/auth/OtpModal";
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
 
 export type PhoneAuthSectionProps = {
     mode: "login" | "signup";
@@ -21,6 +23,7 @@ const sanitizePhone = (input: string): string => {
 };
 
 const PhoneAuthSection: React.FC<PhoneAuthSectionProps> = ({ mode, onSendOtp, onConfirmOtp, submitting, buttonId }) => {
+    const { t } = useI18n();
     const [phone, setPhone] = useState("");
     const [fieldError, setFieldError] = useState<string | null>(null);
     const [otpOpen, setOtpOpen] = useState(false);
@@ -29,14 +32,14 @@ const PhoneAuthSection: React.FC<PhoneAuthSectionProps> = ({ mode, onSendOtp, on
     const isComposing = useRef(false);
 
     const placeholder = useMemo(
-        () => (mode === "login" ? "Phone number (e.g. +66123456789)" : "Your phone number"),
-        [mode]
+        () => (mode === "login" ? t(I18N_KEYS.AUTH_PHONE_PLACEHOLDER_LOGIN) : t(I18N_KEYS.AUTH_PHONE_PLACEHOLDER_SIGNUP)),
+        [mode, t]
     );
 
     const handleSendOtp = async () => {
         const normalized = sanitizePhone(phone);
         if (!/^[+]?[\d]{8,15}$/.test(normalized)) {
-            setFieldError("Phone must be E.164 (e.g. +66123456789)");
+            setFieldError(t(I18N_KEYS.AUTH_PHONE_INVALID));
             return;
         }
 
@@ -47,7 +50,7 @@ const PhoneAuthSection: React.FC<PhoneAuthSectionProps> = ({ mode, onSendOtp, on
             setActivePhone(normalized);
             setOtpOpen(true);
         } catch (error) {
-            const message = (error as Error)?.message || "Failed to send OTP";
+            const message = (error as Error)?.message || t(I18N_KEYS.AUTH_OTP_SEND_FAILED);
             setFieldError(message);
         }
     };
@@ -57,7 +60,7 @@ const PhoneAuthSection: React.FC<PhoneAuthSectionProps> = ({ mode, onSendOtp, on
             await onConfirmOtp(code);
             setOtpOpen(false);
         } catch (error) {
-            const message = (error as Error)?.message || "OTP confirmation failed";
+            const message = (error as Error)?.message || t(I18N_KEYS.AUTH_OTP_CONFIRM_FAILED);
             setOtpError(message);
         }
     };
@@ -68,7 +71,7 @@ const PhoneAuthSection: React.FC<PhoneAuthSectionProps> = ({ mode, onSendOtp, on
         try {
             await onSendOtp(activePhone);
         } catch (error) {
-            const message = (error as Error)?.message || "Failed to resend OTP";
+            const message = (error as Error)?.message || t(I18N_KEYS.AUTH_OTP_SEND_FAILED);
             setOtpError(message);
         }
     };
@@ -77,7 +80,7 @@ const PhoneAuthSection: React.FC<PhoneAuthSectionProps> = ({ mode, onSendOtp, on
         <div className="space-y-3">
             <div className="space-y-1">
                 <label htmlFor="phone-input" className="text-xs font-medium text-slate-500">
-                    Phone number
+                    {t(I18N_KEYS.AUTH_PHONE_LABEL)}
                 </label>
                 <input
                     id="phone-input"
@@ -120,9 +123,9 @@ const PhoneAuthSection: React.FC<PhoneAuthSectionProps> = ({ mode, onSendOtp, on
                 {submitting && (
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-transparent" aria-hidden />
                 )}
-                Send OTP
+                {t(I18N_KEYS.AUTH_SEND_OTP)}
             </button>
-            <p className="text-[11px] text-slate-500">On Firebase free plan, use test numbers (Auth → Phone → Testing).</p>
+            <p className="text-[11px] text-slate-500">{t(I18N_KEYS.AUTH_PHONE_INFO)}</p>
 
             <OtpModal
                 open={otpOpen}

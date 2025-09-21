@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
 
 export type ModalSize = "sm" | "md" | "lg";
 
@@ -31,6 +33,7 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 }
 
 export const Modal: React.FC<ModalProps> = ({ open, onClose, title, children, footer, size = "md" }) => {
+    const { t } = useI18n();
     const contentRef = useRef<HTMLDivElement | null>(null);
     const lastActiveRef = useRef<HTMLElement | null>(null);
 
@@ -104,7 +107,7 @@ export const Modal: React.FC<ModalProps> = ({ open, onClose, title, children, fo
                         type="button"
                         onClick={onClose}
                         className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-100 focus:outline-none focus:ring-4 focus:ring-emerald-100"
-                        aria-label="Close"
+                        aria-label={t(I18N_KEYS.COMMON_CLOSE)}
                     >
                         ✕
                     </button>

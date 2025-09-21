@@ -3,36 +3,18 @@ import type { NextPage } from "next";
 import { useRouter } from "next/router";
 import Layout from "@components/Layout";
 import axios from "@utils/apiClient";
-import { formatTHB } from "@utils/currency";
 import { getCurrentPositionWithPermission } from "@utils/geo";
 import { LoaderOverlay } from "@components/common";
-
-/** ---------- Internal UI types ---------- */
-export type Category = { id: number; name: string };
-export type BranchSampleProduct = {
-    id: number;
-    name: string;
-    price?: number;
-    price_effective?: number;
-    image_url?: string | null;
-};
-export type BranchItem = {
-    id: number;
-    name: string;
-    image_url?: string | null;
-    is_open: boolean;
-    is_force_closed: boolean;
-    distance_km?: number | null;
-    products_sample?: BranchSampleProduct[];
-    address_line?: string | null;
-};
-type Coordinates = { lat: number; lng: number } | null;
+import SearchBar from "@/components/search/SearchBar";
+import BranchList from "@/components/search/BranchList";
+import type { BranchItem, BranchSampleProduct, Category } from "@/components/search/types";
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
 
 /** ---------- Normalizer to handle BOTH response shapes ---------- */
 function normalizeSearchPayload(payload: any): { branches: BranchItem[]; categories: Category[] } {
     const body = payload?.body ?? payload?.data?.body ?? payload;
 
-    // Support old: body is array; new: body.branches is array
     const rawBranches: any[] = Array.isArray(body)
         ? body
         : Array.isArray(body?.branches)
@@ -66,8 +48,7 @@ function normalizeSearchPayload(payload: any): { branches: BranchItem[]; categor
                         id: pid,
                         name: p.name,
                         price: typeof p.price === "number" ? p.price : undefined,
-                        price_effective:
-                            typeof p.price_effective === "number" ? p.price_effective : undefined,
+                        price_effective: typeof p.price_effective === "number" ? p.price_effective : undefined,
                         image_url: p.image_url ?? null,
                     } as BranchSampleProduct;
                 })
@@ -99,6 +80,7 @@ function normalizeSearchPayload(payload: any): { branches: BranchItem[]; categor
 /** ---------- Page ---------- */
 const SearchPage: NextPage = () => {
     const router = useRouter();
+    const { t } = useI18n();
 
     const [query, setQuery] = useState("");
     const [submittedQuery, setSubmittedQuery] = useState("");
@@ -110,7 +92,7 @@ const SearchPage: NextPage = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const [coords, setCoords] = useState<Coordinates>(null);
+    const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -139,7 +121,7 @@ const SearchPage: NextPage = () => {
                 });
 
                 if (data?.code !== "OK") {
-                    throw new Error(data?.message || "Search failed");
+                    throw new Error(data?.message || t(I18N_KEYS.SEARCH_ERROR_DEFAULT));
                 }
 
                 const normalized = normalizeSearchPayload(data);
@@ -156,7 +138,7 @@ const SearchPage: NextPage = () => {
                 }
             } catch (err: any) {
                 if (!ignore) {
-                    setError(err?.message || "Unable to fetch results");
+                    setError(err?.message || t(I18N_KEYS.SEARCH_ERROR_DEFAULT));
                     setBranches([]);
                     setCategories([]);
                 }
@@ -169,155 +151,45 @@ const SearchPage: NextPage = () => {
         return () => {
             ignore = true;
         };
-    }, [submittedQuery, categoryId, coords?.lat, coords?.lng]);
+    }, [submittedQuery, categoryId, coords?.lat, coords?.lng, t]);
 
-    const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
+    const handleSubmit = () => {
         setSubmittedQuery(query.trim());
     };
 
-    const handleCategoryChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-        const value = event.target.value;
-        setCategoryId(value ? Number(value) : null);
+    const handleViewBranch = (id: number) => {
+        void router.push(`/branches/${id}`);
     };
 
-    const badgeForBranch = (branch: BranchItem) => {
-        if (branch.is_force_closed) {
-            return { label: "Closed (manual)", className: "border-rose-200 bg-rose-50 text-rose-700" };
-        }
-        if (branch.is_open) {
-            return { label: "Open", className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
-        }
-        return { label: "Closed", className: "border-slate-200 bg-slate-100 text-slate-600" };
-    };
-
-    const distanceLabel = (branch: BranchItem) => {
-        if (typeof branch.distance_km !== "number") return null;
-        return `${branch.distance_km.toFixed(1)} km`;
-    };
-
-    const samplesForBranch = (branch: BranchItem) => (branch.products_sample ?? []).slice(0, 3);
-
-    const branchCards = useMemo(
-        () =>
-            branches.map((branch) => {
-                const badge = badgeForBranch(branch);
-                const distance = distanceLabel(branch);
-                const samples = samplesForBranch(branch);
-                return (
-                    <div
-                        key={branch.id}
-                        className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md"
-                    >
-                        <div className="grid gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
-                            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
-                                {branch.image_url ? (
-                                    <img src={branch.image_url} alt={branch.name} className="h-40 w-full object-cover" />
-                                ) : (
-                                    <div className="flex h-40 items-center justify-center text-sm text-slate-400">No image</div>
-                                )}
-                            </div>
-                            <div className="flex flex-col gap-3">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                        <h3 className="text-lg font-semibold text-slate-900">{branch.name}</h3>
-                                        {branch.address_line && <p className="text-sm text-slate-500">{branch.address_line}</p>}
-                                    </div>
-                                    <div className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${badge.className}`}>
-                                        {badge.label}
-                                    </div>
-                                </div>
-                                {distance && <p className="text-sm text-slate-500">Distance: {distance}</p>}
-                                {samples.length > 0 && (
-                                    <div className="flex flex-wrap gap-2 text-sm text-slate-600">
-                                        {samples.map((item) => {
-                                            const price = item.price_effective ?? item.price ?? null;
-                                            return (
-                                                <span
-                                                    key={item.id}
-                                                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1"
-                                                >
-                          <span className="font-medium text-slate-700">{item.name}</span>
-                          <span className="text-xs text-slate-500">{formatTHB(price as number | null | undefined)}</span>
-                        </span>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                                <div className="mt-auto">
-                                    <button
-                                        type="button"
-                                        onClick={() => router.push(`/branches/${branch.id}`)}
-                                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 active:scale-[0.99]"
-                                    >
-                                        View menu
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }),
-        [branches, router]
+    const loaderLabel = useMemo(
+        () => `${t(I18N_KEYS.SEARCH_LOADING)} ${t(I18N_KEYS.BRAND_NAME)}`,
+        [t]
     );
 
     return (
         <Layout>
             <div className="mx-auto flex max-w-5xl flex-col gap-6">
-                {/* Sticky search bar */}
-                <div className="sticky top-4 z-10 rounded-3xl border border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur">
-                    <form onSubmit={handleSubmit} className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
-                        <div className="flex-1">
-                            <label htmlFor="search-query" className="text-xs font-medium text-slate-500">
-                                Search dishes or restaurants
-                            </label>
-                            <input
-                                id="search-query"
-                                type="search"
-                                value={query}
-                                onChange={(event) => setQuery(event.target.value)}
-                                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
-                                placeholder="What are you craving today?"
-                            />
-                        </div>
-                        <div className="md:w-64">
-                            <label htmlFor="category-filter" className="text-xs font-medium text-slate-500">
-                                Category
-                            </label>
-                            <select
-                                id="category-filter"
-                                value={categoryId ?? ""}
-                                onChange={handleCategoryChange}
-                                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
-                            >
-                                <option value="">All categories</option>
-                                {categories.map((category) => (
-                                    <option key={category.id} value={category.id}>
-                                        {category.name}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <button
-                            type="submit"
-                            className="mt-2 inline-flex items-center justify-center rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 active:scale-[0.99] md:mt-6"
-                        >
-                            Search
-                        </button>
-                    </form>
-                </div>
+                <SearchBar
+                    query={query}
+                    onQueryChange={setQuery}
+                    onSubmit={handleSubmit}
+                    categoryId={categoryId}
+                    onCategoryChange={setCategoryId}
+                    categories={categories}
+                />
 
                 {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>}
 
                 {!loading && branches.length === 0 && !error && (
                     <div className="rounded-3xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
-                        No branches found. Try adjusting your search.
+                        <p>{t(I18N_KEYS.SEARCH_EMPTY)}</p>
+                        <p className="mt-1 text-xs text-slate-400">{t(I18N_KEYS.SEARCH_EMPTY_HINT)}</p>
                     </div>
                 )}
 
-                <div className="grid gap-4">{branchCards}</div>
+                <BranchList branches={branches} onView={handleViewBranch} />
             </div>
-            <LoaderOverlay show={loading} label="Searching BaanFoodie" />
+            <LoaderOverlay show={loading} label={loaderLabel} />
         </Layout>
     );
 };

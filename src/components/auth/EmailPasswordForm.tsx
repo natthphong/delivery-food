@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
 
 export type EmailPasswordPayload = {
     email: string;
@@ -14,6 +16,7 @@ export type EmailPasswordFormProps = {
 };
 
 const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({ mode, onSubmit, submitting }) => {
+    const { t } = useI18n();
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
@@ -33,12 +36,12 @@ const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({ mode, onSubmit, s
         setError(null);
 
         if (!email || !password) {
-            setError("Email and password are required.");
+            setError(t(I18N_KEYS.AUTH_EMAIL_PASSWORD_REQUIRED));
             return;
         }
 
         if (mode === "signup" && password !== confirmPassword) {
-            setError("Passwords do not match.");
+            setError(t(I18N_KEYS.AUTH_PASSWORD_MISMATCH));
             return;
         }
 
@@ -51,11 +54,14 @@ const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({ mode, onSubmit, s
         });
     };
 
+    const submitLabel = mode === "login" ? t(I18N_KEYS.AUTH_SIGN_IN) : t(I18N_KEYS.AUTH_CREATE_ACCOUNT);
+    const helperCopy = mode === "login" ? t(I18N_KEYS.AUTH_TERMS) : t(I18N_KEYS.AUTH_VERIFY_LATER);
+
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1">
                 <label htmlFor={`${mode}-email`} className="text-xs font-medium text-slate-500">
-                    Email address
+                    {t(I18N_KEYS.AUTH_EMAIL_LABEL)}
                 </label>
                 <input
                     id={`${mode}-email`}
@@ -69,7 +75,7 @@ const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({ mode, onSubmit, s
             </div>
             <div className="space-y-1">
                 <label htmlFor={`${mode}-password`} className="text-xs font-medium text-slate-500">
-                    Password
+                    {t(I18N_KEYS.AUTH_PASSWORD_LABEL)}
                 </label>
                 <input
                     id={`${mode}-password`}
@@ -85,7 +91,7 @@ const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({ mode, onSubmit, s
                 <>
                     <div className="space-y-1">
                         <label htmlFor="signup-confirm" className="text-xs font-medium text-slate-500">
-                            Confirm password
+                            {t(I18N_KEYS.AUTH_CONFIRM_PASSWORD_LABEL)}
                         </label>
                         <input
                             id="signup-confirm"
@@ -103,7 +109,7 @@ const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({ mode, onSubmit, s
                             checked={sendVerifyEmail}
                             onChange={(event) => setSendVerifyEmail(event.target.checked)}
                         />
-                        Send verification email
+                        {t(I18N_KEYS.AUTH_SEND_VERIFICATION_EMAIL)}
                     </label>
                 </>
             )}
@@ -120,14 +126,10 @@ const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({ mode, onSubmit, s
                 {submitting && (
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-transparent" aria-hidden />
                 )}
-                <span>{mode === "login" ? "Sign in" : "Create account"}</span>
+                <span>{submitLabel}</span>
             </button>
 
-            <p className="text-[11px] text-slate-500">
-                {mode === "login"
-                    ? "By continuing, you agree to BaanFoodie’s Terms & Privacy."
-                    : "We’ll email a verification link. You can complete it later."}
-            </p>
+            <p className="text-[11px] text-slate-500">{helperCopy}</p>
         </form>
     );
 };

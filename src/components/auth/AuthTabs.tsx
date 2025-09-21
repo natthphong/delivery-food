@@ -1,4 +1,6 @@
 import React from "react";
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
 
 export type AuthTab = "login" | "signup";
 
@@ -8,10 +10,13 @@ export type AuthTabsProps = {
 };
 
 const AuthTabs: React.FC<AuthTabsProps> = ({ value, onChange }) => {
+    const { t } = useI18n();
+
     return (
-        <div className="flex rounded-2xl bg-slate-100 p-1" role="tablist" aria-label="Authentication mode">
+        <div className="flex rounded-2xl bg-slate-100 p-1" role="tablist" aria-label={t(I18N_KEYS.AUTH_TABS_ARIA_LABEL)}>
             {(["login", "signup"] as AuthTab[]).map((tab) => {
                 const active = value === tab;
+                const label = tab === "login" ? t(I18N_KEYS.AUTH_LOGIN) : t(I18N_KEYS.AUTH_SIGNUP);
                 return (
                     <button
                         key={tab}
@@ -25,7 +30,7 @@ const AuthTabs: React.FC<AuthTabsProps> = ({ value, onChange }) => {
                                 : "border border-transparent text-slate-600 hover:bg-white/60"
                         }`}
                     >
-                        {tab === "login" ? "Login" : "Signup"}
+                        {label}
                     </button>
                 );
             })}

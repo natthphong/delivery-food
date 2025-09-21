@@ -3,10 +3,13 @@ import Layout from "@components/Layout";
 import type { CartBranchGroup } from "@/types";
 import { formatTHB } from "@utils/currency";
 import Link from "next/link";
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
 
 const CHECKOUT_DRAFT_KEY = "CHECKOUT_DRAFT";
 
 export default function CheckoutPage() {
+    const { t } = useI18n();
     const [draft, setDraft] = useState<CartBranchGroup[]>([]);
 
     useEffect(() => {
@@ -38,21 +41,19 @@ export default function CheckoutPage() {
         <Layout>
             <div className="mx-auto max-w-3xl space-y-6">
                 <header className="flex flex-col gap-2">
-                    <h1 className="text-2xl font-semibold text-slate-900">Checkout</h1>
-                    <p className="text-sm text-slate-500">Review your selected dishes before placing the order.</p>
+                    <h1 className="text-2xl font-semibold text-slate-900">{t(I18N_KEYS.CHECKOUT_TITLE)}</h1>
+                    <p className="text-sm text-slate-500">{t(I18N_KEYS.CHECKOUT_SUBTITLE)}</p>
                 </header>
 
                 {draft.length === 0 ? (
                     <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-                        <p className="text-sm font-medium text-slate-700">No items selected for checkout.</p>
-                        <p className="mt-2 text-xs text-slate-500">
-                            Return to the menu and add items to your basket first.
-                        </p>
+                        <p className="text-sm font-medium text-slate-700">{t(I18N_KEYS.CHECKOUT_EMPTY_TITLE)}</p>
+                        <p className="mt-2 text-xs text-slate-500">{t(I18N_KEYS.CHECKOUT_EMPTY_SUBTITLE)}</p>
                         <Link
                             href="/"
                             className="mt-4 inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100"
                         >
-                            Back to home
+                            {t(I18N_KEYS.CHECKOUT_BACK_HOME)}
                         </Link>
                     </div>
                 ) : (
@@ -75,11 +76,13 @@ export default function CheckoutPage() {
                                                         {item.productAddOns.length > 0 && (
                                                             <p className="text-xs text-slate-500">
                                                                 {item.productAddOns
-                                                                    .map((addon) => `+ ${addon.name} ${formatTHB(addon.price)}`)
+                                                                    .map((addon) =>
+                                                                        `${t(I18N_KEYS.CART_ADDON_PREFIX)} ${addon.name} ${formatTHB(addon.price)}`
+                                                                    )
                                                                     .join(", ")}
                                                             </p>
                                                         )}
-                                                        <p className="mt-1 text-xs text-slate-500">Qty: {item.qty}</p>
+                                                        <p className="mt-1 text-xs text-slate-500">{t(I18N_KEYS.COMMON_QUANTITY)}: {item.qty}</p>
                                                     </div>
                                                     <span className="text-sm font-semibold text-slate-900">{formatTHB(totalPrice)}</span>
                                                 </div>
@@ -91,7 +94,7 @@ export default function CheckoutPage() {
                         ))}
 
                         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-right text-sm font-semibold text-emerald-700">
-                            Total {formatTHB(total)}
+                            {t(I18N_KEYS.CHECKOUT_TOTAL_PREFIX)} {formatTHB(total)}
                         </div>
 
                         <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
@@ -105,13 +108,13 @@ export default function CheckoutPage() {
                                     setDraft([]);
                                 }}
                             >
-                                Clear draft
+                                {t(I18N_KEYS.CHECKOUT_CLEAR_DRAFT)}
                             </button>
                             <button
                                 type="button"
                                 className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100"
                             >
-                                Place order (coming soon)
+                                {t(I18N_KEYS.CHECKOUT_PLACE_ORDER_COMING_SOON)}
                             </button>
                         </div>
                     </div>

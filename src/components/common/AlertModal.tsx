@@ -1,5 +1,7 @@
 import React from "react";
 import Modal from "./Modal";
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
 
 export type AlertModalProps = {
     open: boolean;
@@ -16,14 +18,19 @@ const AlertModal: React.FC<AlertModalProps> = ({
     onClose,
     title,
     message,
-    confirmText = "Confirm",
+    confirmText,
     cancelText,
     onConfirm,
 }) => {
+    const { t } = useI18n();
+
     const handleConfirm = () => {
         onConfirm?.();
         onClose();
     };
+
+    const resolvedConfirm = confirmText ?? t(I18N_KEYS.COMMON_CONFIRM);
+    const resolvedCancel = cancelText ?? t(I18N_KEYS.COMMON_CANCEL);
 
     const footer = (
         <div className="flex items-center gap-3">
@@ -33,7 +40,7 @@ const AlertModal: React.FC<AlertModalProps> = ({
                     className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-emerald-100"
                     onClick={onClose}
                 >
-                    {cancelText}
+                    {resolvedCancel}
                 </button>
             )}
             <button
@@ -41,7 +48,7 @@ const AlertModal: React.FC<AlertModalProps> = ({
                 className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 active:scale-[0.99]"
                 onClick={handleConfirm}
             >
-                {confirmText}
+                {resolvedConfirm}
             </button>
         </div>
     );

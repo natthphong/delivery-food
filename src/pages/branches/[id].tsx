@@ -9,6 +9,9 @@ import { useAppDispatch } from "@store/index";
 import { setUser } from "@store/authSlice";
 import { saveUser } from "@utils/tokenStorage";
 import type { UserRecord } from "@/types";
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
+import type { I18nKey } from "@/constants/i18nKeys";
 
 /** ---------- Internal UI types ---------- */
 export type AddOn = { id: number; name: string; price: number };
@@ -90,14 +93,14 @@ const DAY_ORDER: Array<"mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"> = 
     "sat",
     "sun",
 ];
-const DAY_LABEL: Record<string, string> = {
-    mon: "Mon",
-    tue: "Tue",
-    wed: "Wed",
-    thu: "Thu",
-    fri: "Fri",
-    sat: "Sat",
-    sun: "Sun",
+const DAY_LABEL_KEYS: Record<string, I18nKey> = {
+    mon: I18N_KEYS.BRANCH_DAY_MON,
+    tue: I18N_KEYS.BRANCH_DAY_TUE,
+    wed: I18N_KEYS.BRANCH_DAY_WED,
+    thu: I18N_KEYS.BRANCH_DAY_THU,
+    fri: I18N_KEYS.BRANCH_DAY_FRI,
+    sat: I18N_KEYS.BRANCH_DAY_SAT,
+    sun: I18N_KEYS.BRANCH_DAY_SUN,
 };
 
 // Parse either shape: {branch,menu} OR {code,message,body:{branch,menu}}
@@ -144,7 +147,7 @@ function mapApiToInternal(data: ApiBranchMenuResponse): BranchMenuBody {
         for (const day of DAY_ORDER) {
             const slots = b.open_hours[day] || [];
             for (const [open, close] of slots) {
-                hours.push({ day: DAY_LABEL[day] || day, open, close });
+                hours.push({ day: DAY_LABEL_KEYS[day] || day, open, close });
             }
         }
     }
@@ -191,6 +194,7 @@ const BranchPage: NextPage = () => {
     const router = useRouter();
     const dispatch = useAppDispatch();
     const { id } = router.query;
+    const { t } = useI18n();
 
     const [branch, setBranch] = useState<BranchMenuBody["branch"] | null>(null);
     const [products, setProducts] = useState<Product[]>([]);
@@ -227,8 +231,11 @@ const BranchPage: NextPage = () => {
                 setError(null);
             } catch (err: any) {
                 if (cancelled) return;
-                const msg = err?.message || "Unable to load branch menu";
-                setError(msg);
+                const fallback = t(I18N_KEYS.BRANCH_LOAD_ERROR);
+                const responseMessage = err?.response?.data?.message;
+                const resolved =
+                    typeof responseMessage === "string" && responseMessage.length > 0 ? responseMessage : fallback;
+                setError(resolved);
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -238,18 +245,18 @@ const BranchPage: NextPage = () => {
         return () => {
             cancelled = true;
         };
-    }, [id, router.isReady]);
+    }, [id, router.isReady, t]);
 
     const statusBadge = useMemo(() => {
         if (!branch) return null;
         if (branch.is_force_closed) {
-            return { label: "Closed (manual)", className: "border-rose-200 bg-rose-50 text-rose-700" };
+            return { label: t(I18N_KEYS.BRANCH_CLOSED_MANUAL), className: "border-rose-200 bg-rose-50 text-rose-700" };
         }
         if (branch.is_open) {
-            return { label: "Open", className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
+            return { label: t(I18N_KEYS.BRANCH_OPEN), className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
         }
-        return { label: "Closed", className: "border-slate-200 bg-slate-100 text-slate-600" };
-    }, [branch]);
+        return { label: t(I18N_KEYS.BRANCH_CLOSED), className: "border-slate-200 bg-slate-100 text-slate-600" };
+    }, [branch, t]);
 
     const effectivePrice = (product: Product) => product.price_effective ?? product.price;
 
@@ -308,16 +315,20 @@ const BranchPage: NextPage = () => {
                 dispatch(setUser(updatedUser));
                 saveUser(updatedUser);
             }
-            setActionMessage(`${selectedProduct.name} added to your card.`);
+            setActionMessage(`${selectedProduct.name} ${t(I18N_KEYS.BRANCH_ADDED_SUFFIX)}`);
             setSelectedProduct(null);
             setSelectedAddOns({});
             setQuantity(1);
         } catch (err: any) {
             const code = err?.response?.data?.code;
             if (code === "CARD_LIMIT_EXCEEDED") {
-                setActionError("Card item limit exceeded. Remove items before adding more.");
+                setActionError(t(I18N_KEYS.BRANCH_CARD_LIMIT_ERROR));
             } else {
-                setActionError(err?.response?.data?.message || err?.message || "Failed to save card");
+                const fallback = t(I18N_KEYS.BRANCH_SAVE_ERROR);
+                const responseMessage = err?.response?.data?.message;
+                const resolved =
+                    typeof responseMessage === "string" && responseMessage.length > 0 ? responseMessage : fallback;
+                setActionError(resolved);
             }
         } finally {
             setSavingCard(false);
@@ -333,10 +344,12 @@ const BranchPage: NextPage = () => {
     const modalFooter = selectedProduct ? (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-                <span className="text-sm font-medium text-slate-600">Quantity</span>
+                <span className="text-sm font-medium text-slate-600">{t(I18N_KEYS.BRANCH_QUANTITY_LABEL)}</span>
                 <QuantityInput value={quantity} min={1} max={computedMaxQty} onChange={setQuantity} />
                 {selectedProduct.stock_qty != null && (
-                    <span className="text-xs text-slate-500">Stock: {selectedProduct.stock_qty}</span>
+                    <span className="text-xs text-slate-500">
+                        {t(I18N_KEYS.BRANCH_STOCK_PREFIX)}: {selectedProduct.stock_qty}
+                    </span>
                 )}
             </div>
             <div className="flex items-center gap-3">
@@ -345,7 +358,7 @@ const BranchPage: NextPage = () => {
                     onClick={() => setSelectedProduct(null)}
                     className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-emerald-100"
                 >
-                    Cancel
+                    {t(I18N_KEYS.COMMON_CANCEL)}
                 </button>
                 <button
                     type="button"
@@ -353,7 +366,7 @@ const BranchPage: NextPage = () => {
                     disabled={savingCard || !selectedProduct.in_stock}
                     className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                    {savingCard ? "Saving…" : "Add to card"}
+                    {savingCard ? t(I18N_KEYS.BRANCH_SAVING) : t(I18N_KEYS.BRANCH_ADD_TO_CARD)}
                 </button>
             </div>
         </div>
@@ -368,7 +381,9 @@ const BranchPage: NextPage = () => {
                             {branch.image_url ? (
                                 <img src={branch.image_url} alt={branch.name} className="h-60 w-full object-cover" />
                             ) : (
-                                <div className="flex h-60 items-center justify-center text-sm text-slate-400">No image</div>
+                                <div className="flex h-60 items-center justify-center text-sm text-slate-400">
+                                    {t(I18N_KEYS.COMMON_NO_IMAGE)}
+                                </div>
                             )}
                         </div>
                         <div className="space-y-6 p-6">
@@ -403,7 +418,7 @@ const BranchPage: NextPage = () => {
                 )}
 
                 <section>
-                    <h2 className="mb-4 text-lg font-semibold text-slate-900">Menu</h2>
+                    <h2 className="mb-4 text-lg font-semibold text-slate-900">{t(I18N_KEYS.BRANCH_MENU_TITLE)}</h2>
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         {products.map((product) => {
                             const price = effectivePrice(product);
@@ -419,17 +434,23 @@ const BranchPage: NextPage = () => {
                                         {product.image_url ? (
                                             <img src={product.image_url} alt={product.name} className="h-40 w-full object-cover" />
                                         ) : (
-                                            <div className="flex h-40 items-center justify-center text-xs text-slate-400">No image</div>
+                                            <div className="flex h-40 items-center justify-center text-xs text-slate-400">
+                                                {t(I18N_KEYS.COMMON_NO_IMAGE)}
+                                            </div>
                                         )}
                                     </div>
                                     <div className="space-y-1">
                                         <h3 className="text-base font-semibold text-slate-900">{product.name}</h3>
                                         <p className="text-sm text-emerald-600">{formatTHB(price)}</p>
                                         {typeof product.stock_qty === "number" && (
-                                            <p className="text-xs text-slate-500">Stock: {product.stock_qty}</p>
+                                            <p className="text-xs text-slate-500">
+                                                {t(I18N_KEYS.BRANCH_STOCK_PREFIX)}: {product.stock_qty}
+                                            </p>
                                         )}
                                         <p className="text-xs text-slate-500">
-                                            {product.in_stock ? "Available" : "Out of stock"}
+                                            {product.in_stock
+                                                ? t(I18N_KEYS.BRANCH_AVAILABLE_LABEL)
+                                                : t(I18N_KEYS.BRANCH_OUT_OF_STOCK)}
                                         </p>
                                     </div>
                                 </button>
@@ -439,7 +460,7 @@ const BranchPage: NextPage = () => {
 
                     {!loading && products.length === 0 && !error && (
                         <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-center text-sm text-slate-500 shadow-sm">
-                            No products found for this branch.
+                            {t(I18N_KEYS.BRANCH_NO_PRODUCTS)}
                         </div>
                     )}
                 </section>
@@ -463,7 +484,9 @@ const BranchPage: NextPage = () => {
                                         className="h-56 w-full object-cover"
                                     />
                                 ) : (
-                                    <div className="flex h-56 items-center justify-center text-sm text-slate-400">No image</div>
+                                    <div className="flex h-56 items-center justify-center text-sm text-slate-400">
+                                        {t(I18N_KEYS.COMMON_NO_IMAGE)}
+                                    </div>
                                 )}
                             </div>
                         </div>
@@ -473,10 +496,14 @@ const BranchPage: NextPage = () => {
                                     {formatTHB(effectivePrice(selectedProduct))}
                                 </p>
                                 <p className="text-sm text-slate-500">
-                                    {selectedProduct.in_stock ? "In stock" : "Currently unavailable"}
+                                    {selectedProduct.in_stock
+                                        ? t(I18N_KEYS.BRANCH_IN_STOCK_TEXT)
+                                        : t(I18N_KEYS.BRANCH_CURRENTLY_UNAVAILABLE_TEXT)}
                                 </p>
                                 {selectedProduct.stock_qty != null && (
-                                    <p className="text-xs text-slate-500">Stock: {selectedProduct.stock_qty}</p>
+                                    <p className="text-xs text-slate-500">
+                                        {t(I18N_KEYS.BRANCH_STOCK_PREFIX)}: {selectedProduct.stock_qty}
+                                    </p>
                                 )}
                             </div>
 
@@ -485,7 +512,7 @@ const BranchPage: NextPage = () => {
                             )}
 
                             <div>
-                                <h3 className="text-sm font-semibold text-slate-700">Add-ons</h3>
+                                <h3 className="text-sm font-semibold text-slate-700">{t(I18N_KEYS.BRANCH_ADDONS_TITLE)}</h3>
                                 {selectedProduct.addons && selectedProduct.addons.length > 0 ? (
                                     <div className="mt-2 space-y-2">
                                         {selectedProduct.addons.map((addon) => (
@@ -506,7 +533,7 @@ const BranchPage: NextPage = () => {
                                         ))}
                                     </div>
                                 ) : (
-                                    <p className="mt-2 text-sm text-slate-500">No add-ons available for this item.</p>
+                                    <p className="mt-2 text-sm text-slate-500">{t(I18N_KEYS.BRANCH_NO_ADDONS)}</p>
                                 )}
                             </div>
                         </div>
@@ -514,7 +541,7 @@ const BranchPage: NextPage = () => {
                 </Modal>
             )}
 
-            <LoaderOverlay show={loading} label="Loading menu" />
+            <LoaderOverlay show={loading} label={t(I18N_KEYS.BRANCH_LOADING)} />
         </Layout>
     );
 };

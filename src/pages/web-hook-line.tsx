@@ -5,15 +5,18 @@ import Layout from "@components/Layout";
 import { useRouter } from "next/router";
 import axios from "@utils/apiClient";
 import { useAppDispatch } from "@store/index";
-import {setTokens, setUser} from "@store/authSlice";
-import {saveTokens, saveUser} from "@utils/tokenStorage";
+import { setTokens, setUser } from "@store/authSlice";
+import { saveTokens, saveUser } from "@utils/tokenStorage";
 import liff from "@line/liff";
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
 
 type Status = "boot" | "init" | "login" | "post" | "done" | "error";
 
 export default function WebHookLinePage() {
     const router = useRouter();
     const dispatch = useAppDispatch();
+    const { t } = useI18n();
 
     const [status, setStatus] = useState<Status>("boot");
     const [err, setErr] = useState<string>("");
@@ -31,11 +34,9 @@ export default function WebHookLinePage() {
                     setStatus("login");
                     liff.login();
                 }
-                const profile  = await liff.getProfile()
+                const profile = await liff.getProfile();
                 if (!profile) {
-                    throw new Error(
-                        "LINE returned no idToken. Enable OpenID Connect and add 'openid profile' (and 'email' if needed) scopes in your LINE Login channel."
-                    );
+                    throw new Error(t(I18N_KEYS.LINE_ERROR_NO_PROFILE));
                 }
                 setStatus("post");
                 const r = await axios.post("/api/login-line", { profile });
@@ -45,9 +46,9 @@ export default function WebHookLinePage() {
                     refreshToken: r.data?.body?.refreshToken,
                 };
                 if (!tokens.accessToken || !tokens.refreshToken) {
-                    throw new Error("Server did not return tokens");
+                    throw new Error(t(I18N_KEYS.LINE_ERROR_NO_TOKENS));
                 }
-                const user = r.data?.body?.user
+                const user = r.data?.body?.user;
                 dispatch(setTokens(tokens));
                 dispatch(setUser(user));
                 saveTokens(tokens);
@@ -57,7 +58,9 @@ export default function WebHookLinePage() {
             } catch (e: any) {
 
                 if (cancelled) return;
-                setErr(e?.message || "LINE callback error");
+                const fallback = t(I18N_KEYS.LINE_ERROR_DEFAULT);
+                const message = typeof e?.message === "string" && e.message.length > 0 ? e.message : fallback;
+                setErr(message);
                 setStatus("error");
             }
         };
@@ -66,12 +69,12 @@ export default function WebHookLinePage() {
         return () => {
             cancelled = true;
         };
-    }, [router.isReady, router.query.next, dispatch, router]);
+    }, [router.isReady, router.query.next, dispatch, router, t]);
 
     return (
         <Layout>
             <Head>
-                <title>Processing LINE sign-in…</title>
+                <title>{t(I18N_KEYS.LINE_PAGE_TITLE)}</title>
                 <meta name="robots" content="noindex" />
             </Head>
 
@@ -80,24 +83,24 @@ export default function WebHookLinePage() {
                     {status !== "error" ? (
                         <>
                             <div className="mx-auto mb-3 h-10 w-10 rounded-full border-2 border-emerald-300 border-t-transparent animate-spin" />
-                            <h1 className="text-xl font-semibold mb-1">Processing LINE sign-in…</h1>
+                            <h1 className="text-xl font-semibold mb-1">{t(I18N_KEYS.LINE_PAGE_TITLE)}</h1>
                             <p className="text-slate-500 text-sm">
-                                {status === "boot" && "Booting…"}
-                                {status === "init" && "Initializing LIFF"}
-                                {status === "login" && "Redirecting to LINE Login"}
-                                {status === "post" && "Finalizing session"}
-                                {status === "done" && "Done"}
+                                {status === "boot" && t(I18N_KEYS.LINE_STATUS_BOOT)}
+                                {status === "init" && t(I18N_KEYS.LINE_STATUS_INIT)}
+                                {status === "login" && t(I18N_KEYS.LINE_STATUS_LOGIN)}
+                                {status === "post" && t(I18N_KEYS.LINE_STATUS_POST)}
+                                {status === "done" && t(I18N_KEYS.LINE_STATUS_DONE)}
                             </p>
                         </>
                     ) : (
                         <>
-                            <h1 className="text-xl font-semibold text-rose-600 mb-2">LINE login error</h1>
+                            <h1 className="text-xl font-semibold text-rose-600 mb-2">{t(I18N_KEYS.LINE_ERROR_TITLE)}</h1>
                             <p className="text-sm text-slate-600">{err}</p>
                             <button
                                 className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50"
                                 onClick={() => router.replace("/login")}
                             >
-                                Back to Login
+                                {t(I18N_KEYS.LINE_BACK_TO_LOGIN)}
                             </button>
                         </>
                     )}
