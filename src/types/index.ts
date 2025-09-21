@@ -25,8 +25,8 @@ export type UserRecord = {
     email: string | null;
     phone: string | null;
     provider: string | null;
-    is_email_verified: boolean | null;
-    is_phone_verified: boolean | null;
+    is_email_verified: boolean ;
+    is_phone_verified: boolean ;
     card: CartBranchGroup[];
     created_at: string;
     updated_at: string;

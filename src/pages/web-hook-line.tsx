@@ -5,8 +5,8 @@ import Layout from "@components/Layout";
 import { useRouter } from "next/router";
 import axios from "@utils/apiClient";
 import { useAppDispatch } from "@store/index";
-import { setTokens } from "@store/authSlice";
-import { saveTokens } from "@utils/tokenStorage";
+import {setTokens, setUser} from "@store/authSlice";
+import {saveTokens, saveUser} from "@utils/tokenStorage";
 import liff from "@line/liff";
 
 type Status = "boot" | "init" | "login" | "post" | "done" | "error";
@@ -47,8 +47,11 @@ export default function WebHookLinePage() {
                 if (!tokens.accessToken || !tokens.refreshToken) {
                     throw new Error("Server did not return tokens");
                 }
+                const user = r.data?.body?.user
                 dispatch(setTokens(tokens));
+                dispatch(setUser(user));
                 saveTokens(tokens);
+                saveUser(user);
                 setStatus("done");
                 router.replace("/");
             } catch (e: any) {
