@@ -11,128 +11,71 @@ import type { BranchItem, BranchSampleProduct, Category } from "@/components/sea
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 
-type ApiBranchProduct = {
-    product_id: number;
-    name: string | null;
-    price: number | null;
-    image_url?: string | null;
-};
+/** ---------- Normalizer to handle BOTH response shapes ---------- */
+function normalizeSearchPayload(payload: any): { branches: BranchItem[]; categories: Category[] } {
+    const body = payload?.body ?? payload?.data?.body ?? payload;
 
-type ApiOpenHours = Record<string, [string, string][]>;
+    const rawBranches: any[] = Array.isArray(body)
+        ? body
+        : Array.isArray(body?.branches)
+            ? body.branches
+            : [];
 
-type ApiBranchRecord = {
-    id: number;
-    name: string;
-    image_url?: string | null;
-    address_line?: string | null;
-    lat?: number | null;
-    lng?: number | null;
-    is_force_closed: boolean;
-    open_hours?: ApiOpenHours | null;
-    distance_m?: number | null;
-    products_sample?: ApiBranchProduct[];
-};
+    const rawCategories: any[] = Array.isArray(body?.categories) ? body.categories : [];
 
-type ApiSearchResponse = {
-    code: string;
-    message: string;
-    body: {
-        branches: ApiBranchRecord[];
-        categories: { id: number; name: string }[];
-    };
-};
+    const branches: BranchItem[] = rawBranches
+        .map((b) => {
+            const id = b.id ?? b.branch_id;
+            const name = b.name ?? b.branch_name;
+            if (id == null || !name) return null;
 
-const DAY_KEYS: Array<"sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat"> = [
-    "sun",
-    "mon",
-    "tue",
-    "wed",
-    "thu",
-    "fri",
-    "sat",
-];
+            const distance_km =
+                typeof b.distance_km === "number"
+                    ? b.distance_km
+                    : typeof b.distance_m === "number"
+                        ? b.distance_m / 1000
+                        : null;
 
-function hhmmToMinutes(hhmm: string): number {
-    const [hours, minutes] = hhmm.split(":").map((value) => Number.parseInt(value, 10));
-    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
-        return Number.NaN;
-    }
-    return (hours || 0) * 60 + (minutes || 0);
-}
+            const is_force_closed = !!(b.is_force_closed ?? false);
+            const is_open = typeof b.is_open === "boolean" ? b.is_open : !is_force_closed;
+            const open_hours = b.open_hours
+            const products_sample_raw = Array.isArray(b.products_sample) ? b.products_sample : [];
+            const products_sample: BranchSampleProduct[] = products_sample_raw
+                .map((p: any) => {
+                    const pid = p.id ?? p.product_id;
+                    if (pid == null) return null;
+                    return {
+                        id: pid,
+                        name: p.name,
+                        price: typeof p.price === "number" ? p.price : undefined,
+                        price_effective: typeof p.price_effective === "number" ? p.price_effective : undefined,
+                        image_url: p.image_url ?? null,
+                    } as BranchSampleProduct;
+                })
+                .filter(Boolean) as BranchSampleProduct[];
 
-function isOpenNow(openHours?: ApiOpenHours | null, isForceClosed?: boolean): boolean {
-    if (isForceClosed) return false;
-    if (!openHours) return true;
+            return {
+                id,
+                name,
+                image_url: b.image_url ?? null,
+                is_force_closed,
+                is_open,
+                distance_km,
+                address_line: b.address_line ?? null,
+                products_sample,
+                open_hours,
+            } as BranchItem;
+        })
+        .filter(Boolean) as BranchItem[];
 
-    const now = new Date();
-    const dayKey = DAY_KEYS[now.getDay()] ?? "sun";
-    const slots = openHours[dayKey];
-    if (!Array.isArray(slots) || slots.length === 0) {
-        return false;
-    }
+    const categories: Category[] = rawCategories
+        .map((c) => {
+            if (c?.id == null || !c?.name) return null;
+            return { id: c.id, name: c.name } as Category;
+        })
+        .filter(Boolean) as Category[];
 
-    const minutesNow = now.getHours() * 60 + now.getMinutes();
-
-    return slots.some(([start, end]) => {
-        const startMinutes = hhmmToMinutes(start);
-        const endMinutes = hhmmToMinutes(end);
-        if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) {
-            return false;
-        }
-
-        if (endMinutes < startMinutes) {
-            return minutesNow >= startMinutes || minutesNow <= endMinutes;
-        }
-
-        return minutesNow >= startMinutes && minutesNow <= endMinutes;
-    });
-}
-
-function mapBranchProduct(product: ApiBranchProduct): BranchSampleProduct | null {
-    if (!product || typeof product.product_id !== "number") {
-        return null;
-    }
-
-    return {
-        id: product.product_id,
-        name: product.name ?? "",
-        price: typeof product.price === "number" ? product.price : undefined,
-        image_url: product.image_url ?? null,
-    };
-}
-
-function mapBranchRecord(record: ApiBranchRecord): BranchItem | null {
-    if (!record || typeof record.id !== "number" || !record.name) {
-        return null;
-    }
-    const distanceKm =
-        typeof record.distance_m === "number"
-            ? Number((record.distance_m / 1000).toFixed(2))
-            : null;
-    const productsSample = Array.isArray(record.products_sample)
-        ? (record.products_sample.map(mapBranchProduct).filter(Boolean) as BranchSampleProduct[])
-        : [];
-    const computedIsOpen = isOpenNow(record.open_hours ?? null, record.is_force_closed);
-    const open_hours = record.open_hours && typeof record.open_hours === "object" ? record.open_hours : null;
-
-    return {
-        id: record.id,
-        name: record.name,
-        image_url: record.image_url ?? null,
-        address_line: record.address_line ?? null,
-        is_force_closed: record.is_force_closed,
-        is_open: computedIsOpen,
-        distance_km: distanceKm,
-        products_sample: productsSample,
-        open_hours: open_hours,
-    };
-}
-
-function mapCategory(record: { id: number; name: string }): Category | null {
-    if (!record || typeof record.id !== "number" || !record.name) {
-        return null;
-    }
-    return { id: record.id, name: record.name };
+    return { branches, categories };
 }
 
 /** ---------- Page ---------- */
@@ -169,7 +112,7 @@ const SearchPage: NextPage = () => {
         const runSearch = async () => {
             setLoading(true);
             try {
-                const { data } = await axios.get<ApiSearchResponse>("/api/search", {
+                const { data } = await axios.get("/api/search", {
                     params: {
                         q: submittedQuery,
                         categoryId: categoryId ?? undefined,
@@ -178,30 +121,20 @@ const SearchPage: NextPage = () => {
                     },
                 });
 
-                if (!data || data.code !== "OK" || !data.body) {
+                if (data?.code !== "OK") {
                     throw new Error(data?.message || t(I18N_KEYS.SEARCH_ERROR_DEFAULT));
                 }
 
-                const body = data.body;
-                const mappedCategories = Array.isArray(body.categories)
-                    ? (body.categories.map(mapCategory).filter(Boolean) as Category[])
-                    : [];
-                const mappedBranches = Array.isArray(body.branches)
-                    ? (body.branches.map(mapBranchRecord).filter(Boolean) as BranchItem[])
-                    : [];
-
-
-                const sorted = [...mappedBranches].sort((a, b) => {
-                    const distanceA =
-                        typeof a.distance_km === "number" ? a.distance_km : Number.POSITIVE_INFINITY;
-                    const distanceB =
-                        typeof b.distance_km === "number" ? b.distance_km : Number.POSITIVE_INFINITY;
-                    return distanceA - distanceB;
+                const normalized = normalizeSearchPayload(data);
+                const sorted = normalized.branches.sort((a, b) => {
+                    const A = typeof a.distance_km === "number" ? a.distance_km : Number.POSITIVE_INFINITY;
+                    const B = typeof b.distance_km === "number" ? b.distance_km : Number.POSITIVE_INFINITY;
+                    return A - B;
                 });
 
                 if (!ignore) {
                     setBranches(sorted);
-                    setCategories(mappedCategories);
+                    setCategories(normalized.categories);
                     setError(null);
                 }
             } catch (err: any) {
