@@ -1,12 +1,13 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Layout from "@components/Layout";
 import axios, { type ApiResponse } from "@utils/apiClient";
 import { auth, makeRecaptcha } from "@utils/firebaseClient";
 import { useAppDispatch } from "@store/index";
-import { logout, setTokens } from "@store/authSlice";
-import { linkWithPhoneNumber, signOut, updateEmail } from "firebase/auth";
-import {clearTokens} from "@utils/tokenStorage";
+import { logout } from "@store/authSlice";
+import {linkWithPhoneNumber, signInWithPhoneNumber, signOut} from "firebase/auth";
+import { clearTokens } from "@utils/tokenStorage";
 import { useRouter } from "next/router";
+
 type Me = {
     id: number;
     email: string | null;
@@ -16,23 +17,34 @@ type Me = {
     is_phone_verified: boolean;
 };
 
-type AuthTokens = { accessToken: string; refreshToken: string };
+type AccountUpdatePayload = {
+    email?: string | null;
+    phone?: string | null;
+    is_email_verified?: boolean | null;
+    is_phone_verified?: boolean | null;
+};
 
-function extractTokens(body: { accessToken?: string | null; refreshToken?: string | null } | null | undefined): AuthTokens {
-    if (!body?.accessToken || !body?.refreshToken) {
-        throw new Error("Invalid authentication response");
-    }
+type UserEnvelope = { user?: any };
+
+type AccountUpdateResponse = ApiResponse<UserEnvelope>;
+type SendVerifyEmailResponse = ApiResponse<{ ok: boolean }>;
+
+function normalizeUser(payload: any | null | undefined): Me {
     return {
-        accessToken: body.accessToken,
-        refreshToken: body.refreshToken,
+        id: typeof payload?.id === "number" ? payload.id : 0,
+        email: payload?.email ?? null,
+        phone: payload?.phone ?? null,
+        provider: payload?.provider ?? null,
+        is_email_verified: Boolean(payload?.is_email_verified),
+        is_phone_verified: Boolean(payload?.is_phone_verified),
     };
 }
 
 function Chip({ ok, label }: { ok: boolean; label: string }) {
     return (
         <span
-            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                ok ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"
+            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                ok ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
             }`}
         >
             {label}
@@ -45,14 +57,18 @@ export default function AccountPage() {
     const dispatch = useAppDispatch();
     const [me, setMe] = useState<Me | null>(null);
     const [loading, setLoading] = useState(true);
-    const [msg, setMsg] = useState<string>("");
-    const [err, setErr] = useState<string>("");
+    const [message, setMessage] = useState<string>("");
+    const [error, setError] = useState<string>("");
 
-    // change email
     const [newEmail, setNewEmail] = useState("");
-    // phone link
     const [phone, setPhone] = useState("");
     const [otp, setOtp] = useState("");
+
+    const [updatingEmail, setUpdatingEmail] = useState(false);
+    const [verifyingEmail, setVerifyingEmail] = useState(false);
+    const [sendingOtp, setSendingOtp] = useState(false);
+    const [confirmingOtp, setConfirmingOtp] = useState(false);
+
     const confirmRef = useRef<any>(null);
 
     const providerLabel = useMemo(() => {
@@ -60,227 +76,303 @@ export default function AccountPage() {
         return me.provider;
     }, [me]);
 
-    async function fetchMe() {
+    const fetchMe = useCallback(async () => {
         setLoading(true);
-        setErr("");
-        setMsg("");
         try {
-            const r = await axios.get<ApiResponse<{ user: Me }>>("/api/user/me");
+            const r = await axios.get<ApiResponse<UserEnvelope>>("/api/user/me");
+            if (r.data.code !== "OK") {
+                throw new Error(r.data.message || "Failed to load profile");
+            }
             const user = r.data.body?.user;
             if (!user) {
                 throw new Error("Invalid profile response");
             }
-            setMe(user);
+            setMe(normalizeUser(user));
+            setError("");
         } catch (e: any) {
-            setErr(e?.response?.data?.message || e?.message || "Failed to load profile");
+            setError(e?.response?.data?.message || e?.message || "Failed to load profile");
+            setMe(null);
         } finally {
             setLoading(false);
         }
-    }
-
-    useEffect(() => {
-        fetchMe();
     }, []);
 
-    async function resendVerifyEmail() {
-        setErr("");
-        setMsg("");
+    useEffect(() => {
+        fetchMe().catch(() => {});
+    }, [fetchMe]);
+
+    async function updateAccount(patch: AccountUpdatePayload) {
+        const response = await axios.post<AccountUpdateResponse>("/api/v1/account/update", patch);
+        if (response.data.code !== "OK") {
+            throw new Error(response.data.message || "Account update failed");
+        }
+        const user = response.data.body?.user;
+        if (!user) {
+            throw new Error("Invalid account response");
+        }
+        setMe(normalizeUser(user));
+    }
+
+    async function handleVerifyEmail() {
+        setError("");
+        setMessage("");
         try {
-            const idToken = await auth.currentUser?.getIdToken(true);
-            if (!idToken) throw new Error("No firebase session; please re-login");
-            await axios.post("/api/user/send-verify-email", { idToken });
-            setMsg("Verification email sent.");
+            if (!auth.currentUser) {
+                throw new Error("No Firebase session. Please re-login.");
+            }
+            setVerifyingEmail(true);
+            await auth.currentUser.reload();
+            if (auth.currentUser.emailVerified) {
+                await updateAccount({ is_email_verified: true });
+                setMessage("Email verified successfully.");
+            } else {
+                const idToken = await auth.currentUser.getIdToken();
+                const response = await axios.post<SendVerifyEmailResponse>("/api/user/send-verify-email", { idToken });
+                if (response.data.code !== "OK") {
+                    throw new Error(response.data.message || "Failed to send verification email");
+                }
+                setMessage(
+                    "Verification email sent. After verifying, click \"Verify email\" again to refresh your status."
+                );
+            }
         } catch (e: any) {
-            setErr(e?.response?.data?.message || e?.message || "Failed to send verification email");
+            setError(e?.response?.data?.message || e?.message || "Failed to process email verification");
+        } finally {
+            setVerifyingEmail(false);
         }
     }
 
-    async function onChangeEmail() {
-        setErr("");
-        setMsg("");
+    async function handleChangeEmail() {
+        setError("");
+        setMessage("");
         try {
-            if (!newEmail) throw new Error("New email required");
-            if (!auth.currentUser) throw new Error("No firebase session; please re-login");
-            await updateEmail(auth.currentUser, newEmail);
-            const idToken = await auth.currentUser.getIdToken(true);
-            const r = await axios.post<ApiResponse<AuthTokens & { user: Me }>>(
-                "/api/login",
-                { idToken }
-            );
-            const tokens = extractTokens(r.data.body);
-            dispatch(setTokens(tokens));
-            setMsg("Email updated. If required, please verify via email.");
+            const trimmed = newEmail.trim();
+            if (!trimmed) {
+                throw new Error("New email required");
+            }
+            if (!auth.currentUser) {
+                throw new Error("No Firebase session. Please re-login.");
+            }
+            setUpdatingEmail(true);
+            await updateAccount({ email: trimmed });
+            setMessage("Email updated. Please verify your email address.");
             setNewEmail("");
-            await fetchMe();
         } catch (e: any) {
-            setErr(e?.response?.data?.message || e?.code || e?.message || "Failed to update email");
+            setError(e?.response?.data?.message || e?.message || "Failed to update email");
+        } finally {
+            setUpdatingEmail(false);
         }
     }
 
-    async function onPhoneSendOtp() {
-        setErr("");
-        setMsg("");
+    async function handleSendOtp() {
+        setError("");
+        setMessage("");
         try {
-            if (!phone) throw new Error("Phone number required");
-            if (!auth.currentUser) throw new Error("Please login again");
+            const trimmed = phone.trim();
+            if (!trimmed) {
+                throw new Error("Phone number required");
+            }
+            setSendingOtp(true);
             const verifier = makeRecaptcha("btn-send-otp");
-            const confirmation = await linkWithPhoneNumber(auth.currentUser, phone, verifier);
+            const confirmation = await signInWithPhoneNumber(auth, trimmed, verifier);
             confirmRef.current = confirmation;
-            setMsg("OTP sent to your phone.");
+            setMessage("OTP sent to your phone.");
             setOtp("");
         } catch (e: any) {
-            setErr(e?.code || e?.message || "Failed to send OTP");
+            setError(e?.response?.data?.message || e?.code || e?.message || "Failed to send OTP");
+        } finally {
+            setSendingOtp(false);
         }
     }
 
-    async function onPhoneConfirmOtp() {
-        setErr("");
-        setMsg("");
+    async function handleConfirmOtp() {
+        setError("");
+        setMessage("");
         try {
             const confirmation = confirmRef.current;
-            if (!confirmation) throw new Error("No OTP session. Send OTP first.");
-            if (!otp) throw new Error("Enter the OTP");
-            await confirmation.confirm(otp);
-            const idToken = await auth.currentUser?.getIdToken(true);
-            if (!idToken) throw new Error("No firebase session after phone link");
-            const r = await axios.post<ApiResponse<AuthTokens & { user: Me }>>(
-                "/api/login",
-                { idToken }
-            );
-            const tokens = extractTokens(r.data.body);
-            dispatch(setTokens(tokens));
-            setMsg("Phone linked & verified.");
+            if (!confirmation) {
+                throw new Error("No OTP session. Send OTP first.");
+            }
+            const code = otp.trim();
+            if (!code) {
+                throw new Error("Enter the OTP");
+            }
+            setConfirmingOtp(true);
+            await confirmation.confirm(code);
+            const trimmedPhone = phone.trim();
+            await updateAccount({ phone: trimmedPhone || null, is_phone_verified: true });
+            setMessage("Phone linked & verified.");
             setPhone("");
             setOtp("");
             confirmRef.current = null;
-            await fetchMe();
         } catch (e: any) {
-            setErr(e?.response?.data?.message || e?.code || e?.message || "Failed to confirm OTP");
+            setError(e?.response?.data?.message || e?.code || e?.message || "Failed to confirm OTP");
+        } finally {
+            setConfirmingOtp(false);
         }
     }
 
-    async function onLogout() {
+    async function handleLogout() {
         await signOut(auth).catch(() => {});
         dispatch(logout());
-        clearTokens()
+        clearTokens();
         router.replace("/login");
     }
 
     return (
         <Layout>
-            <div className="max-w-2xl mx-auto">
+            <div className="mx-auto max-w-2xl">
                 <div className="mb-6">
-                    <h1 className="text-3xl font-bold">My Account</h1>
-                    <p className="text-sm text-gray-500">Manage your contact &amp; verification details.</p>
+                    <h1 className="text-3xl font-bold text-slate-900">My Account</h1>
+                    <p className="text-sm text-slate-500">Manage your contact &amp; verification details.</p>
                 </div>
 
-                {/* Card: Profile */}
-                <div className="bg-white border rounded-2xl shadow-sm p-6 mb-6">
-                    <div className="flex items-start justify-between">
+                <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
                         <div>
-                            <h2 className="text-lg font-semibold">Profile</h2>
-                            <p className="text-xs text-gray-500">
-                                Provider: <span className="font-mono">{providerLabel}</span>
+                            <h2 className="text-lg font-semibold text-slate-900">Profile</h2>
+                            <p className="text-xs text-slate-500">
+                                Provider: <span className="font-mono text-slate-700">{providerLabel}</span>
                             </p>
                         </div>
-                        <button onClick={onLogout} className="text-sm px-3 py-1.5 rounded-lg border hover:bg-gray-50">
+                        <button
+                            type="button"
+                            onClick={handleLogout}
+                            className="inline-flex items-center rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                        >
                             Logout
                         </button>
                     </div>
 
                     {loading ? (
-                        <p className="mt-4 text-gray-500">Loading…</p>
+                        <p className="mt-4 text-sm text-slate-500">Loading…</p>
                     ) : me ? (
                         <div className="mt-4 space-y-4">
                             <div>
-                                <div className="text-sm text-gray-500">Email</div>
+                                <div className="text-sm text-slate-500">Email</div>
                                 <div className="flex items-center gap-2">
-                                    <div className="font-medium">{me.email || "-"}</div>
-                                    <Chip ok={me.is_email_verified} label={me.is_email_verified ? "Verified" : "Not verified"} />
+                                    <div className="font-medium text-slate-900">{me.email || "-"}</div>
+                                    <Chip
+                                        ok={me.is_email_verified}
+                                        label={me.is_email_verified ? "Verified" : "Not verified"}
+                                    />
                                 </div>
                             </div>
                             <div>
-                                <div className="text-sm text-gray-500">Phone</div>
+                                <div className="text-sm text-slate-500">Phone</div>
                                 <div className="flex items-center gap-2">
-                                    <div className="font-medium">{me.phone || "-"}</div>
-                                    <Chip ok={me.is_phone_verified} label={me.is_phone_verified ? "Verified" : "Not verified"} />
+                                    <div className="font-medium text-slate-900">{me.phone || "-"}</div>
+                                    <Chip
+                                        ok={me.is_phone_verified}
+                                        label={me.is_phone_verified ? "Verified" : "Not verified"}
+                                    />
                                 </div>
                             </div>
                         </div>
                     ) : (
-                        <p className="mt-4 text-red-600">Failed to load profile.</p>
+                        <p className="mt-4 text-sm text-rose-600">Failed to load profile.</p>
                     )}
                 </div>
 
-                {/* Card: Actions */}
-                <div className="bg-white border rounded-2xl shadow-sm p-6 mb-6">
-                    <h3 className="text-lg font-semibold mb-4">Verify &amp; Update</h3>
-
-                    {/* Resend Email Verify */}
-                    <div className="mb-4">
-                        <div className="text-sm font-medium mb-1">Email verification</div>
-                        <button onClick={resendVerifyEmail} className="px-4 py-2 rounded-xl border hover:bg-gray-50">
-                            Resend verification email
-                        </button>
-                    </div>
-
-                    {/* Change Email */}
-                    <div className="mb-4">
-                        <div className="text-sm font-medium mb-1">Change email</div>
-                        <div className="flex gap-2">
-                            <input
-                                type="email"
-                                placeholder="new-email@example.com"
-                                value={newEmail}
-                                onChange={(e) => setNewEmail(e.target.value)}
-                                className="border rounded-xl px-3 py-2 flex-1"
-                            />
-                            <button onClick={onChangeEmail} className="px-4 py-2 rounded-xl border hover:bg-gray-50">
-                                Update
-                            </button>
+                <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <h3 className="mb-4 text-lg font-semibold text-slate-900">Verify &amp; Update</h3>
+                    <div className="space-y-6">
+                        <div className="flex flex-col gap-3 rounded-2xl bg-slate-50 p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-sm font-medium text-slate-700">Email verification</p>
+                                    <p className="text-xs text-slate-500">
+                                        Send a verification email or refresh your status after confirming.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleVerifyEmail}
+                                    disabled={verifyingEmail || !me?.email}
+                                    className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                    {verifyingEmail ? "Processing…" : "Verify email"}
+                                </button>
+                            </div>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">
-                            May require recent sign-in depending on provider.
-                        </p>
-                    </div>
 
-                    {/* Link Phone */}
-                    <div className="mb-2">
-                        <div className="text-sm font-medium mb-1">Link / verify phone</div>
-                        <div className="flex gap-2 mb-2">
-                            <input
-                                type="tel"
-                                placeholder="+66123456789"
-                                value={phone}
-                                onChange={(e) => setPhone(e.target.value)}
-                                className="border rounded-xl px-3 py-2 flex-1"
-                            />
-                            <button id="btn-send-otp" onClick={onPhoneSendOtp} className="px-4 py-2 rounded-xl border hover:bg-gray-50">
-                                Send OTP
-                            </button>
-                            <input
-                                type="text"
-                                placeholder="123456"
-                                value={otp}
-                                onChange={(e) => setOtp(e.target.value)}
-                                className="border rounded-xl px-3 py-2 w-28"
-                            />
-                            <button onClick={onPhoneConfirmOtp} className="px-4 py-2 rounded-xl border hover:bg-gray-50">
-                                Confirm
-                            </button>
+                        <div className="space-y-2">
+                            <p className="text-sm font-medium text-slate-700">Change email</p>
+                            <div className="flex flex-col gap-2 sm:flex-row">
+                                <input
+                                    type="email"
+                                    placeholder="new-email@example.com"
+                                    value={newEmail}
+                                    onChange={(e) => setNewEmail(e.target.value)}
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleChangeEmail}
+                                    disabled={updatingEmail || !newEmail.trim()}
+                                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                    {updatingEmail ? "Updating…" : "Update"}
+                                </button>
+                            </div>
+                            <p className="text-xs text-slate-500">
+                                Firebase may require a recent login before allowing an email change.
+                            </p>
                         </div>
-                        <p className="text-xs text-gray-500">
-                            Use Firebase test numbers on free plan to avoid billing errors.
-                        </p>
+
+                        <div className="space-y-2">
+                            <p className="text-sm font-medium text-slate-700">Link / verify phone</p>
+                            <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+                                <input
+                                    type="tel"
+                                    placeholder="+66123456789"
+                                    value={phone}
+                                    onChange={(e) => setPhone(e.target.value)}
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100 lg:max-w-sm"
+                                />
+                                <div className="flex flex-col gap-2 sm:flex-row">
+                                    <button
+                                        id="btn-send-otp"
+                                        type="button"
+                                        onClick={handleSendOtp}
+                                        disabled={sendingOtp || !phone.trim()}
+                                        className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        {sendingOtp ? "Sending…" : "Send OTP"}
+                                    </button>
+                                    <input
+                                        type="text"
+                                        placeholder="123456"
+                                        value={otp}
+                                        onChange={(e) => setOtp(e.target.value)}
+                                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100 sm:w-28"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleConfirmOtp}
+                                        disabled={confirmingOtp || !otp.trim()}
+                                        className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        {confirmingOtp ? "Confirming…" : "Confirm"}
+                                    </button>
+                                </div>
+                            </div>
+                            <p className="text-xs text-slate-500">
+                                Use Firebase test numbers on the free plan to avoid billing errors.
+                            </p>
+                        </div>
                     </div>
                 </div>
 
-                {/* Alerts */}
-                {!!msg && (
-                    <div className="rounded-xl p-3 bg-green-50 border border-green-200 text-green-700 mb-3">{msg}</div>
+                {!!message && (
+                    <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                        {message}
+                    </div>
                 )}
-                {!!err && (
-                    <div className="rounded-xl p-3 bg-red-50 border border-red-200 text-red-700">{err}</div>
+                {!!error && (
+                    <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                        {error}
+                    </div>
                 )}
             </div>
         </Layout>

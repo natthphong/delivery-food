@@ -9,14 +9,13 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
-sql
 # testing
 /coverage
 .idea
 # next.js
 /.next/
 /out/
-
+sql
 # production
 /build
 /.test-dist

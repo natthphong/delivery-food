@@ -28,7 +28,7 @@ type Coordinates = { lat: number; lng: number } | null;
 const SearchPage: NextPage = () => {
     const router = useRouter();
     const [query, setQuery] = useState("");
-    const [submittedQuery, setSubmittedQuery] = useState("");
+    const [debouncedQuery, setDebouncedQuery] = useState("");
     const [categoryId, setCategoryId] = useState<number | null>(null);
     const [categories, setCategories] = useState<Category[]>([]);
     const [branches, setBranches] = useState<BranchItem[]>([]);
@@ -50,13 +50,22 @@ const SearchPage: NextPage = () => {
     }, []);
 
     useEffect(() => {
+        const timeout = window.setTimeout(() => {
+            setDebouncedQuery(query.trim());
+        }, 500);
+        return () => {
+            window.clearTimeout(timeout);
+        };
+    }, [query]);
+
+    useEffect(() => {
         let ignore = false;
         const runSearch = async () => {
             setLoading(true);
             try {
                 const response = await axios.get<SearchResponse>("/api/search", {
                     params: {
-                        q: submittedQuery,
+                        q: debouncedQuery,
                         categoryId: categoryId ?? undefined,
                         lat: coords?.lat,
                         lng: coords?.lng,
@@ -67,10 +76,11 @@ const SearchPage: NextPage = () => {
                 }
                 const body = response.data.body;
                 if (ignore) return;
-                if (body.categories) {
+                if (body?.categories) {
                     setCategories(body.categories);
                 }
-                const sortedBranches = [...(body.branches ?? [])].sort((a, b) => {
+                const branchList = body?.branches ?? [];
+                const sortedBranches = [...branchList].sort((a, b) => {
                     const distA = typeof a.distance_km === "number" ? a.distance_km : Number.POSITIVE_INFINITY;
                     const distB = typeof b.distance_km === "number" ? b.distance_km : Number.POSITIVE_INFINITY;
                     return distA - distB;
@@ -92,11 +102,11 @@ const SearchPage: NextPage = () => {
         return () => {
             ignore = true;
         };
-    }, [submittedQuery, categoryId, coords?.lat, coords?.lng]);
+    }, [debouncedQuery, categoryId, coords?.lat, coords?.lng]);
 
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        setSubmittedQuery(query.trim());
+        setDebouncedQuery(query.trim());
     };
 
     const handleCategoryChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -249,7 +259,7 @@ const SearchPage: NextPage = () => {
 
                 <div className="grid gap-4">{branchCards}</div>
             </div>
-            <LoaderOverlay show={loading} label="Searching FoodieGo" />
+            <LoaderOverlay show={loading} label="Searching BaanFoodie" />
         </Layout>
     );
 };

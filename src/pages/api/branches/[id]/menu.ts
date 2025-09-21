@@ -15,6 +15,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
                 .json({ code: "METHOD_NOT_ALLOWED", message: "Method Not Allowed", body: null });
         }
 
+        res.setHeader("Cache-Control", "public, s-maxage=1, stale-while-revalidate=59");
+
         const { id } = req.query as { id?: string };
         const branchId = id ? Number(id) : NaN;
         if (!Number.isFinite(branchId) || branchId <= 0) {

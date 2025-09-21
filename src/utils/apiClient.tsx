@@ -4,7 +4,6 @@ import Router from "next/router";
 import { store } from "@/store";
 import { setTokens, logout } from "@/store/authSlice";
 import { saveTokens } from "@utils/tokenStorage";
-import liff from "@line/liff";
 
 export type ApiResponse<T> = { code: string; message: string; body: T };
 

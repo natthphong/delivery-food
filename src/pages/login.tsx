@@ -224,7 +224,7 @@ export default function LoginSignupPage() {
                         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-medium mb-3">
                             fresh • fast • foodie
                         </div>
-                        <h1 className="text-4xl font-extrabold tracking-tight">Welcome to FoodieGo</h1>
+                        <h1 className="text-4xl font-extrabold tracking-tight">Welcome to BaanFoodie</h1>
                         <p className="text-slate-500 mt-1">Sign {tab === "login" ? "in" : "up"} to get your favorites faster.</p>
                     </div>
 
@@ -266,7 +266,7 @@ export default function LoginSignupPage() {
                     </div>
 
                     <div className="text-center text-xs text-slate-500 mt-6">
-                        © {new Date().getFullYear()} FoodieGo. Fresh to your door.
+                        © {new Date().getFullYear()} BaanFoodie. Fresh to your door.
                     </div>
                 </div>
             </div>

@@ -7,9 +7,15 @@ import { formatTHB } from "@utils/currency";
 import { getCurrentPositionWithPermission } from "@utils/geo";
 import { LoaderOverlay } from "@components/common";
 
-/** ---------- Internal UI types (unchanged) ---------- */
+/** ---------- Internal UI types ---------- */
 export type Category = { id: number; name: string };
-export type BranchSampleProduct = { id: number; name: string; price?: number; price_effective?: number; image_url?: string | null };
+export type BranchSampleProduct = {
+    id: number;
+    name: string;
+    price?: number;
+    price_effective?: number;
+    image_url?: string | null;
+};
 export type BranchItem = {
     id: number;
     name: string;
@@ -20,57 +26,92 @@ export type BranchItem = {
     products_sample?: BranchSampleProduct[];
     address_line?: string | null;
 };
-export type SearchBody = { branches: BranchItem[]; categories?: Category[] };
 type Coordinates = { lat: number; lng: number } | null;
 
-/** ---------- API response types (NEW: matches your example) ---------- */
-type ApiBranchProduct = {
-    product_id: number;
-    name: string;
-    image_url?: string | null;
-    price?: number | null;
-};
+/** ---------- Normalizer to handle BOTH response shapes ---------- */
+function normalizeSearchPayload(payload: any): { branches: BranchItem[]; categories: Category[] } {
+    const body = payload?.body ?? payload?.data?.body ?? payload;
 
-type ApiBranchRecord = {
-    branch_id: number;
-    branch_name: string;
-    image_url?: string | null;
-    lat?: number | null;
-    lng?: number | null;
-    address_line?: string | null;
-    is_force_closed: boolean;
-    distance_m?: number | null;
-    match_count?: string | number | null;
-    products_sample?: ApiBranchProduct[];
-};
+    // Support old: body is array; new: body.branches is array
+    const rawBranches: any[] = Array.isArray(body)
+        ? body
+        : Array.isArray(body?.branches)
+            ? body.branches
+            : [];
 
-type ApiSearchResponse = {
-    code: string;            // "OK"
-    message: string;         // "success"
-    body: ApiBranchRecord[]; // ARRAY of branches
-};
+    const rawCategories: any[] = Array.isArray(body?.categories) ? body.categories : [];
+
+    const branches: BranchItem[] = rawBranches
+        .map((b) => {
+            const id = b.id ?? b.branch_id;
+            const name = b.name ?? b.branch_name;
+            if (id == null || !name) return null;
+
+            const distance_km =
+                typeof b.distance_km === "number"
+                    ? b.distance_km
+                    : typeof b.distance_m === "number"
+                        ? b.distance_m / 1000
+                        : null;
+
+            const is_force_closed = !!(b.is_force_closed ?? false);
+            const is_open = typeof b.is_open === "boolean" ? b.is_open : !is_force_closed;
+
+            const products_sample_raw = Array.isArray(b.products_sample) ? b.products_sample : [];
+            const products_sample: BranchSampleProduct[] = products_sample_raw
+                .map((p: any) => {
+                    const pid = p.id ?? p.product_id;
+                    if (pid == null) return null;
+                    return {
+                        id: pid,
+                        name: p.name,
+                        price: typeof p.price === "number" ? p.price : undefined,
+                        price_effective:
+                            typeof p.price_effective === "number" ? p.price_effective : undefined,
+                        image_url: p.image_url ?? null,
+                    } as BranchSampleProduct;
+                })
+                .filter(Boolean) as BranchSampleProduct[];
+
+            return {
+                id,
+                name,
+                image_url: b.image_url ?? null,
+                is_force_closed,
+                is_open,
+                distance_km,
+                address_line: b.address_line ?? null,
+                products_sample,
+            } as BranchItem;
+        })
+        .filter(Boolean) as BranchItem[];
+
+    const categories: Category[] = rawCategories
+        .map((c) => {
+            if (c?.id == null || !c?.name) return null;
+            return { id: c.id, name: c.name } as Category;
+        })
+        .filter(Boolean) as Category[];
+
+    return { branches, categories };
+}
 
 /** ---------- Page ---------- */
 const SearchPage: NextPage = () => {
     const router = useRouter();
 
-    // search bar state
     const [query, setQuery] = useState("");
     const [submittedQuery, setSubmittedQuery] = useState("");
 
-    // optional category filter (your current API doesn’t return categories, we keep the UI for future)
     const [categoryId, setCategoryId] = useState<number | null>(null);
     const [categories, setCategories] = useState<Category[]>([]);
 
-    // results
     const [branches, setBranches] = useState<BranchItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // geolocation for distance sort
     const [coords, setCoords] = useState<Coordinates>(null);
 
-    // get geolocation on mount
     useEffect(() => {
         let cancelled = false;
         (async () => {
@@ -82,47 +123,27 @@ const SearchPage: NextPage = () => {
         };
     }, []);
 
-    // run search whenever query/category/coords change
     useEffect(() => {
         let ignore = false;
 
         const runSearch = async () => {
             setLoading(true);
             try {
-                const { data } = await axios.get<ApiSearchResponse>("/api/search", {
+                const { data } = await axios.get("/api/search", {
                     params: {
                         q: submittedQuery,
-                        categoryId: categoryId ?? undefined, // kept for future use
+                        categoryId: categoryId ?? undefined,
                         lat: coords?.lat,
                         lng: coords?.lng,
                     },
                 });
 
-                if (data.code !== "OK") {
-                    throw new Error(data.message || "Search failed");
+                if (data?.code !== "OK") {
+                    throw new Error(data?.message || "Search failed");
                 }
 
-                // Map backend array -> internal BranchItem[]
-                const mapped: BranchItem[] = (data.body ?? []).map((b) => ({
-                    id: b.branch_id,
-                    name: b.branch_name,
-                    image_url: b.image_url ?? null,
-                    // API only gives manual force-closed flag; treat others as "open" by default
-                    is_force_closed: !!b.is_force_closed,
-                    is_open: !b.is_force_closed,
-                    distance_km: typeof b.distance_m === "number" && !isNaN(b.distance_m) ? b.distance_m / 1000 : null,
-                    address_line: b.address_line ?? null,
-                    products_sample: (b.products_sample ?? []).map((p) => ({
-                        id: p.product_id,
-                        name: p.name,
-                        price: p.price ?? undefined,
-                        price_effective: undefined,
-                        image_url: p.image_url ?? null,
-                    })),
-                }));
-
-                // sort by distance if available
-                const sorted = mapped.sort((a, b) => {
+                const normalized = normalizeSearchPayload(data);
+                const sorted = normalized.branches.sort((a, b) => {
                     const A = typeof a.distance_km === "number" ? a.distance_km : Number.POSITIVE_INFINITY;
                     const B = typeof b.distance_km === "number" ? b.distance_km : Number.POSITIVE_INFINITY;
                     return A - B;
@@ -130,14 +151,14 @@ const SearchPage: NextPage = () => {
 
                 if (!ignore) {
                     setBranches(sorted);
-                    setCategories([]);
-                    // No categories in current response → keep empty; UI still works
+                    setCategories(normalized.categories);
                     setError(null);
                 }
             } catch (err: any) {
                 if (!ignore) {
                     setError(err?.message || "Unable to fetch results");
                     setBranches([]);
+                    setCategories([]);
                 }
             } finally {
                 if (!ignore) setLoading(false);
@@ -150,7 +171,6 @@ const SearchPage: NextPage = () => {
         };
     }, [submittedQuery, categoryId, coords?.lat, coords?.lng]);
 
-    // form handlers
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         setSubmittedQuery(query.trim());
@@ -161,7 +181,6 @@ const SearchPage: NextPage = () => {
         setCategoryId(value ? Number(value) : null);
     };
 
-    // UI helpers
     const badgeForBranch = (branch: BranchItem) => {
         if (branch.is_force_closed) {
             return { label: "Closed (manual)", className: "border-rose-200 bg-rose-50 text-rose-700" };
@@ -175,7 +194,6 @@ const SearchPage: NextPage = () => {
     const distanceLabel = (branch: BranchItem) => {
         if (typeof branch.distance_km !== "number") return null;
         return `${branch.distance_km.toFixed(1)} km`;
-        // You can show "~" if it's approximate: `~${...} km`
     };
 
     const samplesForBranch = (branch: BranchItem) => (branch.products_sample ?? []).slice(0, 3);
@@ -299,7 +317,7 @@ const SearchPage: NextPage = () => {
 
                 <div className="grid gap-4">{branchCards}</div>
             </div>
-            <LoaderOverlay show={loading} label="Searching FoodieGo" />
+            <LoaderOverlay show={loading} label="Searching BaanFoodie" />
         </Layout>
     );
 };

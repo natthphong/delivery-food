@@ -34,6 +34,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
                 .json({ code: "METHOD_NOT_ALLOWED", message: "Method Not Allowed", body: null });
         }
 
+        res.setHeader("Cache-Control", "public, s-maxage=1, stale-while-revalidate=59");
+
         const { q = "", categoryId, lat, lng, limit } = req.query;
         const category = parseNumber(categoryId);
         const limitNum = parseNumber(limit);
@@ -57,7 +59,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             };
         });
 
-        const body = hasGeo
+        const sorted = hasGeo
             ? [...enriched].sort((a, b) => {
                   const distA = typeof a.distance_m === "number" ? a.distance_m : Number.POSITIVE_INFINITY;
                   const distB = typeof b.distance_m === "number" ? b.distance_m : Number.POSITIVE_INFINITY;
@@ -68,7 +70,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
               })
             : enriched;
 
-        return res.status(200).json({ code: "OK", message: "success", body });
+        const branches = sorted.map((item) => ({
+            id: item.branch_id,
+            name: item.branch_name,
+            image_url: item.image_url ?? null,
+            address_line: item.address_line ?? null,
+            is_open: !item.is_force_closed,
+            is_force_closed: item.is_force_closed,
+            distance_km:
+                typeof item.distance_m === "number" ? Number((item.distance_m / 1000).toFixed(2)) : null,
+            products_sample: (item.products_sample ?? []).map((product) => ({
+                id: product.product_id,
+                name: product.name ?? "",
+                price: product.price ?? null,
+            })),
+        }));
+
+        return res.status(200).json({
+            code: "OK",
+            message: "success",
+            body: {
+                branches,
+                categories: [],
+            },
+        });
     } catch (e: any) {
         logError("search API error", { message: e?.message, stack: e?.stack });
         return res.status(500).json({ code: "INTERNAL_ERROR", message: "Search failed", body: null });
