@@ -17,4 +17,5 @@ export type BranchItem = {
     distance_km?: number | null;
     products_sample?: BranchSampleProduct[];
     address_line?: string | null;
+    open_hours: Record<string, [string, string][]> | null;
 };

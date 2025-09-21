@@ -8,6 +8,36 @@ type BranchCardProps = {
     branch: BranchItem;
     onView: (id: number) => void;
 };
+function hhmmToMinutes(hhmm: string): number {
+    const [h, m] = hhmm.split(":").map((v) => parseInt(v, 10));
+    return (h || 0) * 60 + (m || 0);
+}
+
+function isOpenNowBySchedule(openHours: Record<string, [string, string][]> | null | undefined): boolean {
+    if (!openHours) return true;
+
+    const jsDay = new Date().getDay();
+    const mapDay = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][jsDay];
+
+    const slots = openHours[mapDay] || [];
+    if (!Array.isArray(slots) || slots.length === 0) return false;
+
+    const now = new Date();
+    const minutesNow = now.getHours() * 60 + now.getMinutes();
+
+    // Support normal and overnight windows (e.g., 22:00–02:00)
+    return slots.some(([start, end]) => {
+        const s = hhmmToMinutes(start);
+        const e = hhmmToMinutes(end);
+        if (Number.isNaN(s) || Number.isNaN(e)) return false;
+        if (s <= e) {
+            // same-day window
+            return minutesNow >= s && minutesNow <= e;
+        }
+        // overnight window (spans midnight)
+        return minutesNow >= s || minutesNow <= e;
+    });
+}
 
 const BranchCard: React.FC<BranchCardProps> = ({ branch, onView }) => {
     const { t } = useI18n();
@@ -16,10 +46,10 @@ const BranchCard: React.FC<BranchCardProps> = ({ branch, onView }) => {
         if (branch.is_force_closed) {
             return { label: t(I18N_KEYS.BRANCH_CLOSED_MANUAL), className: "border-rose-200 bg-rose-50 text-rose-700" };
         }
-        if (branch.is_open) {
-            return { label: t(I18N_KEYS.BRANCH_OPEN), className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
+        if (!branch.is_open || !isOpenNowBySchedule(branch.open_hours)){
+            return { label: t(I18N_KEYS.BRANCH_CLOSED), className: "border-slate-200 bg-slate-100 text-slate-600" };
         }
-        return { label: t(I18N_KEYS.BRANCH_CLOSED), className: "border-slate-200 bg-slate-100 text-slate-600" };
+        return { label: t(I18N_KEYS.BRANCH_OPEN), className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
     }, [branch.is_force_closed, branch.is_open, t]);
 
     const distance = useMemo(() => {
