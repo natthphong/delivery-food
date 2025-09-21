@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { useSelector } from "react-redux";
-import LocaleSwitcher from "@/components/i18n/LocaleSwitcher";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import { useI18n } from "@/utils/i18n";
 import { formatTHB } from "@/utils/currency";
@@ -20,15 +19,16 @@ const Navbar: React.FC = () => {
                     {t(I18N_KEYS.BRAND_NAME)}
                 </Link>
                 <div className="flex items-center gap-3 text-sm text-slate-700">
+
+                    <Link href="/account" className="rounded-lg px-3 py-2 transition hover:bg-slate-100">
+                        {t(I18N_KEYS.NAV_ACCOUNT)}
+                    </Link>
+
                     {user && (
                         <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm">
                             {formattedBalance}
                         </span>
                     )}
-                    <LocaleSwitcher />
-                    <Link href="/account" className="rounded-lg px-3 py-2 transition hover:bg-slate-100">
-                        {t(I18N_KEYS.NAV_ACCOUNT)}
-                    </Link>
                 </div>
             </div>
         </nav>
