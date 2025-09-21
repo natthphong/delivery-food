@@ -4,7 +4,7 @@ import { useRouter } from "next/router";
 import Layout from "@components/Layout";
 import axios from "@utils/apiClient";
 import { formatTHB } from "@utils/currency";
-import { LoaderOverlay, Modal } from "@components/common";
+import { LoaderOverlay, Modal, QuantityInput } from "@components/common";
 
 /** ---------- Internal UI types ---------- */
 export type AddOn = { id: number; name: string; price: number };
@@ -15,12 +15,14 @@ export type Product = {
     price: number;
     price_effective?: number | null;
     in_stock: boolean;
+    stock_qty: number | null;
     addons?: AddOn[];
     description?: string | null;
 };
 export type BranchMenuBody = {
     branch: {
         id: number;
+        company_id: number;
         name: string;
         image_url?: string | null;
         address_line?: string | null;
@@ -156,6 +158,7 @@ function mapApiToInternal(data: ApiBranchMenuResponse): BranchMenuBody {
             price: Number.isFinite(priceNum) ? priceNum : 0,
             price_effective: null,
             in_stock: inStock,
+            stock_qty: typeof m.stock_qty === "number" ? m.stock_qty : null,
             addons: (m.add_ons || []).map((a) => ({
                 id: a.id,
                 name: a.name,
@@ -167,6 +170,7 @@ function mapApiToInternal(data: ApiBranchMenuResponse): BranchMenuBody {
     return {
         branch: {
             id: b.id,
+            company_id: b.company_id,
             name: b.name,
             image_url: b.image_url ?? null,
             address_line: b.address_line ?? null,
@@ -189,6 +193,21 @@ const BranchPage: NextPage = () => {
     const [error, setError] = useState<string | null>(null);
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
     const [selectedAddOns, setSelectedAddOns] = useState<SelectedAddOns>({});
+    const [quantity, setQuantity] = useState(1);
+    const [savingCard, setSavingCard] = useState(false);
+    const [actionMessage, setActionMessage] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!selectedProduct) {
+            return;
+        }
+        const max = selectedProduct.stock_qty !== null ? Math.max(selectedProduct.stock_qty, 1) : 99;
+        setQuantity((prev) => {
+            const clamped = Math.min(Math.max(prev, 1), max);
+            return clamped;
+        });
+    }, [selectedProduct]);
 
     useEffect(() => {
         if (!router.isReady || !id) return;
@@ -240,30 +259,93 @@ const BranchPage: NextPage = () => {
             initial[addon.id] = false;
         });
         setSelectedAddOns(initial);
+        setQuantity(1);
+        setActionError(null);
+        setActionMessage(null);
     };
 
     const toggleAddon = (addonId: number) => {
         setSelectedAddOns((prev) => ({ ...prev, [addonId]: !prev[addonId] }));
     };
 
-    const modalFooter = (
-        <div className="flex items-center justify-end gap-3">
-            <button
-                type="button"
-                onClick={() => setSelectedProduct(null)}
-                className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-emerald-100"
-            >
-                Close
-            </button>
-            <button
-                type="button"
-                disabled
-                className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm opacity-60"
-            >
-                Add to cart
-            </button>
+    const handleAddToCard = async () => {
+        if (!branch || !selectedProduct) {
+            return;
+        }
+
+        setSavingCard(true);
+        setActionError(null);
+        setActionMessage(null);
+
+        try {
+            const chosenAddOns = (selectedProduct.addons ?? [])
+                .filter((addon) => selectedAddOns[addon.id])
+                .map((addon) => ({ name: addon.name, price: addon.price }));
+
+            const cardPayload = [
+                {
+                    branchId: String(branch.id),
+                    companyId: String(branch.company_id),
+                    branchName: branch.name,
+                    branchImage: branch.image_url ?? null,
+                    productList: [
+                        {
+                            productId: String(selectedProduct.id),
+                            productName: selectedProduct.name,
+                            productAddOns: chosenAddOns,
+                            qty: quantity,
+                            price: effectivePrice(selectedProduct),
+                        },
+                    ],
+                },
+            ];
+
+            await axios.post("/api/card/save", { card: cardPayload });
+            setActionMessage(`${selectedProduct.name} added to your card.`);
+            setSelectedProduct(null);
+            setSelectedAddOns({});
+            setQuantity(1);
+        } catch (err: any) {
+            const code = err?.response?.data?.code;
+            if (code === "CARD_LIMIT_EXCEEDED") {
+                setActionError("Card item limit exceeded. Remove items before adding more.");
+            } else {
+                setActionError(err?.response?.data?.message || err?.message || "Failed to save card");
+            }
+        } finally {
+            setSavingCard(false);
+        }
+    };
+
+    const maxQuantity = selectedProduct?.stock_qty !== null ? Math.max(selectedProduct.stock_qty, 1) : 99;
+    const modalFooter = selectedProduct ? (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-slate-600">Quantity</span>
+                <QuantityInput value={quantity} min={1} max={maxQuantity} onChange={setQuantity} />
+                {selectedProduct.stock_qty !== null && (
+                    <span className="text-xs text-slate-500">Stock: {selectedProduct.stock_qty}</span>
+                )}
+            </div>
+            <div className="flex items-center gap-3">
+                <button
+                    type="button"
+                    onClick={() => setSelectedProduct(null)}
+                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    onClick={handleAddToCard}
+                    disabled={savingCard || !selectedProduct.in_stock}
+                    className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                    {savingCard ? "Saving…" : "Add to card"}
+                </button>
+            </div>
         </div>
-    );
+    ) : undefined;
 
     return (
         <Layout>
@@ -284,17 +366,25 @@ const BranchPage: NextPage = () => {
                                     {branch.address_line && <p className="text-sm text-slate-500">{branch.address_line}</p>}
                                 </div>
                                 {statusBadge && (
-                                    <span className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium ${statusBadge.className}`}>
-                    {statusBadge.label}
-                  </span>
+                                    <span
+                                        className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium ${statusBadge.className}`}
+                                    >
+                                        {statusBadge.label}
+                                    </span>
                                 )}
                             </div>
-
-                            {/*            ))}*/}
-                            {/*        </div>*/}
-                            {/*    </div>*/}
-                            {/*)}*/}
                         </div>
+                    </div>
+                )}
+
+                {actionMessage && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                        {actionMessage}
+                    </div>
+                )}
+                {actionError && (
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                        {actionError}
                     </div>
                 )}
 
@@ -323,6 +413,9 @@ const BranchPage: NextPage = () => {
                                     <div className="space-y-1">
                                         <h3 className="text-base font-semibold text-slate-900">{product.name}</h3>
                                         <p className="text-sm text-emerald-600">{formatTHB(price)}</p>
+                                        {typeof product.stock_qty === "number" && (
+                                            <p className="text-xs text-slate-500">Stock: {product.stock_qty}</p>
+                                        )}
                                         <p className="text-xs text-slate-500">{product.in_stock ? "Available" : "Out of stock"}</p>
                                     </div>
                                 </button>
@@ -362,6 +455,9 @@ const BranchPage: NextPage = () => {
                                 <p className="text-sm text-slate-500">
                                     {selectedProduct.in_stock ? "In stock" : "Currently unavailable"}
                                 </p>
+                                {selectedProduct.stock_qty !== null && (
+                                    <p className="text-xs text-slate-500">Stock: {selectedProduct.stock_qty}</p>
+                                )}
                             </div>
 
                             {selectedProduct.description && (

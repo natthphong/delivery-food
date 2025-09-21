@@ -299,7 +299,7 @@ const SearchPage: NextPage = () => {
 
                 <div className="grid gap-4">{branchCards}</div>
             </div>
-            <LoaderOverlay show={loading} label="Searching FoodieGo" />
+            <LoaderOverlay show={loading} label="Searching BaanFoodie" />
         </Layout>
     );
 };

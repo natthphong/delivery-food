@@ -125,7 +125,7 @@ const EmailPasswordForm: React.FC<EmailPasswordFormProps> = ({ mode, onSubmit, s
 
             <p className="text-[11px] text-slate-500">
                 {mode === "login"
-                    ? "By continuing, you agree to FoodieGo’s Terms & Privacy."
+                    ? "By continuing, you agree to BaanFoodie’s Terms & Privacy."
                     : "We’ll email a verification link. You can complete it later."}
             </p>
         </form>

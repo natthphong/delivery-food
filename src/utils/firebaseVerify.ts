@@ -2,16 +2,24 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { logInfo } from "@utils/logger";
 
-const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!;
-if (!projectId) throw new Error("Missing NEXT_PUBLIC_FIREBASE_PROJECT_ID");
-
-const issuer = `https://securetoken.google.com/${projectId}`;
-const audience = projectId;
 const JWKS = createRemoteJWKSet(
     new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
 );
 
+function resolveProjectConfig(): { issuer: string; audience: string } {
+    const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+    if (!projectId) {
+        throw new Error("Missing NEXT_PUBLIC_FIREBASE_PROJECT_ID");
+    }
+    return {
+        issuer: `https://securetoken.google.com/${projectId}`,
+        audience: projectId,
+    };
+}
+
 export async function verifyFirebaseIdToken(idToken: string) {
+    const { issuer, audience } = resolveProjectConfig();
+
     logInfo("verifyFirebaseIdToken: start", {
         tokenPrefix: idToken?.slice?.(0, 12) || "",
         tokenLen: idToken?.length || 0,
