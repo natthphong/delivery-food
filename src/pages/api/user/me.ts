@@ -31,11 +31,15 @@ export default withAuth(async function handler(req: NextApiRequest, res: NextApi
             body: {
                 user: {
                     id: user.id,
+                    firebase_uid: user.firebase_uid,
                     email: user.email,
                     phone: user.phone,
                     provider: user.provider,
                     is_email_verified: user.is_email_verified,
                     is_phone_verified: user.is_phone_verified,
+                    card: user.card,
+                    created_at: user.created_at,
+                    updated_at: user.updated_at,
                 },
             },
         });
