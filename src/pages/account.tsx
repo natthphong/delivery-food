@@ -4,7 +4,7 @@ import axios, { type ApiResponse } from "@utils/apiClient";
 import { auth, makeRecaptcha } from "@utils/firebaseClient";
 import { useAppDispatch } from "@store/index";
 import { logout } from "@store/authSlice";
-import { linkWithPhoneNumber, signOut, updateEmail } from "firebase/auth";
+import {linkWithPhoneNumber, signInWithPhoneNumber, signOut} from "firebase/auth";
 import { clearTokens } from "@utils/tokenStorage";
 import { useRouter } from "next/router";
 
@@ -154,7 +154,6 @@ export default function AccountPage() {
                 throw new Error("No Firebase session. Please re-login.");
             }
             setUpdatingEmail(true);
-            await updateEmail(auth.currentUser, trimmed);
             await updateAccount({ email: trimmed });
             setMessage("Email updated. Please verify your email address.");
             setNewEmail("");
@@ -173,12 +172,9 @@ export default function AccountPage() {
             if (!trimmed) {
                 throw new Error("Phone number required");
             }
-            if (!auth.currentUser) {
-                throw new Error("Please login again to link your phone");
-            }
             setSendingOtp(true);
             const verifier = makeRecaptcha("btn-send-otp");
-            const confirmation = await linkWithPhoneNumber(auth.currentUser, trimmed, verifier);
+            const confirmation = await signInWithPhoneNumber(auth, trimmed, verifier);
             confirmRef.current = confirmation;
             setMessage("OTP sent to your phone.");
             setOtp("");

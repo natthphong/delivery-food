@@ -149,7 +149,7 @@ function mapApiToInternal(data: ApiBranchMenuResponse): BranchMenuBody {
 
     const products: Product[] = (data.menu || []).map((m) => {
         const priceNum = parseFloat(m.price);
-        const inStock = m.is_enabled && (m.stock_qty === null || m.stock_qty > 0);
+        const inStock = m.is_enabled && (m.stock_qty == null || m.stock_qty > 0);
         return {
             id: m.product_id,
             name: m.name,
@@ -199,14 +199,10 @@ const BranchPage: NextPage = () => {
     const [actionError, setActionError] = useState<string | null>(null);
 
     useEffect(() => {
-        if (!selectedProduct) {
-            return;
-        }
-        const max = selectedProduct.stock_qty !== null ? Math.max(selectedProduct.stock_qty, 1) : 99;
-        setQuantity((prev) => {
-            const clamped = Math.min(Math.max(prev, 1), max);
-            return clamped;
-        });
+        if (!selectedProduct) return;
+        const stock = selectedProduct.stock_qty;
+        const max = typeof stock === "number" ? Math.max(stock, 1) : 99;
+        setQuantity((prev) => Math.min(Math.max(prev, 1), max));
     }, [selectedProduct]);
 
     useEffect(() => {
@@ -269,9 +265,7 @@ const BranchPage: NextPage = () => {
     };
 
     const handleAddToCard = async () => {
-        if (!branch || !selectedProduct) {
-            return;
-        }
+        if (!branch || !selectedProduct) return;
 
         setSavingCard(true);
         setActionError(null);
@@ -317,13 +311,18 @@ const BranchPage: NextPage = () => {
         }
     };
 
-    const maxQuantity = selectedProduct?.stock_qty !== null ? Math.max(selectedProduct.stock_qty, 1) : 99;
+    // SAFE: If selectedProduct is null/undefined, use default 99.
+    const computedMaxQty = (() => {
+        const stock = selectedProduct?.stock_qty;
+        return typeof stock === "number" ? Math.max(stock, 1) : 99;
+    })();
+
     const modalFooter = selectedProduct ? (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
                 <span className="text-sm font-medium text-slate-600">Quantity</span>
-                <QuantityInput value={quantity} min={1} max={maxQuantity} onChange={setQuantity} />
-                {selectedProduct.stock_qty !== null && (
+                <QuantityInput value={quantity} min={1} max={computedMaxQty} onChange={setQuantity} />
+                {selectedProduct.stock_qty != null && (
                     <span className="text-xs text-slate-500">Stock: {selectedProduct.stock_qty}</span>
                 )}
             </div>
@@ -369,8 +368,8 @@ const BranchPage: NextPage = () => {
                                     <span
                                         className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium ${statusBadge.className}`}
                                     >
-                                        {statusBadge.label}
-                                    </span>
+                    {statusBadge.label}
+                  </span>
                                 )}
                             </div>
                         </div>
@@ -383,12 +382,12 @@ const BranchPage: NextPage = () => {
                     </div>
                 )}
                 {actionError && (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
-                        {actionError}
-                    </div>
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{actionError}</div>
                 )}
 
-                {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>}
+                {error && (
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>
+                )}
 
                 <section>
                     <h2 className="mb-4 text-lg font-semibold text-slate-900">Menu</h2>
@@ -416,7 +415,9 @@ const BranchPage: NextPage = () => {
                                         {typeof product.stock_qty === "number" && (
                                             <p className="text-xs text-slate-500">Stock: {product.stock_qty}</p>
                                         )}
-                                        <p className="text-xs text-slate-500">{product.in_stock ? "Available" : "Out of stock"}</p>
+                                        <p className="text-xs text-slate-500">
+                                            {product.in_stock ? "Available" : "Out of stock"}
+                                        </p>
                                     </div>
                                 </button>
                             );
@@ -443,7 +444,11 @@ const BranchPage: NextPage = () => {
                         <div className="md:w-1/2">
                             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
                                 {selectedProduct.image_url ? (
-                                    <img src={selectedProduct.image_url} alt={selectedProduct.name} className="h-56 w-full object-cover" />
+                                    <img
+                                        src={selectedProduct.image_url}
+                                        alt={selectedProduct.name}
+                                        className="h-56 w-full object-cover"
+                                    />
                                 ) : (
                                     <div className="flex h-56 items-center justify-center text-sm text-slate-400">No image</div>
                                 )}
@@ -451,11 +456,13 @@ const BranchPage: NextPage = () => {
                         </div>
                         <div className="flex-1 space-y-4">
                             <div>
-                                <p className="text-lg font-semibold text-slate-900">{formatTHB(effectivePrice(selectedProduct))}</p>
+                                <p className="text-lg font-semibold text-slate-900">
+                                    {formatTHB(effectivePrice(selectedProduct))}
+                                </p>
                                 <p className="text-sm text-slate-500">
                                     {selectedProduct.in_stock ? "In stock" : "Currently unavailable"}
                                 </p>
-                                {selectedProduct.stock_qty !== null && (
+                                {selectedProduct.stock_qty != null && (
                                     <p className="text-xs text-slate-500">Stock: {selectedProduct.stock_qty}</p>
                                 )}
                             </div>
