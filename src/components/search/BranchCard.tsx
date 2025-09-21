@@ -41,6 +41,13 @@ function isOpenNowBySchedule(openHours: Record<string, [string, string][]> | nul
 
 const BranchCard: React.FC<BranchCardProps> = ({ branch, onView }) => {
     const { t } = useI18n();
+    const isOpenComputed = useMemo(() => {
+        if (branch.is_force_closed) return false;
+        if (branch.open_hours && typeof branch.open_hours === "object") {
+            return isOpenNowBySchedule(branch.open_hours);
+        }
+        return branch.is_open;
+    }, [branch.is_force_closed, branch.open_hours, branch.is_open]);
 
     const badge = useMemo(() => {
         if (branch.is_force_closed) {
@@ -105,8 +112,13 @@ const BranchCard: React.FC<BranchCardProps> = ({ branch, onView }) => {
                     <div className="mt-auto">
                         <button
                             type="button"
-                            onClick={() => onView(branch.id)}
-                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 active:scale-[0.99]"
+                            onClick={() => isOpenComputed && onView(branch.id)}
+                            disabled={!isOpenComputed}
+                            aria-disabled={!isOpenComputed}
+                            title={!isOpenComputed ? t(I18N_KEYS.BRANCH_CLOSED) : undefined}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition
+                         hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 active:scale-[0.99]
+                         disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                             {t(I18N_KEYS.BRANCH_VIEW_MENU)}
                         </button>
