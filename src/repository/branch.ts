@@ -1,6 +1,9 @@
+// src/repository/branch.ts
 import { getSupabase } from "@utils/supabaseServer";
 
-type BranchRow = {
+/* ============================== Types ============================== */
+
+export type BranchRow = {
     id: number;
     company_id: number;
     name: string;
@@ -13,16 +16,16 @@ type BranchRow = {
     is_force_closed: boolean;
 };
 
-type ProductRow = {
+export type ProductRow = {
     id: number;
     name: string;
     description: string | null;
     image_url: string | null;
-    base_price: number | null;
-    search_terms: string | null;
+    base_price: number | null;     // Supabase numeric → number (coerce via toNumber just in case)
+    search_terms?: string | null;
 };
 
-type ProductAddOnRow = {
+export type ProductAddOnRow = {
     id: number;
     product_id: number;
     name: string;
@@ -55,7 +58,7 @@ export type BranchMenuItem = {
     name: string;
     description: string | null;
     image_url: string | null;
-    price: string;
+    price: string; // "12.34"
     is_enabled: boolean;
     stock_qty: number | null;
     add_ons: Array<{
@@ -70,13 +73,68 @@ export type BranchMenuItem = {
 export type BranchMenuPayload = {
     branch: BranchRow;
     menu: BranchMenuItem[];
+    /** optional pagination fields (present when calling getBranchMenu with page/size) */
+    page?: number;
+    size?: number;
+    total?: number;
 };
+
+/* ============================== Helpers ============================== */
 
 function toNumber(value: any): number | null {
     if (value === null || value === undefined) return null;
     const num = Number(value);
     return Number.isFinite(num) ? num : null;
 }
+
+async function getBranchById(branchId: number): Promise<BranchRow | null> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+        .from("tbl_branch")
+        .select(
+            "id, company_id, name, description, image_url, address_line, lat, lng, open_hours, is_force_closed"
+        )
+        .eq("id", branchId)
+        .maybeSingle();
+
+    if (error) throw new Error(error.message || "Failed to load branch");
+    if (!data) return null;
+
+    return {
+        id: data.id,
+        company_id: data.company_id,
+        name: data.name,
+        description: data.description ?? null,
+        image_url: data.image_url ?? null,
+        address_line: data.address_line ?? null,
+        lat: data.lat ?? null,
+        lng: data.lng ?? null,
+        open_hours: data.open_hours ?? null,
+        is_force_closed: !!data.is_force_closed,
+    };
+}
+
+async function loadAddOns(productIds: number[]): Promise<Map<number, ProductAddOnRow[]>> {
+    const supabase = getSupabase();
+    if (productIds.length === 0) return new Map();
+
+    const { data, error } = await supabase
+        .from("tbl_product_add_on")
+        .select("id, product_id, name, price, is_required, group_name")
+        .in("product_id", productIds);
+
+    if (error) throw new Error(error.message || "Failed to load product add-ons");
+
+    const map = new Map<number, ProductAddOnRow[]>();
+    for (const row of data ?? []) {
+        const list = map.get(row.product_id) ?? [];
+        list.push(row as ProductAddOnRow);
+        map.set(row.product_id, list);
+    }
+    return map;
+}
+
+/* ============================== Search (kept from old) ============================== */
 
 export async function searchBranches(params: {
     query?: string;
@@ -135,15 +193,17 @@ export async function searchBranches(params: {
 
     const productMap = new Map<number, ProductRow>();
     for (const row of productRows ?? []) {
-        productMap.set(row.id, row);
+        productMap.set(row.id, row as ProductRow);
     }
 
     const filteredBranchProducts = normalizedQuery
         ? branchProductRows.filter((row) => {
-              const product = productMap.get(row.product_id);
-              const candidates = [product?.name, product?.search_terms, row.search_terms];
-              return candidates.some((value) => typeof value === "string" && value.toLowerCase().includes(normalizedQuery));
-          })
+            const product = productMap.get(row.product_id);
+            const candidates = [product?.name, product?.search_terms as any, row.search_terms];
+            return candidates.some(
+                (value) => typeof value === "string" && value.toLowerCase().includes(normalizedQuery)
+            );
+        })
         : branchProductRows;
 
     if (!filteredBranchProducts.length) {
@@ -157,7 +217,9 @@ export async function searchBranches(params: {
 
     const { data: branchRows, error: branchError } = await supabase
         .from("tbl_branch")
-        .select("id, company_id, name, description, image_url, address_line, lat, lng, open_hours, is_force_closed")
+        .select(
+            "id, company_id, name, description, image_url, address_line, lat, lng, open_hours, is_force_closed"
+        )
         .in("id", branchIds);
     if (branchError) {
         throw new Error(branchError.message || "Failed to load branches");
@@ -232,114 +294,192 @@ export async function searchBranches(params: {
     return results.slice(0, limit);
 }
 
-export async function getBranchMenu(branchId: number): Promise<BranchMenuPayload | null> {
+/* ============================== Menu with search + pagination ============================== */
+
+/**
+ * Return branch menu with optional search & pagination.
+ * - searchBy: filter on product.search_tsv (if available) + fallback ILIKE on product name/description
+ * - page/size: DB-level pagination
+ */
+export async function getBranchMenu(
+    branchId: number,
+    opts?: { searchBy?: string; page?: number; size?: number }
+): Promise<BranchMenuPayload | null> {
     const supabase = getSupabase();
 
-    const { data: branchRow, error: branchError } = await supabase
-        .from("tbl_branch")
-        .select("id, company_id, name, description, image_url, address_line, lat, lng, open_hours, is_force_closed")
-        .eq("id", branchId)
-        .maybeSingle();
+    // 1) branch header
+    const branch = await getBranchById(branchId);
+    if (!branch) return null;
 
-    if (branchError) {
-        throw new Error(branchError.message || "Failed to load branch");
-    }
+    // 2) build base query on tbl_branch_product joined with tbl_product
+    const page = Math.max(1, Number(opts?.page || 1));
+    const size = Math.min(100, Math.max(1, Number(opts?.size || 20)));
+    const from = (page - 1) * size;
+    const to = from + size - 1;
 
-    if (!branchRow) {
-        return null;
-    }
-
-    const { data: branchProducts, error: branchProductsError } = await supabase
+    // PostgREST: select joined columns via !inner and alias product:tbl_product
+    let query = supabase
         .from("tbl_branch_product")
-        .select("product_id, is_enabled, stock_qty, price_override")
+        .select(
+            // include product fields and local fields we need
+            "product:tbl_product!inner(id,name,description,image_url,base_price), product_id, is_enabled, stock_qty, price_override",
+            { count: "exact" }
+        )
         .eq("branch_id", branchId);
 
-    if (branchProductsError) {
-        throw new Error(branchProductsError.message || "Failed to load branch menu");
+    const searchBy = (opts?.searchBy || "").trim();
+    if (searchBy) {
+        // Try text search on product.search_tsv (if you maintain a trigger)
+        // .textSearch() uses PostgREST syntax "fts" by default; 'websearch' is friendlier to user input.
+        query = query.textSearch("product.search_tsv", searchBy, { type: "websearch" });
+
+        // Fallback OR ILIKE on product.name/description to catch short queries
+        const pattern = `*${searchBy.replace(/\*/g, "")}*`;
+        query = query.or(`product.name.ilike.${pattern},product.description.ilike.${pattern}`);
     }
 
-    const productIds = Array.from(new Set((branchProducts ?? []).map((row) => row.product_id)));
-    const hasProducts = productIds.length > 0;
+    const { data, error, count } = await query
+        .order("product_id", { ascending: true, nullsFirst: false /*, referencedTable: "tbl_branch_product" */ })
+        .range(from, to);
 
-    const { data: productRows, error: productError } = hasProducts
-        ? await supabase
-              .from("tbl_product")
-              .select("id, name, description, image_url, base_price")
-              .in("id", productIds)
-        : { data: [] as ProductRow[], error: null };
+    if (error) throw new Error(error.message || "Failed to load branch menu");
 
-    if (productError) {
-        throw new Error(productError.message || "Failed to load products");
-    }
+    // 3) collect product ids (current page only)
+    type RowShape = {
+        product: ProductRow;
+        product_id: number;
+        is_enabled: boolean;
+        stock_qty: number | null;
+        price_override: number | null;
+    };
 
-    const productMap = new Map<number, ProductRow>();
-    for (const row of productRows ?? []) {
-        productMap.set(row.id, row);
-    }
+    const pageRows: RowShape[] =
+        (data ?? []).map((r: any) => ({
+            product: r.product as ProductRow,
+            product_id: r.product_id as number,
+            is_enabled: !!r.is_enabled,
+            stock_qty: r.stock_qty ?? null,
+            price_override: toNumber(r.price_override),
+        })) ?? [];
 
-    const { data: addOnRows, error: addOnError } = hasProducts
-        ? await supabase
-              .from("tbl_product_add_on")
-              .select("id, product_id, name, price, is_required, group_name")
-              .in("product_id", productIds)
-        : { data: [] as ProductAddOnRow[], error: null };
+    const productIds = pageRows.map((r) => r.product.id);
+    const addOnMap = await loadAddOns(productIds);
 
-    if (addOnError) {
-        throw new Error(addOnError.message || "Failed to load product add-ons");
-    }
+    // 4) assemble DTO
+    const menu: BranchMenuItem[] = pageRows.map((row) => {
+        const p = row.product;
+        const basePrice = toNumber(p.base_price);
+        const overridePrice = toNumber(row.price_override);
+        const effective = (overridePrice ?? basePrice ?? 0).toFixed(2);
 
-    const addOnMap = new Map<number, ProductAddOnRow[]>();
-    for (const addOn of addOnRows ?? []) {
-        const arr = addOnMap.get(addOn.product_id) ?? [];
-        arr.push(addOn);
-        addOnMap.set(addOn.product_id, arr);
-    }
+        const addOns =
+            (addOnMap.get(p.id) ?? [])
+                .map((a) => ({
+                    id: a.id,
+                    name: a.name,
+                    price: toNumber(a.price) ?? 0,
+                    is_required: !!a.is_required,
+                    group_name: a.group_name ?? null,
+                }))
+                .sort((a, b) => a.id - b.id);
 
-    const menu: BranchMenuItem[] = (branchProducts ?? [])
-        .map((row) => {
-            const product = productMap.get(row.product_id);
-            if (!product) return null;
+        return {
+            product_id: p.id,
+            name: p.name,
+            description: p.description ?? null,
+            image_url: p.image_url ?? null,
+            price: effective,
+            is_enabled: row.is_enabled,
+            stock_qty: row.stock_qty,
+            add_ons: addOns,
+        };
+    });
 
-            const basePrice = toNumber(product.base_price);
-            const overridePrice = toNumber(row.price_override);
-            const effective = overridePrice ?? basePrice ?? 0;
-            const addOns = (addOnMap.get(product.id) ?? []).map((addOn) => ({
-                id: addOn.id,
-                name: addOn.name,
-                price: toNumber(addOn.price) ?? 0,
-                is_required: !!addOn.is_required,
-                group_name: addOn.group_name ?? null,
-            }));
-
-            addOns.sort((a, b) => a.id - b.id);
-
-            return {
-                product_id: product.id,
-                name: product.name,
-                description: product.description ?? null,
-                image_url: product.image_url ?? null,
-                price: effective.toFixed(2),
-                is_enabled: !!row.is_enabled,
-                stock_qty: row.stock_qty ?? null,
-                add_ons: addOns,
-            };
-        })
-        .filter((item): item is BranchMenuItem => Boolean(item));
-
+    // final sort (safety)
     menu.sort((a, b) => a.product_id - b.product_id);
 
-    const branch: BranchRow = {
-        id: branchRow.id,
-        company_id: branchRow.company_id,
-        name: branchRow.name,
-        description: branchRow.description ?? null,
-        image_url: branchRow.image_url ?? null,
-        address_line: branchRow.address_line ?? null,
-        lat: branchRow.lat ?? null,
-        lng: branchRow.lng ?? null,
-        open_hours: branchRow.open_hours ?? null,
-        is_force_closed: !!branchRow.is_force_closed,
+    return {
+        branch,
+        menu,
+        page,
+        size,
+        total: count ?? menu.length,
     };
+}
+
+/* ============================== Top menu (recommend) ============================== */
+
+/**
+ * Top menu for a branch:
+ * - recommend_menu = true
+ * - order by updated_at desc
+ * - limit 10
+ * - returns same shape as BranchMenuPayload (without pagination fields)
+ */
+export async function getTopMenu(branchId: number): Promise<BranchMenuPayload | null> {
+    const supabase = getSupabase();
+
+    const branch = await getBranchById(branchId);
+    if (!branch) return null;
+
+    const { data, error } = await supabase
+        .from("tbl_branch_product")
+        .select(
+            "product:tbl_product!inner(id,name,description,image_url,base_price), is_enabled, stock_qty, price_override, updated_at, recommend_menu"
+        )
+        .eq("branch_id", branchId)
+        .order("recommend_menu", { ascending: false, nullsFirst: false })
+        .order("updated_at", { ascending: false, nullsFirst: false })
+        .limit(10);
+
+    if (error) throw new Error(error.message || "Failed to load top menu");
+
+    type RowShape = {
+        product: ProductRow;
+        is_enabled: boolean;
+        stock_qty: number | null;
+        price_override: number | null;
+    };
+
+    const rows: RowShape[] =
+        (data ?? []).map((r: any) => ({
+            product: r.product as ProductRow,
+            is_enabled: !!r.is_enabled,
+            stock_qty: r.stock_qty ?? null,
+            price_override: toNumber(r.price_override),
+        })) ?? [];
+
+    const productIds = rows.map((r) => r.product.id);
+    const addOnMap = await loadAddOns(productIds);
+
+    const menu: BranchMenuItem[] = rows.map((row) => {
+        const p = row.product;
+        const basePrice = toNumber(p.base_price);
+        const overridePrice = toNumber(row.price_override);
+        const effective = (overridePrice ?? basePrice ?? 0).toFixed(2);
+
+        const addOns =
+            (addOnMap.get(p.id) ?? [])
+                .map((a) => ({
+                    id: a.id,
+                    name: a.name,
+                    price: toNumber(a.price) ?? 0,
+                    is_required: !!a.is_required,
+                    group_name: a.group_name ?? null,
+                }))
+                .sort((a, b) => a.id - b.id);
+
+        return {
+            product_id: p.id,
+            name: p.name,
+            description: p.description ?? null,
+            image_url: p.image_url ?? null,
+            price: effective,
+            is_enabled: row.is_enabled,
+            stock_qty: row.stock_qty,
+            add_ons: addOns,
+        };
+    });
 
     return { branch, menu };
 }
