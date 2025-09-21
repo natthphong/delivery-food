@@ -86,6 +86,10 @@ function toNumber(value: any): number | null {
     const num = Number(value);
     return Number.isFinite(num) ? num : null;
 }
+function escapeIlike(input: string): string {
+    // Escape % and _ which are wildcards in ILIKE
+    return input.replace(/[%_]/g, (m) => `\\${m}`);
+}
 
 async function getBranchById(branchId: number): Promise<BranchRow | null> {
     const supabase = getSupabase();
@@ -329,13 +333,10 @@ export async function getBranchMenu(
 
     const searchBy = (opts?.searchBy || "").trim();
     if (searchBy) {
-        // Try text search on product.search_tsv (if you maintain a trigger)
-        // .textSearch() uses PostgREST syntax "fts" by default; 'websearch' is friendlier to user input.
-        query = query.textSearch("product.search_tsv", searchBy, { type: "websearch" });
-
-        // Fallback OR ILIKE on product.name/description to catch short queries
-        const pattern = `*${searchBy.replace(/\*/g, "")}*`;
-        query = query.or(`product.name.ilike.${pattern},product.description.ilike.${pattern}`);
+        const pattern = `%${escapeIlike(searchBy)}%`;
+        query = query.or(
+            `product.name.ilike.${pattern},product.description.ilike.${pattern}`
+        );
     }
 
     const { data, error, count } = await query
@@ -428,9 +429,10 @@ export async function getTopMenu(branchId: number): Promise<BranchMenuPayload | 
             "product:tbl_product!inner(id,name,description,image_url,base_price), is_enabled, stock_qty, price_override, updated_at, recommend_menu"
         )
         .eq("branch_id", branchId)
-        .order("recommend_menu", { ascending: false, nullsFirst: false })
-        .order("updated_at", { ascending: false, nullsFirst: false })
+        .order("recommend_menu", { ascending: false, nullsFirst: false }) // true first
+        .order("updated_at", { ascending: false, nullsFirst: false })     // newest first
         .limit(10);
+
 
     if (error) throw new Error(error.message || "Failed to load top menu");
 
