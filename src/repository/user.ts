@@ -35,6 +35,32 @@ function mapUser(row: any): UserRecord {
     };
 }
 
+export async function isEmailTaken(email: string, excludeUserId?: number): Promise<boolean> {
+    const supabase = getSupabase();
+    let query = supabase.from("tbl_user").select("id").eq("email", email).limit(1);
+    if (typeof excludeUserId === "number" && Number.isFinite(excludeUserId)) {
+        query = query.neq("id", excludeUserId);
+    }
+    const { data, error } = await query;
+    if (error) {
+        throw new Error(error.message || "Failed to check email");
+    }
+    return (data ?? []).length > 0;
+}
+
+export async function isPhoneTaken(phone: string, excludeUserId?: number): Promise<boolean> {
+    const supabase = getSupabase();
+    let query = supabase.from("tbl_user").select("id").eq("phone", phone).limit(1);
+    if (typeof excludeUserId === "number" && Number.isFinite(excludeUserId)) {
+        query = query.neq("id", excludeUserId);
+    }
+    const { data, error } = await query;
+    if (error) {
+        throw new Error(error.message || "Failed to check phone");
+    }
+    return (data ?? []).length > 0;
+}
+
 export async function upsertUser(params: {
     firebaseUid: string;                    // must be the conflict key
     email?: string | null;

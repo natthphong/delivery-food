@@ -135,6 +135,8 @@ Avoid hardcoding hex unless necessary; prefer Tailwind tokens for consistency.
 - **i18n first**: import `{ useI18n }` and `I18N_KEYS`, then render copy via `t(I18N_KEYS.YOUR_KEY)`. Never hardcode user-visible strings.
 - **Container vs presentational**: pages (`pages/*.tsx`) own data fetching, effects, and handlers; UI lives in `src/components/**` with typed props.
 - **Props over global state**: keep presentational components stateless. Pass callbacks/data down instead of re-fetching inside.
+- **Debounced inputs**: keep the raw input value in local state, then `useEffect` + `setTimeout(…, 300)` to push the debounced value into router/query params before fetching.
+- **Pagination containers**: compute `totalPages` in the container, clamp page bounds there, and pass `{ page, size, total }` into toolbar/grid components; they should only render controls.
 - **Testing**: for RTL/Jest snapshots that depend on copy, call `setLocale("th")`/`setLocale("en")` from `utils/i18n` before rendering to stabilise expectations.
 
 ```tsx
