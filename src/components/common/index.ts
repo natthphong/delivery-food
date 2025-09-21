@@ -8,3 +8,4 @@ export { default as AlertModal } from "./AlertModal";
 export type { AlertModalProps } from "./AlertModal";
 
 export { default as QuantityInput } from "./QuantityInput";
+export { default as FloatingLanguageToggle } from "./FloatingLanguageToggle";

@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { searchBranches } from "@repository/branch";
+import { listAllCategories } from "@repository/categories";
 import { logError } from "@utils/logger";
 
 export const config = { runtime: "nodejs" };
@@ -70,6 +71,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
               })
             : enriched;
 
+        const categories = await listAllCategories();
+
         const branches = sorted.map((item) => ({
             id: item.branch_id,
             name: item.branch_name,
@@ -77,6 +80,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             address_line: item.address_line ?? null,
             is_open: !item.is_force_closed,
             is_force_closed: item.is_force_closed,
+            open_hours: item.open_hours ?? null,
             distance_km:
                 typeof item.distance_m === "number" ? Number((item.distance_m / 1000).toFixed(2)) : null,
             products_sample: (item.products_sample ?? []).map((product) => ({
@@ -91,7 +95,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             message: "success",
             body: {
                 branches,
-                categories: [],
+                categories,
             },
         });
     } catch (e: any) {

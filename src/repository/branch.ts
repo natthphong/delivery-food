@@ -34,6 +34,13 @@ export type ProductAddOnRow = {
     group_name: string | null;
 };
 
+type BranchProductRow = {
+    branch_id: number;
+    product_id: number;
+    price_override?: number | null;
+    search_terms?: string | null;
+};
+
 export type BranchSearchProduct = {
     product_id: number;
     name: string | null;
@@ -49,6 +56,7 @@ export type BranchSearchResult = {
     lng: number | null;
     address_line: string | null;
     is_force_closed: boolean;
+    open_hours: Record<string, [string, string][]> | null;
     match_count: number;
     products_sample: BranchSearchProduct[];
 };
@@ -138,6 +146,48 @@ async function loadAddOns(productIds: number[]): Promise<Map<number, ProductAddO
     return map;
 }
 
+async function loadAddOnNames(productIds: number[]): Promise<Map<number, string[]>> {
+    const supabase = getSupabase();
+    const map = new Map<number, string[]>();
+    if (productIds.length === 0) {
+        return map;
+    }
+
+    const attempt = await supabase
+        .from("tbl_product_add_on")
+        .select("product_id, name, search_terms")
+        .in("product_id", productIds);
+
+    let rows = attempt.data as Array<{ product_id: number; name?: string | null; search_terms?: string | null }> | null;
+
+    if (attempt.error) {
+        const fallback = await supabase
+            .from("tbl_product_add_on")
+            .select("product_id, name")
+            .in("product_id", productIds);
+
+        if (fallback.error) {
+            return map;
+        }
+
+        rows = fallback.data as Array<{ product_id: number; name?: string | null }> | null;
+    }
+
+    for (const row of rows ?? []) {
+        if (!row || typeof row.product_id !== "number") continue;
+        const list = map.get(row.product_id) ?? [];
+        if (row.name) {
+            list.push(String(row.name).toLowerCase());
+        }
+        if (typeof row.search_terms === "string" && row.search_terms.trim()) {
+            list.push(row.search_terms.toLowerCase());
+        }
+        map.set(row.product_id, list);
+    }
+
+    return map;
+}
+
 /* ============================== Search (kept) ============================== */
 
 export async function searchBranches(params: {
@@ -146,7 +196,8 @@ export async function searchBranches(params: {
     limit?: number;
 }): Promise<BranchSearchResult[]> {
     const supabase = getSupabase();
-    const normalizedQuery = params.query?.trim().toLowerCase() || "";
+    const normalizedQuery = (params.query || "").trim().toLowerCase();
+    const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
     const limit = Math.max(1, Math.min(100, params.limit ?? 20));
 
     let categoryProductIds: number[] | null = null;
@@ -156,13 +207,17 @@ export async function searchBranches(params: {
             .select("product_id")
             .eq("category_id", params.categoryId);
         if (error) throw new Error(error.message || "Failed to load product categories");
-        categoryProductIds = (data ?? []).map((row) => row.product_id);
-        if (categoryProductIds.length === 0) return [];
+        categoryProductIds = (data ?? [])
+            .map((row) => Number(row.product_id))
+            .filter((id) => Number.isFinite(id)) as number[];
+        if (categoryProductIds.length === 0) {
+            return [];
+        }
     }
 
     let branchProductQuery = supabase
         .from("tbl_branch_product")
-        .select("branch_id, product_id, is_enabled, stock_qty, price_override, search_terms")
+        .select("branch_id, product_id, price_override, search_terms")
         .eq("is_enabled", true);
 
     if (categoryProductIds) {
@@ -171,10 +226,31 @@ export async function searchBranches(params: {
 
     const { data: branchProductRows, error: branchProductError } = await branchProductQuery;
     if (branchProductError) throw new Error(branchProductError.message || "Failed to load branch products");
-    if (!branchProductRows || branchProductRows.length === 0) return [];
 
-    const productIds = Array.from(new Set(branchProductRows.map((row) => row.product_id)));
-    if (!productIds.length) return [];
+    const branchProductData: BranchProductRow[] = (branchProductRows ?? [])
+        .map((row: any) => {
+            const branchId = Number(row.branch_id);
+            const productId = Number(row.product_id);
+            if (!Number.isFinite(branchId) || !Number.isFinite(productId)) {
+                return null;
+            }
+            return {
+                branch_id: branchId,
+                product_id: productId,
+                price_override: toNumber(row.price_override),
+                search_terms: typeof row.search_terms === "string" ? row.search_terms : null,
+            } as BranchProductRow;
+        })
+        .filter((row): row is BranchProductRow => row !== null);
+
+    if (branchProductData.length === 0) {
+        return [];
+    }
+
+    const productIds = Array.from(new Set(branchProductData.map((row) => row.product_id)));
+    if (!productIds.length) {
+        return [];
+    }
 
     const { data: productRows, error: productError } = await supabase
         .from("tbl_product")
@@ -187,20 +263,12 @@ export async function searchBranches(params: {
         productMap.set(row.id, row as ProductRow);
     }
 
-    const filteredBranchProducts = normalizedQuery
-        ? branchProductRows.filter((row) => {
-            const product = productMap.get(row.product_id);
-            const candidates = [product?.name, product?.search_terms as any, row.search_terms];
-            return candidates.some(
-                (value) => typeof value === "string" && value.toLowerCase().includes(normalizedQuery)
-            );
-        })
-        : branchProductRows;
+    const addOnMap = await loadAddOnNames(productIds);
 
-    if (!filteredBranchProducts.length) return [];
-
-    const branchIds = Array.from(new Set(filteredBranchProducts.map((row) => row.branch_id)));
-    if (!branchIds.length) return [];
+    const branchIds = Array.from(new Set(branchProductData.map((row) => row.branch_id)));
+    if (!branchIds.length) {
+        return [];
+    }
 
     const { data: branchRows, error: branchError } = await supabase
         .from("tbl_branch")
@@ -226,6 +294,61 @@ export async function searchBranches(params: {
         });
     }
 
+    const companyIds = Array.from(
+        new Set(Array.from(branchMap.values()).map((branch) => branch.company_id))
+    ).filter((id): id is number => typeof id === "number" && Number.isFinite(id));
+
+    type CompanyRow = { id: number; name: string | null; search_terms?: string | null };
+    const companyMap = new Map<number, CompanyRow>();
+    if (companyIds.length > 0) {
+        const { data: companyRows, error: companyError } = await supabase
+            .from("tbl_company")
+            .select("id, name, search_terms")
+            .in("id", companyIds);
+        if (companyError) throw new Error(companyError.message || "Failed to load companies");
+        for (const row of companyRows ?? []) {
+            companyMap.set(row.id, {
+                id: row.id,
+                name: row.name ?? null,
+                search_terms: (row as any).search_terms ?? null,
+            });
+        }
+    }
+
+    const matchText = (val?: string | null) => {
+        if (!val) return false;
+        const lowered = val.toLowerCase();
+        return tokens.every((token) => lowered.includes(token));
+    };
+
+    const filteredBranchProducts = tokens.length === 0
+        ? branchProductData
+        : branchProductData.filter((row) => {
+              const product = productMap.get(row.product_id);
+              const branch = branchMap.get(row.branch_id);
+              const company = branch ? companyMap.get(branch.company_id) : undefined;
+              const addOnNames = addOnMap.get(row.product_id) ?? [];
+              const branchSearchTerms = typeof row.search_terms === "string" ? row.search_terms : null;
+
+              const candidates: Array<string | null | undefined> = [
+                  product?.name ?? null,
+                  product?.description ?? null,
+                  product?.search_terms ?? null,
+                  branchSearchTerms,
+                  branch?.name ?? null,
+                  branch?.description ?? null,
+                  company?.name ?? null,
+                  (company?.search_terms as string | null | undefined) ?? null,
+                  ...addOnNames,
+              ];
+
+              return candidates.some((candidate) => matchText(candidate));
+          });
+
+    if (filteredBranchProducts.length === 0) {
+        return [];
+    }
+
     const byBranch = new Map<number, BranchSearchResult>();
 
     for (const row of filteredBranchProducts) {
@@ -233,7 +356,6 @@ export async function searchBranches(params: {
         const product = productMap.get(row.product_id);
         if (!branch || !product) continue;
 
-        const existing = byBranch.get(row.branch_id);
         const sampleItem: BranchSearchProduct = {
             product_id: product.id,
             name: product.name ?? null,
@@ -241,15 +363,17 @@ export async function searchBranches(params: {
             price: toNumber(row.price_override ?? product.base_price ?? null),
         };
 
+        const existing = byBranch.get(row.branch_id);
         if (!existing) {
             byBranch.set(row.branch_id, {
                 branch_id: branch.id,
                 branch_name: branch.name,
-                image_url: branch.image_url,
-                lat: branch.lat,
-                lng: branch.lng,
-                address_line: branch.address_line,
+                image_url: branch.image_url ?? null,
+                lat: branch.lat ?? null,
+                lng: branch.lng ?? null,
+                address_line: branch.address_line ?? null,
                 is_force_closed: branch.is_force_closed,
+                open_hours: branch.open_hours ?? null,
                 match_count: 1,
                 products_sample: [sampleItem],
             });

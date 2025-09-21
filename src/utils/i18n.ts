@@ -7,7 +7,8 @@ export type Locale = "en" | "th";
 
 type Dictionary = Record<I18nKey, Record<Locale, string>>;
 
-const STORAGE_KEY = "locale";
+const STORAGE_KEY = "app.lang";
+const LEGACY_STORAGE_KEY = "locale";
 const DEFAULT_LOCALE: Locale = "en";
 const DICTIONARY = dictionary as Dictionary;
 
@@ -33,16 +34,23 @@ function resolveFromQuery(): Locale | null {
     const lang = normalizeLocale(params.get("lang"));
     if (!lang) return null;
     window.localStorage.setItem(STORAGE_KEY, lang);
+    window.localStorage.setItem(LEGACY_STORAGE_KEY, lang);
     updateDocumentLanguage(lang);
     return lang;
 }
 
 function resolveFromStorage(): Locale | null {
     if (typeof window === "undefined") return null;
-    const stored = normalizeLocale(window.localStorage.getItem(STORAGE_KEY));
-    if (stored) {
-        updateDocumentLanguage(stored);
-        return stored;
+    const storedPrimary = normalizeLocale(window.localStorage.getItem(STORAGE_KEY));
+    if (storedPrimary) {
+        updateDocumentLanguage(storedPrimary);
+        return storedPrimary;
+    }
+    const storedLegacy = normalizeLocale(window.localStorage.getItem(LEGACY_STORAGE_KEY));
+    if (storedLegacy) {
+        window.localStorage.setItem(STORAGE_KEY, storedLegacy);
+        updateDocumentLanguage(storedLegacy);
+        return storedLegacy;
     }
     return null;
 }
@@ -84,6 +92,7 @@ export function setLocale(locale: Locale) {
     cachedLocale = locale;
     if (typeof window !== "undefined") {
         window.localStorage.setItem(STORAGE_KEY, locale);
+        window.localStorage.setItem(LEGACY_STORAGE_KEY, locale);
     }
     updateDocumentLanguage(locale);
 }
