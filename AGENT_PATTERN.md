@@ -130,6 +130,25 @@ Avoid hardcoding hex unless necessary; prefer Tailwind tokens for consistency.
 
 ---
 
+## Patterns
+
+- **i18n first**: import `{ useI18n }` and `I18N_KEYS`, then render copy via `t(I18N_KEYS.YOUR_KEY)`. Never hardcode user-visible strings.
+- **Container vs presentational**: pages (`pages/*.tsx`) own data fetching, effects, and handlers; UI lives in `src/components/**` with typed props.
+- **Props over global state**: keep presentational components stateless. Pass callbacks/data down instead of re-fetching inside.
+- **Testing**: for RTL/Jest snapshots that depend on copy, call `setLocale("th")`/`setLocale("en")` from `utils/i18n` before rendering to stabilise expectations.
+
+```tsx
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
+
+const EmptyState = () => {
+    const { t } = useI18n();
+    return <p className="text-sm text-slate-500">{t(I18N_KEYS.SEARCH_EMPTY)}</p>;
+};
+```
+
+---
+
 ## Don’ts
 
 - Don’t mix different color palettes per page.

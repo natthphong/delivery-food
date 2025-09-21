@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Modal from "@components/common/Modal";
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
 
 export type OtpModalProps = {
     open: boolean;
@@ -14,6 +16,7 @@ export type OtpModalProps = {
 const BOXES = 6;
 
 const OtpModal: React.FC<OtpModalProps> = ({ open, phone, error, onClose, onVerify, submitting, onResend }) => {
+    const { t } = useI18n();
     const [values, setValues] = useState<string[]>(() => Array(BOXES).fill(""));
     const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
@@ -78,7 +81,7 @@ const OtpModal: React.FC<OtpModalProps> = ({ open, phone, error, onClose, onVeri
                 onClick={onClose}
                 className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-emerald-100"
             >
-                Cancel
+                {t(I18N_KEYS.AUTH_MODAL_CANCEL)}
             </button>
             <button
                 type="button"
@@ -89,15 +92,16 @@ const OtpModal: React.FC<OtpModalProps> = ({ open, phone, error, onClose, onVeri
                 {submitting && (
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-transparent" aria-hidden />
                 )}
-                Verify
+                {t(I18N_KEYS.AUTH_MODAL_VERIFY)}
             </button>
         </div>
     );
 
     return (
-        <Modal open={open} onClose={onClose} title="Enter verification code" size="sm" footer={footer}>
+        <Modal open={open} onClose={onClose} title={t(I18N_KEYS.AUTH_MODAL_TITLE)} size="sm" footer={footer}>
             <p className="text-sm text-slate-600">
-                We sent a 6-digit code to <span className="font-medium text-slate-800">{phone}</span>.
+                {t(I18N_KEYS.AUTH_MODAL_DESCRIPTION_PREFIX)} {" "}
+                <span className="font-medium text-slate-800">{phone}</span>.
             </p>
             <div className="mt-4 flex items-center justify-between gap-2">
                 {Array.from({ length: BOXES }).map((_, index) => (
@@ -111,7 +115,7 @@ const OtpModal: React.FC<OtpModalProps> = ({ open, phone, error, onClose, onVeri
                         onChange={(event) => handleChange(index, event.target.value)}
                         onKeyDown={(event) => handleKeyDown(index, event)}
                         onPaste={handlePaste}
-                        aria-label={`Digit ${index + 1}`}
+                        aria-label={`${t(I18N_KEYS.COMMON_DIGIT_PREFIX)} ${index + 1}`}
                     />
                 ))}
             </div>
@@ -121,7 +125,7 @@ const OtpModal: React.FC<OtpModalProps> = ({ open, phone, error, onClose, onVeri
                     onClick={onResend}
                     className="mt-4 inline-flex items-center justify-center rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-emerald-100"
                 >
-                    Resend code
+                    {t(I18N_KEYS.AUTH_MODAL_RESEND)}
                 </button>
             )}
             {error && <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}

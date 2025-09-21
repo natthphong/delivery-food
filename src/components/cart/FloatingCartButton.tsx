@@ -2,12 +2,15 @@ import { useMemo } from "react";
 import { useSelector } from "react-redux";
 import type { RootState } from "@store/index";
 import { totalItemCount } from "@utils/cart";
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
 
 type FloatingCartButtonProps = {
     onClick: () => void;
 };
 
 export default function FloatingCartButton({ onClick }: FloatingCartButtonProps) {
+    const { t } = useI18n();
     const card = useSelector((state: RootState) => state.auth.user?.card ?? []);
     const hasUser = useSelector((state: RootState) => !!state.auth.user);
 
@@ -20,7 +23,7 @@ export default function FloatingCartButton({ onClick }: FloatingCartButtonProps)
             type="button"
             onClick={onClick}
             className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 active:scale-[0.98]"
-            aria-label="Open cart"
+            aria-label={t(I18N_KEYS.CART_OPEN_CART)}
         >
             <span className="relative inline-flex items-center justify-center">
                 <svg
@@ -46,7 +49,7 @@ export default function FloatingCartButton({ onClick }: FloatingCartButtonProps)
                     {count}
                 </span>
             </span>
-            <span className="hidden sm:inline">Basket</span>
+            <span className="hidden sm:inline">{t(I18N_KEYS.CART_BASKET)}</span>
         </button>
     );
 }

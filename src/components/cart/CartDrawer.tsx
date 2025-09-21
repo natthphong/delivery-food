@@ -10,6 +10,8 @@ import type { RootState } from "@store/index";
 import { useAppDispatch } from "@store/index";
 import { setUser } from "@store/authSlice";
 import { saveUser } from "@utils/tokenStorage";
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
 
 type CartDrawerProps = {
     open: boolean;
@@ -18,6 +20,8 @@ type CartDrawerProps = {
 
 const ITEM_MAX = 10;
 const CHECKOUT_DRAFT_KEY = "CHECKOUT_DRAFT";
+
+type MessageState = string | null;
 
 function cloneCard(card: CartBranchGroup[]): CartBranchGroup[] {
     return card.map((branch) => ({
@@ -39,13 +43,14 @@ function filterEmpty(card: CartBranchGroup[]): CartBranchGroup[] {
 }
 
 export default function CartDrawer({ open, onClose }: CartDrawerProps) {
+    const { t } = useI18n();
     const dispatch = useAppDispatch();
     const router = useRouter();
     const user = useSelector((state: RootState) => state.auth.user);
     const [optimisticCard, setOptimisticCard] = useState<CartBranchGroup[]>([]);
     const [selectedMap, setSelectedMap] = useState<Record<string, boolean>>({});
     const [pending, setPending] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const [error, setError] = useState<MessageState>(null);
 
     const allKeys = useMemo(
         () =>
@@ -93,24 +98,24 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                     replace: true,
                 });
                 if (response.data.code !== "OK") {
-                    throw new Error(response.data.message || "Failed to save cart");
+                    throw new Error(response.data.message || t(I18N_KEYS.CART_UPDATE_ERROR));
                 }
                 const updatedUser = response.data.body?.user;
                 if (!updatedUser) {
-                    throw new Error("Invalid cart response");
+                    throw new Error(t(I18N_KEYS.CART_UPDATE_ERROR));
                 }
                 dispatch(setUser(updatedUser));
                 saveUser(updatedUser);
                 setError(null);
             } catch (err: any) {
-                const message = err?.response?.data?.message || err?.message || "Failed to update cart";
+                const message = err?.response?.data?.message || err?.message || t(I18N_KEYS.CART_UPDATE_ERROR);
                 setError(message);
                 setOptimisticCard(prevCard);
             } finally {
                 setPending(false);
             }
         },
-        [dispatch, user]
+        [dispatch, user, t]
     );
 
     const handleToggleSelectAll = () => {
@@ -203,7 +208,7 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
             .filter((branch) => branch.productList.length > 0);
 
         if (draft.length === 0) {
-            setError("Select at least one item");
+            setError(t(I18N_KEYS.CART_SELECT_AT_LEAST_ONE));
             return;
         }
 
@@ -216,10 +221,13 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
 
     if (!open) return null;
 
+    const addonPrefix = t(I18N_KEYS.CART_ADDON_PREFIX);
+    const branchNumberPrefix = t(I18N_KEYS.CART_BRANCH_NUMBER_PREFIX);
+
     const renderAddOns = (item: CartItem) => {
         if (!item.productAddOns.length) return null;
         const formatted = item.productAddOns
-            .map((addon) => `+ ${addon.name} ${formatTHB(addon.price)}`)
+            .map((addon) => `${addonPrefix} ${addon.name} ${formatTHB(addon.price)}`)
             .join(", ");
         return <p className="mt-1 text-xs text-slate-500">{formatted}</p>;
     };
@@ -241,7 +249,7 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                 <div>
                     <h3 className="text-sm font-semibold text-slate-900">{branch.branchName}</h3>
                     {branch.companyId && (
-                        <p className="text-xs text-slate-500">Branch #{branch.companyId}</p>
+                        <p className="text-xs text-slate-500">{`${branchNumberPrefix}${branch.companyId}`}</p>
                     )}
                 </div>
             </div>
@@ -295,7 +303,7 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                                         <path d="M10 11v6M14 11v6" strokeLinecap="round" />
                                         <path d="M6 7l1 12a1 1 0 0 0 1 .92h8a1 1 0 0 0 1-.92L18 7" strokeLinecap="round" />
                                     </svg>
-                                    Remove
+                                    {t(I18N_KEYS.CART_REMOVE)}
                                 </button>
                             </div>
                         </li>
@@ -318,14 +326,14 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                 <aside className="flex h-[88vh] w-full flex-col rounded-t-3xl bg-white shadow-xl sm:h-full sm:max-w-md sm:rounded-none sm:border-l sm:border-slate-200">
                     <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
                         <div>
-                            <h2 className="text-base font-semibold text-slate-900">My Basket</h2>
-                            <p className="text-xs text-slate-500">Review your selections before checkout.</p>
+                            <h2 className="text-base font-semibold text-slate-900">{t(I18N_KEYS.CART_DRAWER_TITLE)}</h2>
+                            <p className="text-xs text-slate-500">{t(I18N_KEYS.CART_DRAWER_SUBTITLE)}</p>
                         </div>
                         <button
                             type="button"
                             onClick={onClose}
                             className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-                            aria-label="Close cart"
+                            aria-label={t(I18N_KEYS.CART_CLOSE_CART)}
                         >
                             <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
                                 <path d="m4 4 8 8M12 4 4 12" strokeLinecap="round" />
@@ -336,8 +344,8 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                     <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
                         {!hasItems ? (
                             <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center">
-                                <p className="text-sm font-medium text-slate-700">Your basket is empty.</p>
-                                <p className="mt-1 text-xs text-slate-500">Add some dishes to get started.</p>
+                                <p className="text-sm font-medium text-slate-700">{t(I18N_KEYS.CART_EMPTY_TITLE)}</p>
+                                <p className="mt-1 text-xs text-slate-500">{t(I18N_KEYS.CART_EMPTY_SUBTITLE)}</p>
                             </div>
                         ) : (
                             optimisticCard.map((branch) => renderBranch(branch))
@@ -358,9 +366,9 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                                     checked={allSelected && allKeys.length > 0}
                                     onChange={handleToggleSelectAll}
                                 />
-                                Select all ({selectedCount}/{allKeys.length})
+                                {t(I18N_KEYS.CART_SELECT_ALL)} ({selectedCount}/{allKeys.length})
                             </label>
-                            {pending && <span className="text-emerald-600">Updating…</span>}
+                            {pending && <span className="text-emerald-600">{t(I18N_KEYS.COMMON_UPDATING)}</span>}
                         </div>
                         <div className="flex flex-col gap-3 sm:flex-row">
                             <button
@@ -369,7 +377,7 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                                 disabled={selectedCount === 0 || pending}
                                 className="inline-flex flex-1 items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                                Remove Selected
+                                {t(I18N_KEYS.CART_REMOVE_SELECTED)}
                             </button>
                             <button
                                 type="button"
@@ -377,7 +385,7 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                                 disabled={selectedCount === 0 || pending || !hasItems}
                                 className="inline-flex flex-1 items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                                Checkout Selected
+                                {t(I18N_KEYS.CART_CHECKOUT_SELECTED)}
                             </button>
                         </div>
                     </footer>

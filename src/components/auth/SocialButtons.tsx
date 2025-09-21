@@ -1,4 +1,6 @@
 import React from "react";
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
 
 export type SocialButtonsProps = {
     mode: "login" | "signup";
@@ -8,6 +10,8 @@ export type SocialButtonsProps = {
 };
 
 const SocialButtons: React.FC<SocialButtonsProps> = ({ mode, onGoogle, onLine, submitting }) => {
+    const { t } = useI18n();
+
     const handleGoogle = (event: React.MouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
         if (!submitting) {
@@ -22,6 +26,8 @@ const SocialButtons: React.FC<SocialButtonsProps> = ({ mode, onGoogle, onLine, s
         }
     };
 
+    const caption = mode === "login" ? t(I18N_KEYS.AUTH_SOCIAL_CAPTION_LOGIN) : t(I18N_KEYS.AUTH_SOCIAL_CAPTION_SIGNUP);
+
     return (
         <div className="space-y-3">
             <button
@@ -31,7 +37,7 @@ const SocialButtons: React.FC<SocialButtonsProps> = ({ mode, onGoogle, onLine, s
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-emerald-100 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
             >
                 <img src="/line-icon.svg" alt="LINE" className="h-4 w-4" />
-                <span>Continue with LINE</span>
+                <span>{t(I18N_KEYS.AUTH_SOCIAL_LINE)}</span>
             </button>
             <button
                 type="button"
@@ -41,7 +47,7 @@ const SocialButtons: React.FC<SocialButtonsProps> = ({ mode, onGoogle, onLine, s
             >
                 <svg viewBox="0 0 533.5 544.3" className="h-4 w-4" aria-hidden>
                     <path
-                        d="M533.5 278.4c0-17.4-1.6-34.1-4.6-50.4H272v95.4h146.9c-6.3 34.3-25.2 63.3-53.7 82.7v68h86.9c50.8-46.8 80.4-116 80.4-195.7z"
+                        d="M533.5 278.4c0-17.4-1.6-34.1-4.6-50.4H272v95.4h146.9c-6.3 34.3-25.2 63.3-53.7 82.7v68h86.9c50.8-46.880.4-116 80.4-195.7z"
                         fill="#4285F4"
                     />
                     <path
@@ -57,11 +63,9 @@ const SocialButtons: React.FC<SocialButtonsProps> = ({ mode, onGoogle, onLine, s
                         fill="#EA4335"
                     />
                 </svg>
-                <span>Continue with Google</span>
+                <span>{t(I18N_KEYS.AUTH_SOCIAL_GOOGLE)}</span>
             </button>
-            <p className="text-[11px] text-slate-500">
-                Quick sign {mode === "login" ? "in" : "up"} with providers.
-            </p>
+            <p className="text-[11px] text-slate-500">{caption}</p>
         </div>
     );
 };
