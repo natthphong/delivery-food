@@ -1,4 +1,6 @@
 // src/repository/branch.ts
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { logError } from "@utils/logger";
 import { getSupabase } from "@utils/supabaseServer";
 
 /* ============================== Types ============================== */
@@ -99,6 +101,43 @@ function escapeIlike(input: string): string {
     return input.replace(/[%_]/g, (m) => `\\${m}`);
 }
 
+async function selectInBatches<T>(
+    supabase: SupabaseClient,
+    table: string,
+    column: string,
+    ids: number[],
+    selectColumns: string,
+    batchSize = 300
+): Promise<T[]> {
+    if (ids.length === 0) {
+        return [];
+    }
+
+    const uniqueIds = Array.from(
+        new Set(
+            ids.filter((id): id is number => typeof id === "number" && Number.isFinite(id))
+        )
+    );
+
+    if (uniqueIds.length === 0) {
+        return [];
+    }
+
+    const results: T[] = [];
+    for (let index = 0; index < uniqueIds.length; index += batchSize) {
+        const chunk = uniqueIds.slice(index, index + batchSize);
+        const { data, error } = await supabase.from(table).select(selectColumns).in(column, chunk);
+        if (error) {
+            throw new Error(error.message || `Failed to load ${table}`);
+        }
+        if (Array.isArray(data)) {
+            results.push(...(data as unknown as T[]));
+        }
+    }
+
+    return results;
+}
+
 async function getBranchById(branchId: number): Promise<BranchRow | null> {
     const supabase = getSupabase();
     const { data, error } = await supabase
@@ -146,43 +185,45 @@ async function loadAddOns(productIds: number[]): Promise<Map<number, ProductAddO
     return map;
 }
 
-async function loadAddOnNames(productIds: number[]): Promise<Map<number, string[]>> {
-    const supabase = getSupabase();
+async function loadAddOnNames(
+    supabase: SupabaseClient,
+    productIds: number[]
+): Promise<Map<number, string[]>> {
     const map = new Map<number, string[]>();
     if (productIds.length === 0) {
         return map;
     }
 
-    const attempt = await supabase
-        .from("tbl_product_add_on")
-        .select("product_id, name, search_terms")
-        .in("product_id", productIds);
+    try {
+        const rows = await selectInBatches<{
+            product_id: number;
+            name: string | null;
+            search_terms?: string | null;
+        }>(supabase, "tbl_product_add_on", "product_id", productIds, "product_id, name, search_terms");
 
-    let rows = attempt.data as Array<{ product_id: number; name?: string | null; search_terms?: string | null }> | null;
-
-    if (attempt.error) {
-        const fallback = await supabase
-            .from("tbl_product_add_on")
-            .select("product_id, name")
-            .in("product_id", productIds);
-
-        if (fallback.error) {
-            return map;
+        for (const row of rows) {
+            if (!row || typeof row.product_id !== "number") continue;
+            const key = row.product_id;
+            const list = map.get(key) ?? [];
+            if (row.name) {
+                const lowered = String(row.name).toLowerCase();
+                if (!list.includes(lowered)) {
+                    list.push(lowered);
+                }
+            }
+            if (typeof row.search_terms === "string" && row.search_terms.trim()) {
+                const loweredTerms = row.search_terms.toLowerCase();
+                if (!list.includes(loweredTerms)) {
+                    list.push(loweredTerms);
+                }
+            }
+            map.set(key, list);
         }
-
-        rows = fallback.data as Array<{ product_id: number; name?: string | null }> | null;
-    }
-
-    for (const row of rows ?? []) {
-        if (!row || typeof row.product_id !== "number") continue;
-        const list = map.get(row.product_id) ?? [];
-        if (row.name) {
-            list.push(String(row.name).toLowerCase());
-        }
-        if (typeof row.search_terms === "string" && row.search_terms.trim()) {
-            list.push(row.search_terms.toLowerCase());
-        }
-        map.set(row.product_id, list);
+    } catch (error) {
+        logError("Failed to load add-on names for search", {
+            count: productIds.length,
+            error: error instanceof Error ? error.message : String(error ?? "unknown"),
+        });
     }
 
     return map;
@@ -252,44 +293,78 @@ export async function searchBranches(params: {
         return [];
     }
 
-    const { data: productRows, error: productError } = await supabase
-        .from("tbl_product")
-        .select("id, name, description, image_url, base_price, search_terms")
-        .in("id", productIds);
-    if (productError) throw new Error(productError.message || "Failed to load products");
+    const productRows = await selectInBatches<{
+        id: number;
+        name: string | null;
+        description: string | null;
+        image_url: string | null;
+        base_price: number | null;
+        search_terms?: string | null;
+    }>(
+        supabase,
+        "tbl_product",
+        "id",
+        productIds,
+        "id, name, description, image_url, base_price, search_terms"
+    );
 
     const productMap = new Map<number, ProductRow>();
-    for (const row of productRows ?? []) {
-        productMap.set(row.id, row as ProductRow);
+    for (const row of productRows) {
+        const id = Number(row.id);
+        if (!Number.isFinite(id)) continue;
+        productMap.set(id, {
+            id,
+            name: row.name ?? "",
+            description: row.description ?? null,
+            image_url: row.image_url ?? null,
+            base_price: toNumber(row.base_price),
+            search_terms: row.search_terms ?? null,
+        });
     }
 
-    const addOnMap = await loadAddOnNames(productIds);
+    const addOnMap = await loadAddOnNames(supabase, productIds);
 
     const branchIds = Array.from(new Set(branchProductData.map((row) => row.branch_id)));
     if (!branchIds.length) {
         return [];
     }
 
-    const { data: branchRows, error: branchError } = await supabase
-        .from("tbl_branch")
-        .select(
-            "id, company_id, name, description, image_url, address_line, lat, lng, open_hours, is_force_closed"
-        )
-        .in("id", branchIds);
-    if (branchError) throw new Error(branchError.message || "Failed to load branches");
+    const branchRows = await selectInBatches<{
+        id: number;
+        company_id: number;
+        name: string;
+        description: string | null;
+        image_url: string | null;
+        address_line: string | null;
+        lat: number | null;
+        lng: number | null;
+        open_hours: Record<string, [string, string][]> | null;
+        is_force_closed: boolean | null;
+    }>(
+        supabase,
+        "tbl_branch",
+        "id",
+        branchIds,
+        "id, company_id, name, description, image_url, address_line, lat, lng, open_hours, is_force_closed"
+    );
 
     const branchMap = new Map<number, BranchRow>();
-    for (const row of branchRows ?? []) {
-        branchMap.set(row.id, {
-            id: row.id,
-            company_id: row.company_id,
+    for (const row of branchRows) {
+        const id = Number(row.id);
+        const companyId = Number(row.company_id);
+        if (!Number.isFinite(id) || !Number.isFinite(companyId)) {
+            continue;
+        }
+        branchMap.set(id, {
+            id,
+            company_id: companyId,
             name: row.name,
             description: row.description ?? null,
             image_url: row.image_url ?? null,
             address_line: row.address_line ?? null,
-            lat: row.lat ?? null,
-            lng: row.lng ?? null,
-            open_hours: row.open_hours ?? null,
+            lat: toNumber(row.lat),
+            lng: toNumber(row.lng),
+            open_hours: (row.open_hours as Record<string, [string, string][]> | null) ?? null,
             is_force_closed: !!row.is_force_closed,
         });
     }
@@ -298,19 +373,21 @@ export async function searchBranches(params: {
         new Set(Array.from(branchMap.values()).map((branch) => branch.company_id))
     ).filter((id): id is number => typeof id === "number" && Number.isFinite(id));
 
-    type CompanyRow = { id: number; name: string | null; search_terms?: string | null };
+    type CompanyRow = { id: number; name: string | null; description: string | null };
     const companyMap = new Map<number, CompanyRow>();
     if (companyIds.length > 0) {
-        const { data: companyRows, error: companyError } = await supabase
-            .from("tbl_company")
-            .select("id, name, search_terms")
-            .in("id", companyIds);
-        if (companyError) throw new Error(companyError.message || "Failed to load companies");
-        for (const row of companyRows ?? []) {
-            companyMap.set(row.id, {
-                id: row.id,
+        const companyRows = await selectInBatches<{
+            id: number;
+            name: string | null;
+            description: string | null;
+        }>(supabase, "tbl_company", "id", companyIds, "id, name, description");
+        for (const row of companyRows) {
+            const id = Number(row.id);
+            if (!Number.isFinite(id)) continue;
+            companyMap.set(id, {
+                id,
                 name: row.name ?? null,
-                search_terms: (row as any).search_terms ?? null,
+                description: row.description ?? null,
             });
         }
     }
@@ -338,7 +415,7 @@ export async function searchBranches(params: {
                   branch?.name ?? null,
                   branch?.description ?? null,
                   company?.name ?? null,
-                  (company?.search_terms as string | null | undefined) ?? null,
+                  company?.description ?? null,
                   ...addOnNames,
               ];
 

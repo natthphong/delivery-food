@@ -1,14 +1,27 @@
-import React from "react";
+import React, { useCallback } from "react";
+import { useRouter } from "next/router";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import { type Locale, useI18n } from "@/utils/i18n";
 
 const FloatingLanguageToggle: React.FC = () => {
+    const router = useRouter();
     const { locale, setLocale, t } = useI18n();
 
-    const handleChange = (nextLocale: Locale) => {
-        if (nextLocale === locale) return;
-        setLocale(nextLocale);
-    };
+    const handleChange = useCallback(
+        (nextLocale: Locale) => {
+            if (nextLocale === locale) return;
+            setLocale(nextLocale);
+            void router.replace(
+                {
+                    pathname: router.pathname,
+                    query: { ...router.query, lang: nextLocale },
+                },
+                undefined,
+                { shallow: true }
+            );
+        },
+        [locale, router, setLocale]
+    );
 
     return (
         <div className="fixed bottom-4 left-4 z-50">
