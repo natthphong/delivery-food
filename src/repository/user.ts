@@ -3,7 +3,7 @@ import { CartBranchGroup, UserRecord } from "@/types";
 import { getSupabase } from "@utils/supabaseServer";
 
 export const USER_SELECT =
-    "id, firebase_uid, email, phone, provider, is_email_verified, is_phone_verified, card, created_at, updated_at";
+    "id, firebase_uid, email, phone, provider, is_email_verified, is_phone_verified, balance, card, created_at, updated_at";
 
 function normalizeCard(input: unknown): CartBranchGroup[] {
     if (!Array.isArray(input)) {
@@ -29,6 +29,12 @@ function mapUser(row: any): UserRecord {
         provider: row.provider ?? null,
         is_email_verified: isEmailVerified,
         is_phone_verified: isPhoneVerified,
+        balance: (() => {
+            const raw = row.balance;
+            if (raw == null) return 0;
+            const parsed = typeof raw === "number" ? raw : Number(raw);
+            return Number.isFinite(parsed) ? parsed : 0;
+        })(),
         card: normalizeCard(row.card),
         created_at: String(row.created_at ?? new Date().toISOString()),
         updated_at: String(row.updated_at ?? new Date().toISOString()),

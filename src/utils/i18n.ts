@@ -7,7 +7,8 @@ export type Locale = "en" | "th";
 
 type Dictionary = Record<I18nKey, Record<Locale, string>>;
 
-const STORAGE_KEY = "locale";
+const STORAGE_KEY = "app.lang";
+const LEGACY_STORAGE_KEY = "locale";
 const DEFAULT_LOCALE: Locale = "en";
 const DICTIONARY = dictionary as Dictionary;
 
@@ -27,22 +28,15 @@ function updateDocumentLanguage(locale: Locale) {
     }
 }
 
-function resolveFromQuery(): Locale | null {
-    if (typeof window === "undefined") return null;
-    const params = new URLSearchParams(window.location.search);
-    const lang = normalizeLocale(params.get("lang"));
-    if (!lang) return null;
-    window.localStorage.setItem(STORAGE_KEY, lang);
-    updateDocumentLanguage(lang);
-    return lang;
-}
-
 function resolveFromStorage(): Locale | null {
     if (typeof window === "undefined") return null;
-    const stored = normalizeLocale(window.localStorage.getItem(STORAGE_KEY));
-    if (stored) {
-        updateDocumentLanguage(stored);
-        return stored;
+    const storedPrimary = normalizeLocale(window.localStorage.getItem(STORAGE_KEY));
+    if (storedPrimary) {
+        return storedPrimary;
+    }
+    const storedLegacy = normalizeLocale(window.localStorage.getItem(LEGACY_STORAGE_KEY));
+    if (storedLegacy) {
+        return storedLegacy;
     }
     return null;
 }
@@ -51,41 +45,65 @@ function resolveFromNavigator(): Locale {
     if (typeof navigator !== "undefined" && typeof navigator.language === "string") {
         const normalized = normalizeLocale(navigator.language);
         if (normalized) {
-            updateDocumentLanguage(normalized);
             return normalized;
         }
     }
     return DEFAULT_LOCALE;
 }
 
-function resolveLocale(): Locale {
-    if (cachedLocale) return cachedLocale;
-    const queryLocale = resolveFromQuery();
-    if (queryLocale) {
-        cachedLocale = queryLocale;
-        return queryLocale;
+function getLangFromLocation(): string | null {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("lang");
+}
+
+function readLocaleParam(value: string | string[] | null | undefined): Locale | null {
+    if (Array.isArray(value)) {
+        return normalizeLocale(value[0]);
     }
+    return normalizeLocale(value ?? undefined);
+}
+
+function persistLocale(locale: Locale) {
+    cachedLocale = locale;
+    if (typeof window !== "undefined") {
+        window.localStorage.setItem(STORAGE_KEY, locale);
+        window.localStorage.setItem(LEGACY_STORAGE_KEY, locale);
+    }
+    updateDocumentLanguage(locale);
+}
+
+function resolveLocale(queryValue?: string | string[]): Locale {
+    const fromQuery = readLocaleParam(queryValue ?? getLangFromLocation());
+    if (fromQuery) {
+        if (cachedLocale === fromQuery) {
+            return fromQuery;
+        }
+        persistLocale(fromQuery);
+        return fromQuery;
+    }
+
+    if (cachedLocale) {
+        return cachedLocale;
+    }
+
     const storageLocale = resolveFromStorage();
     if (storageLocale) {
-        cachedLocale = storageLocale;
+        persistLocale(storageLocale);
         return storageLocale;
     }
+
     const navigatorLocale = resolveFromNavigator();
-    cachedLocale = navigatorLocale;
+    persistLocale(navigatorLocale);
     return navigatorLocale;
 }
 
 export function getLocale(): Locale {
-    if (cachedLocale) return cachedLocale;
     return resolveLocale();
 }
 
 export function setLocale(locale: Locale) {
-    cachedLocale = locale;
-    if (typeof window !== "undefined") {
-        window.localStorage.setItem(STORAGE_KEY, locale);
-    }
-    updateDocumentLanguage(locale);
+    persistLocale(locale);
 }
 
 export function t(key: I18nKey, localeOverride?: Locale): string {
@@ -108,22 +126,13 @@ export function t(key: I18nKey, localeOverride?: Locale): string {
 
 export function useI18n() {
     const router = useRouter();
-    const [locale, setLocaleState] = useState<Locale>(() => getLocale());
+    const [locale, setLocaleState] = useState<Locale>(() => resolveLocale(router.query.lang));
 
     useEffect(() => {
         if (!router.isReady) return;
-        const queryValue = router.query.lang;
-        const nextFromQuery = Array.isArray(queryValue)
-            ? normalizeLocale(queryValue[0])
-            : normalizeLocale(queryValue ?? undefined);
-        if (nextFromQuery && nextFromQuery !== locale) {
-            setLocale(nextFromQuery);
-            setLocaleState(nextFromQuery);
-            return;
-        }
-        const current = resolveLocale();
-        if (current !== locale) {
-            setLocaleState(current);
+        const resolved = resolveLocale(router.query.lang);
+        if (resolved !== locale) {
+            setLocaleState(resolved);
         }
     }, [router.isReady, router.query.lang, locale]);
 
@@ -135,7 +144,7 @@ export function useI18n() {
     const updateLocale = useCallback(
         (next: Locale) => {
             if (next === locale) return;
-            setLocale(next);
+            persistLocale(next);
             setLocaleState(next);
         },
         [locale]

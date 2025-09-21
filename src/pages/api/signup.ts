@@ -113,6 +113,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
                     provider: freshUser?.provider ?? user.provider,
                     is_email_verified: freshUser?.is_email_verified ?? user.is_email_verified ?? null,
                     is_phone_verified: freshUser?.is_phone_verified ?? user.is_phone_verified ?? null,
+                    balance: freshUser?.balance ?? user.balance ?? 0,
                     card: freshUser?.card ?? [],
                     created_at: freshUser?.created_at ?? user.created_at,
                     updated_at: freshUser?.updated_at ?? user.updated_at,
