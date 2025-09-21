@@ -161,16 +161,17 @@ function sanitizeAddRequest(raw: unknown): CartBranchGroup[] {
     ];
 }
 
-function clampQty(qty: number, maxQty: number): number {
-    return Math.min(Math.max(qty, 1), maxQty);
-}
 
 function cloneItem(item: CartItem, maxQty: number): CartItem {
+    if (item.qty >maxQty){
+        throw new Error("item qty more than maxQty");
+    }
+
     return {
         productId: item.productId,
         productName: item.productName,
         price: item.price,
-        qty: clampQty(item.qty, maxQty),
+        qty: item.qty,
         productAddOns: item.productAddOns.map((addon) => ({ ...addon })),
     };
 }
@@ -274,7 +275,8 @@ export default async function handler(
         const replace = body?.replace === true;
 
         const currentUser = await getUserByFirebaseUid(auth.uid);
-        const existingCard = sanitizeExistingCard(currentUser?.card ?? []);
+        const existingCard:CartBranchGroup[] = sanitizeExistingCard(currentUser?.card ?? []);
+
         const maxQtyPerItem = await getNumberConfig("MAX_QTY_PER_ITEM", DEFAULT_MAX_QTY_PER_ITEM);
 
         let nextCard: CartBranchGroup[] = existingCard;
@@ -322,8 +324,13 @@ export default async function handler(
             if (error.message === "Quantity must be at least 1") {
                 return res.status(400).json({ code: "INVALID_QTY", message: error.message, body: null });
             }
+            if (error.message === "item qty more than maxQty") {
+                return res.status(400).json({ code: "INVALID_QTY", message: error.message, body: null });
+            }
             if (error.message.startsWith("Invalid") || error.message.includes("must")) {
-                return res.status(400).json({ code: "BAD_REQUEST", message: error.message, body: null });
+                return res
+                    .status(400)
+                    .json({ code: "CARD_LIMIT_EXCEEDED", message: "Item  limit exceeded", body: null });
             }
         }
         logError("card save error", { message: error?.message });

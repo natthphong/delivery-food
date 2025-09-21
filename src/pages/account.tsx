@@ -13,6 +13,7 @@ import type { Me } from "@/components/account/types";
 import type { I18nKey } from "@/constants/i18nKeys";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import { useI18n } from "@/utils/i18n";
+import { notify } from "@/utils/notify";
 
 import type { ConfirmationResult } from "firebase/auth";
 
@@ -47,6 +48,23 @@ export default function AccountPage() {
     const router = useRouter();
     const dispatch = useAppDispatch();
     const { t } = useI18n();
+    const resolveErrorMessage = useCallback(
+        (error: any, fallbackKey: I18nKey) => {
+            const code = error?.response?.data?.code;
+            if (code === "DUPLICATE_EMAIL") {
+                return t(I18N_KEYS.ACCOUNT_DUPLICATE_EMAIL);
+            }
+            if (code === "DUPLICATE_PHONE") {
+                return t(I18N_KEYS.ACCOUNT_DUPLICATE_PHONE);
+            }
+            const responseMessage = error?.response?.data?.message ?? error?.message;
+            if (typeof responseMessage === "string" && responseMessage.length > 0) {
+                return responseMessage;
+            }
+            return t(fallbackKey);
+        },
+        [t]
+    );
     const [me, setMe] = useState<Me | null>(null);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState<MessageState>(null);
@@ -127,6 +145,7 @@ export default function AccountPage() {
             if (auth.currentUser.emailVerified) {
                 await updateAccount({ is_email_verified: true });
                 setMessage({ key: I18N_KEYS.ACCOUNT_MESSAGE_EMAIL_VERIFIED });
+                notify(t(I18N_KEYS.ACCOUNT_MESSAGE_EMAIL_VERIFIED), "success");
             } else {
                 const idToken = await auth.currentUser.getIdToken();
                 const response = await axios.post<SendVerifyEmailResponse>("/api/user/send-verify-email", { idToken });
@@ -134,10 +153,12 @@ export default function AccountPage() {
                     throw new Error(response.data.message || t(I18N_KEYS.ACCOUNT_ERROR_VERIFY_EMAIL));
                 }
                 setMessage({ key: I18N_KEYS.ACCOUNT_MESSAGE_VERIFICATION_SENT });
+                notify(t(I18N_KEYS.ACCOUNT_MESSAGE_VERIFICATION_SENT), "info");
             }
         } catch (e: any) {
-            const messageText = e?.response?.data?.message || e?.message || t(I18N_KEYS.ACCOUNT_ERROR_PROCESS_EMAIL);
+            const messageText = resolveErrorMessage(e, I18N_KEYS.ACCOUNT_ERROR_PROCESS_EMAIL);
             setError({ text: messageText });
+            notify(messageText, "error");
         } finally {
             setVerifyingEmail(false);
         }
@@ -154,13 +175,21 @@ export default function AccountPage() {
             if (!auth.currentUser) {
                 throw new Error(t(I18N_KEYS.ACCOUNT_ERROR_NO_SESSION));
             }
+            if (me?.is_email_verified && trimmed !== (me.email ?? null)) {
+                const confirmMessage = t(I18N_KEYS.ACCOUNT_RESET_VERIFY_CONFIRM);
+                if (!window.confirm(confirmMessage)) {
+                    return;
+                }
+            }
             setUpdatingEmail(true);
             await updateAccount({ email: trimmed });
             setMessage({ key: I18N_KEYS.ACCOUNT_MESSAGE_EMAIL_UPDATED });
+            notify(t(I18N_KEYS.ACCOUNT_MESSAGE_EMAIL_UPDATED), "success");
             setNewEmail("");
         } catch (e: any) {
-            const messageText = e?.response?.data?.message || e?.message || t(I18N_KEYS.ACCOUNT_ERROR_UPDATE_EMAIL);
+            const messageText = resolveErrorMessage(e, I18N_KEYS.ACCOUNT_ERROR_UPDATE_EMAIL);
             setError({ text: messageText });
+            notify(messageText, "error");
         } finally {
             setUpdatingEmail(false);
         }
@@ -174,15 +203,26 @@ export default function AccountPage() {
             if (!trimmed) {
                 throw new Error(t(I18N_KEYS.ACCOUNT_ERROR_PHONE_REQUIRED));
             }
+            if (me?.is_phone_verified && trimmed !== (me.phone ?? null)) {
+                const confirmMessage = t(I18N_KEYS.ACCOUNT_RESET_VERIFY_CONFIRM);
+                if (!window.confirm(confirmMessage)) {
+                    return;
+                }
+            }
             setSendingOtp(true);
+            if (trimmed !== (me?.phone ?? "")) {
+                await updateAccount({ phone: trimmed, is_phone_verified: false });
+            }
             const verifier = makeRecaptcha("btn-send-otp");
             const confirmation = await signInWithPhoneNumber(auth, trimmed, verifier);
             confirmRef.current = confirmation;
             setMessage({ key: I18N_KEYS.ACCOUNT_MESSAGE_OTP_SENT });
+            notify(t(I18N_KEYS.ACCOUNT_MESSAGE_OTP_SENT), "info");
             setOtp("");
         } catch (e: any) {
-            const messageText = e?.response?.data?.message || e?.code || e?.message || t(I18N_KEYS.ACCOUNT_ERROR_SEND_OTP);
+            const messageText = resolveErrorMessage(e, I18N_KEYS.ACCOUNT_ERROR_SEND_OTP);
             setError({ text: messageText });
+            notify(messageText, "error");
         } finally {
             setSendingOtp(false);
         }
@@ -205,12 +245,14 @@ export default function AccountPage() {
             const trimmedPhone = phone.trim();
             await updateAccount({ phone: trimmedPhone || null, is_phone_verified: true });
             setMessage({ key: I18N_KEYS.ACCOUNT_MESSAGE_PHONE_VERIFIED });
+            notify(t(I18N_KEYS.ACCOUNT_MESSAGE_PHONE_VERIFIED), "success");
             setPhone("");
             setOtp("");
             confirmRef.current = null;
         } catch (e: any) {
-            const messageText = e?.response?.data?.message || e?.code || e?.message || t(I18N_KEYS.ACCOUNT_ERROR_CONFIRM_OTP);
+            const messageText = resolveErrorMessage(e, I18N_KEYS.ACCOUNT_ERROR_CONFIRM_OTP);
             setError({ text: messageText });
+            notify(messageText, "error");
         } finally {
             setConfirmingOtp(false);
         }

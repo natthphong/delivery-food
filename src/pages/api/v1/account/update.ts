@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { resolveAuth } from "@utils/authMiddleware";
-import { getUserByFirebaseUid, updateUserContact } from "@repository/user";
+import { getUserByFirebaseUid, updateUserContact, isEmailTaken, isPhoneTaken } from "@repository/user";
 import { logError } from "@utils/logger";
 
 export const config = { runtime: "nodejs" };
@@ -128,6 +128,24 @@ export default async function handler(
         }
         if (requestedPhoneVerified !== undefined) {
             patch.is_phone_verified = requestedPhoneVerified;
+        }
+
+        if (emailChanged && patch.email) {
+            const duplicate = await isEmailTaken(patch.email, existing?.id);
+            if (duplicate) {
+                return res
+                    .status(409)
+                    .json({ code: "DUPLICATE_EMAIL", message: "Email already in use", body: null });
+            }
+        }
+
+        if (phoneChanged && patch.phone) {
+            const duplicate = await isPhoneTaken(patch.phone, existing?.id);
+            if (duplicate) {
+                return res
+                    .status(409)
+                    .json({ code: "DUPLICATE_PHONE", message: "Phone number already in use", body: null });
+            }
         }
 
         if (Object.keys(patch).length === 0) {

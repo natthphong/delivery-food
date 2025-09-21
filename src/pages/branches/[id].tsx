@@ -1,31 +1,26 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { NextPage } from "next";
 import { useRouter } from "next/router";
 import Layout from "@components/Layout";
-import axios, { type ApiResponse } from "@utils/apiClient";
-import { formatTHB } from "@utils/currency";
-import { LoaderOverlay, Modal, QuantityInput } from "@components/common";
-import { useAppDispatch } from "@store/index";
-import { setUser } from "@store/authSlice";
-import { saveUser } from "@utils/tokenStorage";
+import BranchHeader, { type BranchStatusBadge } from "@components/branch/BranchHeader";
+import BranchMenuToolbar from "@components/branch/BranchMenuToolbar";
+import BranchMenuGrid from "@components/branch/BranchMenuGrid";
+import AddToCartModal from "@components/branch/AddToCartModal";
+import { LoaderOverlay } from "@components/common";
+import axios, { type ApiResponse } from "@/utils/apiClient";
+import { useAppDispatch } from "@/store";
+import { setUser } from "@/store/authSlice";
+import { saveUser } from "@/utils/tokenStorage";
 import type { UserRecord } from "@/types";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import type { I18nKey } from "@/constants/i18nKeys";
+import { fetchBranchMenu, fetchTopMenu } from "@/services/branchMenu";
+import { notify } from "@/utils/notify";
+import type { BranchProduct } from "@/components/branch/BranchProductCard";
 
-/** ---------- Internal UI types ---------- */
-export type AddOn = { id: number; name: string; price: number };
-export type Product = {
-    id: number;
-    name: string;
-    image_url?: string | null;
-    price: number;
-    price_effective?: number | null;
-    in_stock: boolean;
-    stock_qty: number | null;
-    addons?: AddOn[];
-    description?: string | null;
-};
+export type Product = BranchProduct;
+
 export type BranchMenuBody = {
     branch: {
         id: number;
@@ -42,7 +37,6 @@ export type BranchMenuBody = {
 
 type SelectedAddOns = Record<number, boolean>;
 
-/** ---------- API response types ---------- */
 type ApiOpenHours = Record<
     "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun" | string,
     [string, string][]
@@ -66,7 +60,7 @@ type ApiMenuItem = {
     name: string;
     description?: string | null;
     image_url?: string | null;
-    price: string; // e.g. "60.00"
+    price: string;
     is_enabled: boolean;
     stock_qty: number | null;
     add_ons: Array<{
@@ -81,9 +75,14 @@ type ApiMenuItem = {
 type ApiBranchMenuResponse = {
     branch: ApiBranch;
     menu: ApiMenuItem[];
+    page?: number;
+    size?: number;
+    total?: number;
 };
 
-/** ---------- Helpers: mapping & open-state ---------- */
+const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_MAX_QTY = 99;
+
 const DAY_ORDER: Array<"mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"> = [
     "mon",
     "tue",
@@ -103,25 +102,16 @@ const DAY_LABEL_KEYS: Record<string, I18nKey> = {
     sun: I18N_KEYS.BRANCH_DAY_SUN,
 };
 
-// Parse either shape: {branch,menu} OR {code,message,body:{branch,menu}}
-function extractBranchMenuPayload(payload: any): ApiBranchMenuResponse {
-    if (payload?.branch && payload?.menu) return payload as ApiBranchMenuResponse;
-    const body = payload?.body ?? payload?.data?.body;
-    if (body?.branch && body?.menu) return body as ApiBranchMenuResponse;
-    throw new Error("Invalid branch menu response shape");
-}
-
 function hhmmToMinutes(hhmm: string): number {
     const [h, m] = hhmm.split(":").map((v) => parseInt(v, 10));
     return (h || 0) * 60 + (m || 0);
 }
 
-// naive "open now" using local time
 function computeIsOpenNow(openHours?: ApiOpenHours | null, isForceClosed?: boolean): boolean {
     if (isForceClosed) return false;
-    if (!openHours) return true; // if not provided, treat as open
+    if (!openHours) return true;
 
-    const jsDay = new Date().getDay(); // 0..Sun
+    const jsDay = new Date().getDay();
     const mapDay = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][jsDay];
     const slots = openHours[mapDay] || [];
     if (!slots.length) return false;
@@ -141,7 +131,6 @@ function mapApiToInternal(data: ApiBranchMenuResponse): BranchMenuBody {
     const b = data?.branch as ApiBranch;
     if (!b) throw new Error("Missing branch in response");
 
-    // Flatten open_hours to array for UI (may be empty)
     const hours: Array<{ day: string; open: string; close: string }> = [];
     if (b.open_hours) {
         for (const day of DAY_ORDER) {
@@ -166,10 +155,10 @@ function mapApiToInternal(data: ApiBranchMenuResponse): BranchMenuBody {
             price_effective: null,
             in_stock: inStock,
             stock_qty: typeof m.stock_qty === "number" ? m.stock_qty : null,
-            addons: (m.add_ons || []).map((a) => ({
-                id: a.id,
-                name: a.name,
-                price: a.price ?? 0,
+            addons: (m.add_ons || []).map((addon) => ({
+                id: addon.id,
+                name: addon.name,
+                price: addon.price ?? 0,
             })),
         };
     });
@@ -189,12 +178,20 @@ function mapApiToInternal(data: ApiBranchMenuResponse): BranchMenuBody {
     };
 }
 
-/** ---------- Page ---------- */
 const BranchPage: NextPage = () => {
     const router = useRouter();
     const dispatch = useAppDispatch();
-    const { id } = router.query;
     const { t } = useI18n();
+    const branchIdParam = router.query.id;
+    const branchId = Array.isArray(branchIdParam) ? branchIdParam[0] : branchIdParam;
+
+    const tab: "all" | "top" = router.isReady && router.query.tab === "top" ? "top" : "all";
+    const searchTerm = router.isReady && typeof router.query.searchBy === "string" ? router.query.searchBy : "";
+    const pageQuery = router.isReady && typeof router.query.page === "string" ? Number(router.query.page) : 1;
+    const sizeQuery = router.isReady && typeof router.query.size === "string" ? Number(router.query.size) : DEFAULT_PAGE_SIZE;
+
+    const page = Number.isFinite(pageQuery) && pageQuery > 0 ? pageQuery : 1;
+    const size = Number.isFinite(sizeQuery) && sizeQuery > 0 ? sizeQuery : DEFAULT_PAGE_SIZE;
 
     const [branch, setBranch] = useState<BranchMenuBody["branch"] | null>(null);
     const [products, setProducts] = useState<Product[]>([]);
@@ -204,50 +201,120 @@ const BranchPage: NextPage = () => {
     const [selectedAddOns, setSelectedAddOns] = useState<SelectedAddOns>({});
     const [quantity, setQuantity] = useState(1);
     const [savingCard, setSavingCard] = useState(false);
-    const [actionMessage, setActionMessage] = useState<string | null>(null);
-    const [actionError, setActionError] = useState<string | null>(null);
+    const [total, setTotal] = useState<number | null>(null);
+    const [searchInput, setSearchInput] = useState("");
+
+    useEffect(() => {
+        if (!router.isReady) return;
+        setSearchInput(searchTerm);
+    }, [router.isReady, searchTerm]);
+
+    const commitQuery = useCallback(
+        (patch: Partial<{ tab: "all" | "top"; searchBy?: string; page?: number; size?: number }>) => {
+            if (!router.isReady || !branchId) return;
+            const nextTab = patch.tab ?? tab;
+            const nextSearch = patch.searchBy !== undefined ? patch.searchBy : searchTerm;
+            const nextPage = patch.page ?? page;
+            const nextSize = patch.size ?? size;
+
+            const query: Record<string, string> = { id: String(branchId) };
+            if (nextTab !== "all") {
+                query.tab = nextTab;
+            }
+            if (nextSearch) {
+                query.searchBy = nextSearch;
+            }
+            if (nextTab === "all") {
+                if (nextPage > 1) {
+                    query.page = String(nextPage);
+                }
+                if (nextSize !== DEFAULT_PAGE_SIZE) {
+                    query.size = String(nextSize);
+                }
+            }
+
+            void router.replace({ pathname: router.pathname, query }, undefined, { shallow: true });
+        },
+        [branchId, page, router, searchTerm, size, tab]
+    );
+
+    useEffect(() => {
+        if (!router.isReady) return;
+        if (searchInput === searchTerm) return;
+        const timer = window.setTimeout(() => {
+            commitQuery({ searchBy: searchInput, page: 1 });
+        }, 300);
+        return () => window.clearTimeout(timer);
+    }, [commitQuery, router.isReady, searchInput, searchTerm]);
+
+    useEffect(() => {
+        if (!router.isReady) return;
+        if (tab !== "all") return;
+        if (total == null) return;
+        const totalPages = Math.max(1, Math.ceil(total / size));
+        if (page > totalPages) {
+            commitQuery({ page: totalPages });
+        }
+    }, [commitQuery, page, router.isReady, size, tab, total]);
+
+    useEffect(() => {
+        if (!router.isReady || !branchId) return;
+        let cancelled = false;
+
+        const fetchMenu = async () => {
+            setLoading(true);
+            setError(null);
+            try {
+                let payload: ApiBranchMenuResponse;
+                if (tab === "top") {
+                    const topData = await fetchTopMenu(branchId);
+                    if (cancelled) return;
+                    payload = topData as ApiBranchMenuResponse;
+                    setTotal(null);
+                } else {
+                    const menuData = await fetchBranchMenu(branchId, {
+                        searchBy: searchTerm || undefined,
+                        page,
+                        size,
+                    });
+                    if (cancelled) return;
+                    payload = menuData as ApiBranchMenuResponse;
+                    const resolvedTotal = typeof menuData.total === "number" ? menuData.total : menuData.menu?.length ?? 0;
+                    setTotal(resolvedTotal);
+                }
+
+                const mapped = mapApiToInternal(payload);
+                if (cancelled) return;
+                setBranch(mapped.branch);
+                setProducts(mapped.products);
+            } catch (err: any) {
+                if (cancelled) return;
+                const fallback = t(I18N_KEYS.BRANCH_LOAD_ERROR);
+                const responseMessage = err?.response?.data?.message ?? err?.message;
+                const resolved = typeof responseMessage === "string" && responseMessage.length > 0 ? responseMessage : fallback;
+                setError(resolved);
+                setProducts([]);
+            } finally {
+                if (!cancelled) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        void fetchMenu();
+        return () => {
+            cancelled = true;
+        };
+    }, [branchId, page, router.isReady, searchTerm, size, tab, t]);
 
     useEffect(() => {
         if (!selectedProduct) return;
         const stock = selectedProduct.stock_qty;
-        const max = typeof stock === "number" ? Math.max(stock, 1) : 99;
+        const max = typeof stock === "number" ? Math.max(stock, 1) : DEFAULT_MAX_QTY;
         setQuantity((prev) => Math.min(Math.max(prev, 1), max));
     }, [selectedProduct]);
 
-    useEffect(() => {
-        if (!router.isReady || !id) return;
-        let cancelled = false;
-
-        const fetchMenu = async (branchId: string) => {
-            setLoading(true);
-            try {
-                const res = await axios.get(`/api/branches/${branchId}/menu`);
-                if (cancelled) return;
-
-                const payload = extractBranchMenuPayload(res.data);
-                const mapped = mapApiToInternal(payload);
-                setBranch(mapped.branch);
-                setProducts(mapped.products);
-                setError(null);
-            } catch (err: any) {
-                if (cancelled) return;
-                const fallback = t(I18N_KEYS.BRANCH_LOAD_ERROR);
-                const responseMessage = err?.response?.data?.message;
-                const resolved =
-                    typeof responseMessage === "string" && responseMessage.length > 0 ? responseMessage : fallback;
-                setError(resolved);
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
-        };
-
-        void fetchMenu(String(id));
-        return () => {
-            cancelled = true;
-        };
-    }, [id, router.isReady, t]);
-
-    const statusBadge = useMemo(() => {
+    const statusBadge: BranchStatusBadge = useMemo(() => {
         if (!branch) return null;
         if (branch.is_force_closed) {
             return { label: t(I18N_KEYS.BRANCH_CLOSED_MANUAL), className: "border-rose-200 bg-rose-50 text-rose-700" };
@@ -258,9 +325,7 @@ const BranchPage: NextPage = () => {
         return { label: t(I18N_KEYS.BRANCH_CLOSED), className: "border-slate-200 bg-slate-100 text-slate-600" };
     }, [branch, t]);
 
-    const effectivePrice = (product: Product) => product.price_effective ?? product.price;
-
-    const handleProductClick = (product: Product) => {
+    const handleProductClick = useCallback((product: Product) => {
         setSelectedProduct(product);
         const initial: SelectedAddOns = {};
         product.addons?.forEach((addon) => {
@@ -268,21 +333,66 @@ const BranchPage: NextPage = () => {
         });
         setSelectedAddOns(initial);
         setQuantity(1);
-        setActionError(null);
-        setActionMessage(null);
-    };
+    }, []);
 
-    const toggleAddon = (addonId: number) => {
+    const closeModal = useCallback(() => {
+        setSelectedProduct(null);
+        setSelectedAddOns({});
+        setQuantity(1);
+    }, []);
+
+    const toggleAddon = useCallback((addonId: number) => {
         setSelectedAddOns((prev) => ({ ...prev, [addonId]: !prev[addonId] }));
-    };
+    }, []);
 
-    const handleAddToCard = async () => {
+    const handleQuantityChange = useCallback(
+        (next: number) => {
+            const stock = selectedProduct?.stock_qty;
+            const max = typeof stock === "number" ? Math.max(stock, 1) : DEFAULT_MAX_QTY;
+            const clamped = Math.min(Math.max(next, 1), max);
+            setQuantity(clamped);
+        },
+        [selectedProduct]
+    );
+
+    const handleTabChange = useCallback(
+        (nextTab: "all" | "top") => {
+            if (nextTab === tab) return;
+            commitQuery({ tab: nextTab, page: 1 });
+        },
+        [commitQuery, tab]
+    );
+
+    const handleSearchChange = useCallback((value: string) => {
+        setSearchInput(value);
+    }, []);
+
+    const handlePageChange = useCallback(
+        (nextPage: number) => {
+            const limit = tab === "all" && total != null ? Math.max(1, Math.ceil(total / size)) : 1;
+            const clamped = Math.min(Math.max(nextPage, 1), limit);
+            commitQuery({ page: clamped });
+        },
+        [commitQuery, size, tab, total]
+    );
+
+    const handleSizeChange = useCallback(
+        (nextSize: number) => {
+            const normalized = Math.max(1, nextSize);
+            commitQuery({ size: normalized, page: 1 });
+        },
+        [commitQuery]
+    );
+
+    const maxQuantity = useMemo(() => {
+        const stock = selectedProduct?.stock_qty;
+        return typeof stock === "number" ? Math.max(stock, 1) : DEFAULT_MAX_QTY;
+    }, [selectedProduct?.stock_qty]);
+
+    const handleAddToCard = useCallback(async () => {
         if (!branch || !selectedProduct) return;
 
         setSavingCard(true);
-        setActionError(null);
-        setActionMessage(null);
-
         try {
             const chosenAddOns = (selectedProduct.addons ?? [])
                 .filter((addon) => selectedAddOns[addon.id])
@@ -300,7 +410,7 @@ const BranchPage: NextPage = () => {
                             productName: selectedProduct.name,
                             productAddOns: chosenAddOns,
                             qty: quantity,
-                            price: effectivePrice(selectedProduct),
+                            price: selectedProduct.price_effective ?? selectedProduct.price,
                         },
                     ],
                 },
@@ -315,231 +425,79 @@ const BranchPage: NextPage = () => {
                 dispatch(setUser(updatedUser));
                 saveUser(updatedUser);
             }
-            setActionMessage(`${selectedProduct.name} ${t(I18N_KEYS.BRANCH_ADDED_SUFFIX)}`);
-            setSelectedProduct(null);
-            setSelectedAddOns({});
-            setQuantity(1);
+
+            notify(`${selectedProduct.name} ${t(I18N_KEYS.BRANCH_ADDED_SUFFIX)}`, "success");
+            closeModal();
         } catch (err: any) {
             const code = err?.response?.data?.code;
             if (code === "CARD_LIMIT_EXCEEDED") {
-                setActionError(t(I18N_KEYS.BRANCH_CARD_LIMIT_ERROR));
+                const message = t(I18N_KEYS.BRANCH_CARD_LIMIT_ERROR);
+                notify(message, "warning");
             } else {
                 const fallback = t(I18N_KEYS.BRANCH_SAVE_ERROR);
-                const responseMessage = err?.response?.data?.message;
+                const responseMessage = err?.response?.data?.message ?? err?.message;
                 const resolved =
                     typeof responseMessage === "string" && responseMessage.length > 0 ? responseMessage : fallback;
-                setActionError(resolved);
+                notify(resolved, "error");
             }
         } finally {
             setSavingCard(false);
         }
-    };
+    }, [branch, closeModal, dispatch, quantity, selectedAddOns, selectedProduct, t]);
 
-    // SAFE: If selectedProduct is null/undefined, use default 99.
-    const computedMaxQty = (() => {
-        const stock = selectedProduct?.stock_qty;
-        return typeof stock === "number" ? Math.max(stock, 1) : 99;
-    })();
-
-    const modalFooter = selectedProduct ? (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-                <span className="text-sm font-medium text-slate-600">{t(I18N_KEYS.BRANCH_QUANTITY_LABEL)}</span>
-                <QuantityInput value={quantity} min={1} max={computedMaxQty} onChange={setQuantity} />
-                {selectedProduct.stock_qty != null && (
-                    <span className="text-xs text-slate-500">
-                        {t(I18N_KEYS.BRANCH_STOCK_PREFIX)}: {selectedProduct.stock_qty}
-                    </span>
-                )}
-            </div>
-            <div className="flex items-center gap-3">
-                <button
-                    type="button"
-                    onClick={() => setSelectedProduct(null)}
-                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-emerald-100"
-                >
-                    {t(I18N_KEYS.COMMON_CANCEL)}
-                </button>
-                <button
-                    type="button"
-                    onClick={handleAddToCard}
-                    disabled={savingCard || !selectedProduct.in_stock}
-                    className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                    {savingCard ? t(I18N_KEYS.BRANCH_SAVING) : t(I18N_KEYS.BRANCH_ADD_TO_CARD)}
-                </button>
-            </div>
-        </div>
-    ) : undefined;
+    const toolbarTotal = tab === "all" ? total : undefined;
 
     return (
         <Layout>
             <div className="mx-auto flex max-w-5xl flex-col gap-6">
                 {branch && (
-                    <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-                        <div className="overflow-hidden rounded-t-3xl border-b border-slate-200 bg-slate-100">
-                            {branch.image_url ? (
-                                <img src={branch.image_url} alt={branch.name} className="h-60 w-full object-cover" />
-                            ) : (
-                                <div className="flex h-60 items-center justify-center text-sm text-slate-400">
-                                    {t(I18N_KEYS.COMMON_NO_IMAGE)}
-                                </div>
-                            )}
-                        </div>
-                        <div className="space-y-6 p-6">
-                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                                <div>
-                                    <h1 className="text-2xl font-semibold text-slate-900">{branch.name}</h1>
-                                    {branch.address_line && <p className="text-sm text-slate-500">{branch.address_line}</p>}
-                                </div>
-                                {statusBadge && (
-                                    <span
-                                        className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium ${statusBadge.className}`}
-                                    >
-                    {statusBadge.label}
-                  </span>
-                                )}
-                            </div>
-                        </div>
-                    </div>
+                    <BranchHeader
+                        name={branch.name}
+                        address={branch.address_line}
+                        imageUrl={branch.image_url}
+                        status={statusBadge}
+                    />
                 )}
 
-                {actionMessage && (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
-                        {actionMessage}
-                    </div>
-                )}
-                {actionError && (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{actionError}</div>
-                )}
+                <BranchMenuToolbar
+                    searchBy={searchInput}
+                    onSearchByChange={handleSearchChange}
+                    tab={tab}
+                    onTabChange={handleTabChange}
+                    page={page}
+                    size={size}
+                    total={toolbarTotal}
+                    onPageChange={handlePageChange}
+                    onSizeChange={handleSizeChange}
+                />
 
                 {error && (
                     <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>
                 )}
 
-                <section>
-                    <h2 className="mb-4 text-lg font-semibold text-slate-900">{t(I18N_KEYS.BRANCH_MENU_TITLE)}</h2>
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {products.map((product) => {
-                            const price = effectivePrice(product);
-                            return (
-                                <button
-                                    key={product.id}
-                                    type="button"
-                                    onClick={() => handleProductClick(product)}
-                                    disabled={!product.in_stock}
-                                    className="flex flex-col items-start gap-3 rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                    <div className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
-                                        {product.image_url ? (
-                                            <img src={product.image_url} alt={product.name} className="h-40 w-full object-cover" />
-                                        ) : (
-                                            <div className="flex h-40 items-center justify-center text-xs text-slate-400">
-                                                {t(I18N_KEYS.COMMON_NO_IMAGE)}
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="space-y-1">
-                                        <h3 className="text-base font-semibold text-slate-900">{product.name}</h3>
-                                        <p className="text-sm text-emerald-600">{formatTHB(price)}</p>
-                                        {typeof product.stock_qty === "number" && (
-                                            <p className="text-xs text-slate-500">
-                                                {t(I18N_KEYS.BRANCH_STOCK_PREFIX)}: {product.stock_qty}
-                                            </p>
-                                        )}
-                                        <p className="text-xs text-slate-500">
-                                            {product.in_stock
-                                                ? t(I18N_KEYS.BRANCH_AVAILABLE_LABEL)
-                                                : t(I18N_KEYS.BRANCH_OUT_OF_STOCK)}
-                                        </p>
-                                    </div>
-                                </button>
-                            );
-                        })}
-                    </div>
-
+                <section className="space-y-4">
+                    <h2 className="text-lg font-semibold text-slate-900">{t(I18N_KEYS.BRANCH_MENU_TITLE)}</h2>
+                    <BranchMenuGrid products={products} onPick={handleProductClick} />
                     {!loading && products.length === 0 && !error && (
-                        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-center text-sm text-slate-500 shadow-sm">
-                            {t(I18N_KEYS.BRANCH_NO_PRODUCTS)}
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center text-sm text-slate-500 shadow-sm">
+                            {t(I18N_KEYS.BRANCH_EMPTY_MENU)}
                         </div>
                     )}
                 </section>
             </div>
 
-            {selectedProduct && (
-                <Modal
-                    open={!!selectedProduct}
-                    onClose={() => setSelectedProduct(null)}
-                    title={selectedProduct.name}
-                    size="lg"
-                    footer={modalFooter}
-                >
-                    <div className="flex flex-col gap-4 md:flex-row">
-                        <div className="md:w-1/2">
-                            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
-                                {selectedProduct.image_url ? (
-                                    <img
-                                        src={selectedProduct.image_url}
-                                        alt={selectedProduct.name}
-                                        className="h-56 w-full object-cover"
-                                    />
-                                ) : (
-                                    <div className="flex h-56 items-center justify-center text-sm text-slate-400">
-                                        {t(I18N_KEYS.COMMON_NO_IMAGE)}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                        <div className="flex-1 space-y-4">
-                            <div>
-                                <p className="text-lg font-semibold text-slate-900">
-                                    {formatTHB(effectivePrice(selectedProduct))}
-                                </p>
-                                <p className="text-sm text-slate-500">
-                                    {selectedProduct.in_stock
-                                        ? t(I18N_KEYS.BRANCH_IN_STOCK_TEXT)
-                                        : t(I18N_KEYS.BRANCH_CURRENTLY_UNAVAILABLE_TEXT)}
-                                </p>
-                                {selectedProduct.stock_qty != null && (
-                                    <p className="text-xs text-slate-500">
-                                        {t(I18N_KEYS.BRANCH_STOCK_PREFIX)}: {selectedProduct.stock_qty}
-                                    </p>
-                                )}
-                            </div>
-
-                            {selectedProduct.description && (
-                                <p className="text-sm text-slate-600">{selectedProduct.description}</p>
-                            )}
-
-                            <div>
-                                <h3 className="text-sm font-semibold text-slate-700">{t(I18N_KEYS.BRANCH_ADDONS_TITLE)}</h3>
-                                {selectedProduct.addons && selectedProduct.addons.length > 0 ? (
-                                    <div className="mt-2 space-y-2">
-                                        {selectedProduct.addons.map((addon) => (
-                                            <label
-                                                key={addon.id}
-                                                className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700"
-                                            >
-                        <span className="flex items-center gap-3">
-                          <input
-                              type="checkbox"
-                              checked={!!selectedAddOns[addon.id]}
-                              onChange={() => toggleAddon(addon.id)}
-                          />
-                            {addon.name}
-                        </span>
-                                                <span className="text-slate-500">{formatTHB(addon.price)}</span>
-                                            </label>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <p className="mt-2 text-sm text-slate-500">{t(I18N_KEYS.BRANCH_NO_ADDONS)}</p>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </Modal>
-            )}
+            <AddToCartModal
+                open={!!selectedProduct}
+                product={selectedProduct}
+                selectedAddOns={selectedAddOns}
+                onToggleAddon={toggleAddon}
+                quantity={quantity}
+                maxQuantity={maxQuantity}
+                onQuantityChange={handleQuantityChange}
+                saving={savingCard}
+                onCancel={closeModal}
+                onConfirm={handleAddToCard}
+            />
 
             <LoaderOverlay show={loading} label={t(I18N_KEYS.BRANCH_LOADING)} />
         </Layout>

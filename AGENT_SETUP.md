@@ -28,6 +28,14 @@
 │   │   ├── account/
 │   │   │   ├── ProfileCard.tsx      # Account overview (provider/email/phone rows)
 │   │   │   └── VerifyUpdateCard.tsx # Email/phone verification + updates
+│   │   ├── branch/
+│   │   │   ├── BranchHeader.tsx
+│   │   │   ├── BranchMenuGrid.tsx
+│   │   │   ├── BranchMenuToolbar.tsx
+│   │   │   ├── BranchProductCard.tsx
+│   │   │   └── AddToCartModal.tsx
+│   │   ├── notifications/
+│   │   │   └── NotificationCenter.tsx
 │   │   └── search/
 │   │       ├── BranchCard.tsx
 │   │       ├── BranchList.tsx
@@ -53,8 +61,11 @@
 │   │   └── render.tsx               # Example protected page
 │   ├── repository/
 │   │   └── user.ts                 # DB access for tbl_user (upsert & return record)
+│   ├── services/
+│   │   └── branchMenu.ts           # Fetch branch menu/top-menu APIs
 │   ├── store/
 │   │   ├── authSlice.ts             # Redux slice: access/refresh tokens
+│   │   ├── notificationsSlice.ts    # Toast notifications
 │   │   └── index.ts                 # Store setup + typed hooks
 │   ├── utils/
 │   │   ├── apiClient.tsx            # Axios instance + refresh-once interceptor
@@ -67,6 +78,7 @@
 │   │   ├── i18n.ts                  # Locale resolution + translation helper/hook
 │   │   ├── jwt.ts                   # sign/verify JWT, in-memory refresh tokens (demo)
 │   │   ├── logger.ts                # Safe console logger with redaction
+│   │   ├── notify.ts                # Dispatch toast notifications via store
 │   │   └── tokenStorage.ts          # Save/load/clear tokens in localStorage
 │   └── styles/
 │       └── globals.css
@@ -78,6 +90,7 @@
 
 * **Account & Search containers**: `pages/account.tsx` and `pages/search.tsx` orchestrate data fetching/state, then render the presentational components in `src/components/account/*` and `src/components/search/*`.
 * **Locale switcher**: the navbar mounts `components/i18n/LocaleSwitcher`, which toggles between EN/TH and persists the choice.
+* **Notifications**: call `notify("message", "success" | "info" | "warning" | "error")` from `@/utils/notify` to push a toast into the top-right `NotificationCenter`.
 
 ### Localization quickstart
 
