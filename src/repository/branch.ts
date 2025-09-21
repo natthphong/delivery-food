@@ -21,7 +21,7 @@ export type ProductRow = {
     name: string;
     description: string | null;
     image_url: string | null;
-    base_price: number | null;     // Supabase numeric → number (coerce via toNumber just in case)
+    base_price: number | null; // numeric → number
     search_terms?: string | null;
 };
 
@@ -73,7 +73,6 @@ export type BranchMenuItem = {
 export type BranchMenuPayload = {
     branch: BranchRow;
     menu: BranchMenuItem[];
-    /** optional pagination fields (present when calling getBranchMenu with page/size) */
     page?: number;
     size?: number;
     total?: number;
@@ -86,8 +85,9 @@ function toNumber(value: any): number | null {
     const num = Number(value);
     return Number.isFinite(num) ? num : null;
 }
+
+/** Escape % and _ for ILIKE patterns */
 function escapeIlike(input: string): string {
-    // Escape % and _ which are wildcards in ILIKE
     return input.replace(/[%_]/g, (m) => `\\${m}`);
 }
 
@@ -138,7 +138,7 @@ async function loadAddOns(productIds: number[]): Promise<Map<number, ProductAddO
     return map;
 }
 
-/* ============================== Search (kept from old) ============================== */
+/* ============================== Search (kept) ============================== */
 
 export async function searchBranches(params: {
     query?: string;
@@ -155,13 +155,9 @@ export async function searchBranches(params: {
             .from("tbl_product_category")
             .select("product_id")
             .eq("category_id", params.categoryId);
-        if (error) {
-            throw new Error(error.message || "Failed to load product categories");
-        }
+        if (error) throw new Error(error.message || "Failed to load product categories");
         categoryProductIds = (data ?? []).map((row) => row.product_id);
-        if (categoryProductIds.length === 0) {
-            return [];
-        }
+        if (categoryProductIds.length === 0) return [];
     }
 
     let branchProductQuery = supabase
@@ -174,26 +170,17 @@ export async function searchBranches(params: {
     }
 
     const { data: branchProductRows, error: branchProductError } = await branchProductQuery;
-    if (branchProductError) {
-        throw new Error(branchProductError.message || "Failed to load branch products");
-    }
-
-    if (!branchProductRows || branchProductRows.length === 0) {
-        return [];
-    }
+    if (branchProductError) throw new Error(branchProductError.message || "Failed to load branch products");
+    if (!branchProductRows || branchProductRows.length === 0) return [];
 
     const productIds = Array.from(new Set(branchProductRows.map((row) => row.product_id)));
-    if (!productIds.length) {
-        return [];
-    }
+    if (!productIds.length) return [];
 
     const { data: productRows, error: productError } = await supabase
         .from("tbl_product")
         .select("id, name, description, image_url, base_price, search_terms")
         .in("id", productIds);
-    if (productError) {
-        throw new Error(productError.message || "Failed to load products");
-    }
+    if (productError) throw new Error(productError.message || "Failed to load products");
 
     const productMap = new Map<number, ProductRow>();
     for (const row of productRows ?? []) {
@@ -210,14 +197,10 @@ export async function searchBranches(params: {
         })
         : branchProductRows;
 
-    if (!filteredBranchProducts.length) {
-        return [];
-    }
+    if (!filteredBranchProducts.length) return [];
 
     const branchIds = Array.from(new Set(filteredBranchProducts.map((row) => row.branch_id)));
-    if (!branchIds.length) {
-        return [];
-    }
+    if (!branchIds.length) return [];
 
     const { data: branchRows, error: branchError } = await supabase
         .from("tbl_branch")
@@ -225,9 +208,7 @@ export async function searchBranches(params: {
             "id, company_id, name, description, image_url, address_line, lat, lng, open_hours, is_force_closed"
         )
         .in("id", branchIds);
-    if (branchError) {
-        throw new Error(branchError.message || "Failed to load branches");
-    }
+    if (branchError) throw new Error(branchError.message || "Failed to load branches");
 
     const branchMap = new Map<number, BranchRow>();
     for (const row of branchRows ?? []) {
@@ -294,17 +275,11 @@ export async function searchBranches(params: {
     });
 
     results.sort((a, b) => b.match_count - a.match_count);
-
     return results.slice(0, limit);
 }
 
 /* ============================== Menu with search + pagination ============================== */
 
-/**
- * Return branch menu with optional search & pagination.
- * - searchBy: filter on product.search_tsv (if available) + fallback ILIKE on product name/description
- * - page/size: DB-level pagination
- */
 export async function getBranchMenu(
     branchId: number,
     opts?: { searchBy?: string; page?: number; size?: number }
@@ -315,17 +290,15 @@ export async function getBranchMenu(
     const branch = await getBranchById(branchId);
     if (!branch) return null;
 
-    // 2) build base query on tbl_branch_product joined with tbl_product
+    // 2) base query
     const page = Math.max(1, Number(opts?.page || 1));
     const size = Math.min(100, Math.max(1, Number(opts?.size || 20)));
     const from = (page - 1) * size;
     const to = from + size - 1;
 
-    // PostgREST: select joined columns via !inner and alias product:tbl_product
     let query = supabase
         .from("tbl_branch_product")
         .select(
-            // include product fields and local fields we need
             "product:tbl_product!inner(id,name,description,image_url,base_price), product_id, is_enabled, stock_qty, price_override",
             { count: "exact" }
         )
@@ -334,18 +307,19 @@ export async function getBranchMenu(
     const searchBy = (opts?.searchBy || "").trim();
     if (searchBy) {
         const pattern = `%${escapeIlike(searchBy)}%`;
+        // IMPORTANT: Use unqualified columns and target the foreign table explicitly
         query = query.or(
-            `product.name.ilike.${pattern},product.description.ilike.${pattern}`
+            `name.ilike.${pattern},description.ilike.${pattern}`,
+            { foreignTable: "tbl_product" } // 👈 key fix
         );
     }
 
     const { data, error, count } = await query
-        .order("product_id", { ascending: true, nullsFirst: false /*, referencedTable: "tbl_branch_product" */ })
+        .order("product_id", { ascending: true, nullsFirst: false })
         .range(from, to);
 
     if (error) throw new Error(error.message || "Failed to load branch menu");
 
-    // 3) collect product ids (current page only)
     type RowShape = {
         product: ProductRow;
         product_id: number;
@@ -366,7 +340,6 @@ export async function getBranchMenu(
     const productIds = pageRows.map((r) => r.product.id);
     const addOnMap = await loadAddOns(productIds);
 
-    // 4) assemble DTO
     const menu: BranchMenuItem[] = pageRows.map((row) => {
         const p = row.product;
         const basePrice = toNumber(p.base_price);
@@ -396,7 +369,6 @@ export async function getBranchMenu(
         };
     });
 
-    // final sort (safety)
     menu.sort((a, b) => a.product_id - b.product_id);
 
     return {
@@ -408,15 +380,8 @@ export async function getBranchMenu(
     };
 }
 
-/* ============================== Top menu (recommend) ============================== */
+/* ============================== Top menu (recommend first, then newest) ============================== */
 
-/**
- * Top menu for a branch:
- * - recommend_menu = true
- * - order by updated_at desc
- * - limit 10
- * - returns same shape as BranchMenuPayload (without pagination fields)
- */
 export async function getTopMenu(branchId: number): Promise<BranchMenuPayload | null> {
     const supabase = getSupabase();
 
@@ -432,7 +397,6 @@ export async function getTopMenu(branchId: number): Promise<BranchMenuPayload | 
         .order("recommend_menu", { ascending: false, nullsFirst: false }) // true first
         .order("updated_at", { ascending: false, nullsFirst: false })     // newest first
         .limit(10);
-
 
     if (error) throw new Error(error.message || "Failed to load top menu");
 
