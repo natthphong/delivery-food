@@ -86,7 +86,7 @@ const AddToCartModal: React.FC<Props> = ({
                                         <span className="flex items-center gap-3">
                                             <input
                                                 type="checkbox"
-                                                checked={!!selectedAddOns[addon.id]}
+                                                checked={selectedAddOns[addon.id]}
                                                 onChange={() => onToggleAddon(addon.id)}
                                             />
                                             {addon.name}

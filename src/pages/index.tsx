@@ -21,8 +21,8 @@ type ApiBranchProduct = {
 type ApiOpenHours = Record<string, [string, string][]>;
 
 type ApiBranchRecord = {
-    branch_id: number;
-    branch_name: string;
+    id: number;
+    name: string;
     image_url?: string | null;
     address_line?: string | null;
     lat?: number | null;
@@ -102,30 +102,29 @@ function mapBranchProduct(product: ApiBranchProduct): BranchSampleProduct | null
 }
 
 function mapBranchRecord(record: ApiBranchRecord): BranchItem | null {
-    if (!record || typeof record.branch_id !== "number" || !record.branch_name) {
+    if (!record || typeof record.id !== "number" || !record.name) {
         return null;
     }
-
     const distanceKm =
         typeof record.distance_m === "number"
             ? Number((record.distance_m / 1000).toFixed(2))
             : null;
-
     const productsSample = Array.isArray(record.products_sample)
         ? (record.products_sample.map(mapBranchProduct).filter(Boolean) as BranchSampleProduct[])
         : [];
-
     const computedIsOpen = isOpenNow(record.open_hours ?? null, record.is_force_closed);
+    const open_hours = record.open_hours && typeof record.open_hours === "object" ? record.open_hours : null;
 
     return {
-        id: record.branch_id,
-        name: record.branch_name,
+        id: record.id,
+        name: record.name,
         image_url: record.image_url ?? null,
         address_line: record.address_line ?? null,
         is_force_closed: record.is_force_closed,
         is_open: computedIsOpen,
         distance_km: distanceKm,
         products_sample: productsSample,
+        open_hours: open_hours,
     };
 }
 
@@ -187,10 +186,10 @@ const SearchPage: NextPage = () => {
                 const mappedCategories = Array.isArray(body.categories)
                     ? (body.categories.map(mapCategory).filter(Boolean) as Category[])
                     : [];
-
                 const mappedBranches = Array.isArray(body.branches)
                     ? (body.branches.map(mapBranchRecord).filter(Boolean) as BranchItem[])
                     : [];
+
 
                 const sorted = [...mappedBranches].sort((a, b) => {
                     const distanceA =

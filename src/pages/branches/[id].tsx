@@ -153,7 +153,7 @@ function mapApiToInternal(data: ApiBranchMenuResponse): BranchMenuBody {
             image_url: m.image_url ?? null,
             price: Number.isFinite(priceNum) ? priceNum : 0,
             price_effective: null,
-            in_stock: inStock,
+            in_stock: inStock && isOpen,
             stock_qty: typeof m.stock_qty === "number" ? m.stock_qty : null,
             addons: (m.add_ons || []).map((addon) => ({
                 id: addon.id,
