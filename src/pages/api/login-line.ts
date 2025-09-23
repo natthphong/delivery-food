@@ -33,7 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
         // const payload = await verifyLineIdToken(idToken);
         const lineUid = profile.userId;
-        const email =  null;
+        const email = typeof profile.email === "string" ? profile.email : null;
         const provider = "line";
 
         const user = await upsertUser({
@@ -51,24 +51,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         const refreshToken = mintRefreshToken({ uid: lineUid, userId: user.id });
 
         logInfo("login-line: success", { reqId, userId: user.id });
+        const responseUser = freshUser ?? user;
+
         return res.status(200).json({
             code: "OK",
             message: "Login success",
             body: {
                 accessToken,
                 refreshToken,
-                user: {
-                    id: user.id,
-                    firebase_uid: freshUser?.firebase_uid ?? user.firebase_uid,
-                    email: freshUser?.email ?? user.email,
-                    phone: freshUser?.phone ?? user.phone,
-                    provider: freshUser?.provider ?? user.provider,
-                    is_email_verified: freshUser?.is_email_verified ?? user.is_email_verified ?? null,
-                    is_phone_verified: freshUser?.is_phone_verified ?? user.is_phone_verified ?? null,
-                    card: freshUser?.card ?? [],
-                    created_at: freshUser?.created_at ?? user.created_at,
-                    updated_at: freshUser?.updated_at ?? user.updated_at,
-                },
+                user: responseUser,
             },
         });
     } catch (e: any) {

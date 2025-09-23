@@ -25,10 +25,12 @@ export type UserRecord = {
     email: string | null;
     phone: string | null;
     provider: string | null;
-    is_email_verified: boolean ;
-    is_phone_verified: boolean ;
-    balance: number | null;
+    is_email_verified: boolean | null;
+    is_phone_verified: boolean | null;
+    balance: number;
     card: CartBranchGroup[];
+    txn_history: number[];
+    order_history: number[];
     created_at: string;
     updated_at: string;
 };

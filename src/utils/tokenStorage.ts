@@ -4,6 +4,7 @@ import type { UserRecord } from "@/types";
 export type StoredTokens = { accessToken: string; refreshToken: string };
 const KEY = "auth_tokens_v1";
 const USER_KEY = "APP_USER";
+const CONFIG_KEY = "APP_CONFIG";
 
 export function saveTokens(tokens: StoredTokens) {
     if (typeof window === "undefined") return;
@@ -46,4 +47,26 @@ export function loadUser(): UserRecord | null {
 export function clearUser() {
     if (typeof window === "undefined") return;
     localStorage.removeItem(USER_KEY);
+}
+
+export function saveConfig(config: Record<string, string>) {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+}
+
+export function loadConfig(): Record<string, string> | null {
+    if (typeof window === "undefined") return null;
+    const raw = localStorage.getItem(CONFIG_KEY);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw) as Record<string, string>;
+        return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
+export function clearConfig() {
+    if (typeof window === "undefined") return;
+    localStorage.removeItem(CONFIG_KEY);
 }

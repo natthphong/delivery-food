@@ -3,13 +3,25 @@ import { CartBranchGroup, UserRecord } from "@/types";
 import { getSupabase } from "@utils/supabaseServer";
 
 export const USER_SELECT =
-    "id, firebase_uid, email, phone, provider, is_email_verified, is_phone_verified, balance, card, created_at, updated_at";
+    "id, firebase_uid, email, phone, provider, is_email_verified, is_phone_verified, balance, card, txn_history, order_history, created_at, updated_at";
 
 function normalizeCard(input: unknown): CartBranchGroup[] {
     if (!Array.isArray(input)) {
         return [];
     }
     return input as CartBranchGroup[];
+}
+
+function normalizeNumberArray(input: unknown): number[] {
+    if (!Array.isArray(input)) {
+        return [];
+    }
+    return (input as unknown[])
+        .map((value) => {
+            const num = typeof value === "number" ? value : Number(value);
+            return Number.isFinite(num) ? num : null;
+        })
+        .filter((value): value is number => value != null);
 }
 
 function mapUser(row: any): UserRecord {
@@ -36,6 +48,8 @@ function mapUser(row: any): UserRecord {
             return Number.isFinite(parsed) ? parsed : 0;
         })(),
         card: normalizeCard(row.card),
+        txn_history: normalizeNumberArray(row.txn_history),
+        order_history: normalizeNumberArray(row.order_history),
         created_at: String(row.created_at ?? new Date().toISOString()),
         updated_at: String(row.updated_at ?? new Date().toISOString()),
     };
@@ -280,4 +294,55 @@ export async function saveUserCard(uid: string, card: CartBranchGroup[]): Promis
     }
 
     return mapUser(inserted);
+}
+
+export async function adjustBalance(userId: number, delta: number): Promise<void> {
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase
+        .from("tbl_user")
+        .select("balance")
+        .eq("id", userId)
+        .maybeSingle();
+
+    if (error) {
+        throw new Error(error.message || "Failed to adjust balance");
+    }
+
+    const current = (() => {
+        if (data?.balance == null) return 0;
+        const parsed = typeof data.balance === "number" ? data.balance : Number(data.balance);
+        return Number.isFinite(parsed) ? parsed : 0;
+    })();
+
+    const next = Math.max(0, current + delta);
+
+    const { error: updateError } = await supabase
+        .from("tbl_user")
+        .update({ balance: next })
+        .eq("id", userId);
+
+    if (updateError) {
+        throw new Error(updateError.message || "Failed to update balance");
+    }
+}
+
+export async function getSystemConfig(): Promise<Record<string, string>> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from("tbl_system_config").select("config_name, config_value");
+
+    if (error) {
+        throw new Error(error.message || "Failed to load system config");
+    }
+
+    const map: Record<string, string> = {};
+    for (const row of data ?? []) {
+        if (!row) continue;
+        const name = typeof (row as any).config_name === "string" ? (row as any).config_name : null;
+        const value = typeof (row as any).config_value === "string" ? (row as any).config_value : null;
+        if (name) {
+            map[name] = value ?? "";
+        }
+    }
+    return map;
 }

@@ -77,25 +77,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
         logInfo("login API: success", { reqId, userId: user.id });
         res.setHeader("x-req-id", reqId);
+        const responseUser = freshUser ?? user;
+
         return res.status(200).json({
             code: "OK",
             message: "Login success",
             body: {
                 accessToken,
                 refreshToken,
-                user: {
-                    id: user.id,
-                    firebase_uid: freshUser?.firebase_uid ?? user.firebase_uid,
-                    email: freshUser?.email ?? user.email,
-                    phone: freshUser?.phone ?? user.phone,
-                    provider: freshUser?.provider ?? user.provider,
-                    is_email_verified: freshUser?.is_email_verified ?? user.is_email_verified ?? null,
-                    is_phone_verified: freshUser?.is_phone_verified ?? user.is_phone_verified ?? null,
-                    balance: freshUser?.balance ?? user.balance ?? 0,
-                    card: freshUser?.card ?? [],
-                    created_at: freshUser?.created_at ?? user.created_at,
-                    updated_at: freshUser?.updated_at ?? user.updated_at,
-                },
+                user: responseUser,
             },
         });
     } catch (e: any) {

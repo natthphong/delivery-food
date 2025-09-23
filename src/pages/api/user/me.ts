@@ -39,6 +39,8 @@ export default withAuth(async function handler(req: NextApiRequest, res: NextApi
                     is_phone_verified: user.is_phone_verified,
                     balance: user.balance,
                     card: user.card,
+                    txn_history: user.txn_history,
+                    order_history: user.order_history,
                     created_at: user.created_at,
                     updated_at: user.updated_at,
                 },
