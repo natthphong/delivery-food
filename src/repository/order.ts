@@ -2,6 +2,7 @@ import { getSupabase } from "@utils/supabaseServer";
 import type { OrderDetails, OrderRow, OrderStatus, TransactionRow } from "@/types/transaction";
 import { appendIdWithTrim } from "@/utils/history";
 import { getTransactionsByIds } from "@/repository/transaction";
+import { toBangkokIso } from "@/utils/time";
 
 const ORDER_HISTORY_LIMIT = 100;
 
@@ -12,6 +13,7 @@ function normalizeOrderDetails(raw: any, fallbackBranchId: number): OrderDetails
             branchId: String(fallbackBranchId ?? ""),
             branchName: "",
             productList: [],
+            delivery: null,
         };
     }
 
@@ -45,6 +47,23 @@ function normalizeOrderDetails(raw: any, fallbackBranchId: number): OrderDetails
         branchId,
         branchName: typeof (raw as any).branchName === "string" ? (raw as any).branchName : "",
         productList,
+        delivery: (() => {
+            const deliveryRaw = (raw as any).delivery;
+            if (!deliveryRaw || typeof deliveryRaw !== "object") {
+                return null;
+            }
+            const lat = Number((deliveryRaw as any).lat);
+            const lng = Number((deliveryRaw as any).lng);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                return null;
+            }
+            const distance = Number((deliveryRaw as any).distanceKm);
+            return {
+                lat,
+                lng,
+                distanceKm: Number.isFinite(distance) ? distance : null,
+            };
+        })(),
     };
 }
 
@@ -54,6 +73,8 @@ function mapOrder(row: any): OrderRow {
     }
 
     const details = normalizeOrderDetails(row.order_details, row.branch_id);
+    const createdAt = toBangkokIso(row.created_at ?? new Date()) ?? toBangkokIso(new Date())!;
+    const updatedAt = toBangkokIso(row.updated_at ?? new Date()) ?? createdAt;
 
     return {
         id: Number(row.id),
@@ -61,8 +82,8 @@ function mapOrder(row: any): OrderRow {
         txn_id: row.txn_id == null ? null : Number(row.txn_id),
         order_details: details,
         status: (row.status as OrderStatus) ?? "PENDING",
-        created_at: new Date(row.created_at ?? Date.now()).toISOString(),
-        updated_at: new Date(row.updated_at ?? Date.now()).toISOString(),
+        created_at: createdAt,
+        updated_at: updatedAt,
     };
 }
 
@@ -175,6 +196,30 @@ export async function getOrdersByIds(orderIds: number[]): Promise<OrderRow[]> {
 
     if (error) {
         throw new Error(error.message || "Failed to load orders");
+    }
+
+    return (data ?? []).map(mapOrder);
+}
+
+export async function getOrdersByTxnIds(txnIds: number[]): Promise<OrderRow[]> {
+    if (txnIds.length === 0) {
+        return [];
+    }
+
+    const supabase = getSupabase();
+    const uniqueTxnIds = Array.from(new Set(txnIds.filter((id) => Number.isFinite(id)))).map((id) => Number(id));
+    if (uniqueTxnIds.length === 0) {
+        return [];
+    }
+
+    const { data, error } = await supabase
+        .from("tbl_order")
+        .select("*")
+        .in("txn_id", uniqueTxnIds)
+        .order("created_at", { ascending: false });
+
+    if (error) {
+        throw new Error(error.message || "Failed to load orders by transaction ids");
     }
 
     return (data ?? []).map(mapOrder);

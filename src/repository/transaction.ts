@@ -7,6 +7,7 @@ import type {
     TxnType,
 } from "@/types/transaction";
 import { appendIdWithTrim } from "@/utils/history";
+import { toBangkokIso } from "@/utils/time";
 
 const SUPPORTED_METHOD_TYPES: TxnMethodType[] = ["qr", "balance"];
 const TXN_HISTORY_LIMIT = 50;
@@ -36,6 +37,10 @@ export function mapTransactionRow(row: any): TransactionRow {
     if (!row) {
         throw new Error("Transaction row is empty");
     }
+    const createdAt = toBangkokIso(row.created_at ?? new Date()) ?? toBangkokIso(new Date())!;
+    const updatedAt = toBangkokIso(row.updated_at ?? new Date()) ?? createdAt;
+    const expiredAt = toBangkokIso(row.expired_at ?? null);
+
     return {
         id: Number(row.id),
         company_id: Number(row.company_id),
@@ -46,9 +51,9 @@ export function mapTransactionRow(row: any): TransactionRow {
         amount: parseNumber(row.amount),
         adjust_amount: parseNumber(row.adjust_amount),
         status: (row.status as TxnStatus) ?? "pending",
-        expired_at: row.expired_at ? new Date(row.expired_at).toISOString() : null,
-        created_at: new Date(row.created_at ?? Date.now()).toISOString(),
-        updated_at: new Date(row.updated_at ?? Date.now()).toISOString(),
+        expired_at: expiredAt,
+        created_at: createdAt,
+        updated_at: updatedAt,
     };
 }
 

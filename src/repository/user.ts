@@ -1,6 +1,7 @@
 // src/repository/user.ts
 import { CartBranchGroup, UserRecord } from "@/types";
 import { getSupabase } from "@utils/supabaseServer";
+import { toBangkokIso } from "@/utils/time";
 
 export const USER_SELECT =
     "id, firebase_uid, email, phone, provider, is_email_verified, is_phone_verified, balance, card, txn_history, order_history, created_at, updated_at";
@@ -33,6 +34,9 @@ function mapUser(row: any): UserRecord {
     const isPhoneVerified =
         typeof row.is_phone_verified === "boolean" ? row.is_phone_verified : row.is_phone_verified == null ? null : !!row.is_phone_verified;
 
+    const createdAt = toBangkokIso(row.created_at ?? new Date()) ?? toBangkokIso(new Date())!;
+    const updatedAt = toBangkokIso(row.updated_at ?? new Date()) ?? createdAt;
+
     return {
         id: Number(row.id),
         firebase_uid: String(row.firebase_uid),
@@ -50,8 +54,8 @@ function mapUser(row: any): UserRecord {
         card: normalizeCard(row.card),
         txn_history: normalizeNumberArray(row.txn_history),
         order_history: normalizeNumberArray(row.order_history),
-        created_at: String(row.created_at ?? new Date().toISOString()),
-        updated_at: String(row.updated_at ?? new Date().toISOString()),
+        created_at: createdAt,
+        updated_at: updatedAt,
     };
 }
 
@@ -294,6 +298,48 @@ export async function saveUserCard(uid: string, card: CartBranchGroup[]): Promis
     }
 
     return mapUser(inserted);
+}
+
+export async function clearCardByBranch(userId: number, branchId: number): Promise<UserRecord> {
+    const supabase = getSupabase();
+
+    const { data: current, error: fetchError } = await supabase
+        .from("tbl_user")
+        .select(USER_SELECT)
+        .eq("id", userId)
+        .maybeSingle();
+
+    if (fetchError) {
+        throw new Error(fetchError.message || "Failed to load user card");
+    }
+
+    if (!current) {
+        throw new Error("USER_NOT_FOUND");
+    }
+
+    const branchIdStr = String(branchId);
+    const card = normalizeCard(current.card);
+    const nextCard = card.filter((group) => {
+        const normalized = typeof group?.branchId === "string" ? group.branchId : String(group?.branchId ?? "");
+        return normalized !== branchIdStr;
+    });
+
+    const { data: updated, error: updateError } = await supabase
+        .from("tbl_user")
+        .update({ card: nextCard })
+        .eq("id", userId)
+        .select(USER_SELECT)
+        .maybeSingle();
+
+    if (updateError) {
+        throw new Error(updateError.message || "Failed to update user card");
+    }
+
+    if (!updated) {
+        throw new Error("USER_NOT_FOUND");
+    }
+
+    return mapUser(updated);
 }
 
 export async function adjustBalance(userId: number, delta: number): Promise<void> {

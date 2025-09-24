@@ -6,7 +6,7 @@ import { useAppDispatch } from "@store/index";
 import { logout, setUser } from "@store/authSlice";
 import { useSelector } from "react-redux";
 import type { RootState } from "@/store";
-import type { TransactionRow, OrderRow } from "@/types/transaction";
+import type { TransactionRow, OrderRow, TransactionMethod } from "@/types/transaction";
 import { signInWithPhoneNumber, signOut } from "firebase/auth";
 import { clearTokens, clearUser, saveUser } from "@utils/tokenStorage";
 import { useRouter } from "next/router";
@@ -58,7 +58,11 @@ function normalizeUser(payload: any | null | undefined): Me {
 
 const emptyUser = normalizeUser(null);
 type TabKey = "profile" | "transactions" | "orders";
-type OrderWithTxn = OrderRow & { txn?: TransactionRow | null };
+type TransactionDetails = TransactionRow & {
+    isExpired: boolean;
+    method: Pick<TransactionMethod, "id" | "code" | "name" | "type"> | null;
+    order: OrderRow | null;
+};
 
 export default function AccountPage() {
     const router = useRouter();
@@ -96,10 +100,8 @@ export default function AccountPage() {
     const [sendingOtp, setSendingOtp] = useState(false);
     const [confirmingOtp, setConfirmingOtp] = useState(false);
     const [activeTab, setActiveTab] = useState<TabKey>("profile");
-    const [txnLoading, setTxnLoading] = useState(false);
-    const [orderLoading, setOrderLoading] = useState(false);
-    const [transactions, setTransactions] = useState<TransactionRow[]>([]);
-    const [orders, setOrders] = useState<OrderWithTxn[]>([]);
+    const [detailsLoading, setDetailsLoading] = useState(false);
+    const [txnDetails, setTxnDetails] = useState<TransactionDetails[]>([]);
 
     const confirmRef = useRef<ConfirmationResult | null>(null);
 
@@ -112,6 +114,24 @@ export default function AccountPage() {
         if (!error) return "";
         return "key" in error ? t(error.key) : error.text;
     }, [error, t]);
+
+    const sortedTransactions = useMemo(() => {
+        return [...txnDetails].sort((a, b) => {
+            const aTime = new Date(a.created_at).getTime();
+            const bTime = new Date(b.created_at).getTime();
+            return bTime - aTime;
+        });
+    }, [txnDetails]);
+
+    const sortedOrders = useMemo(() => {
+        return sortedTransactions
+            .filter((item) => item.order)
+            .sort((a, b) => {
+                const aTime = new Date(a.order?.created_at ?? a.created_at).getTime();
+                const bTime = new Date(b.order?.created_at ?? b.created_at).getTime();
+                return bTime - aTime;
+            });
+    }, [sortedTransactions]);
 
     const fetchMe = useCallback(async () => {
         setLoading(true);
@@ -153,56 +173,27 @@ export default function AccountPage() {
     useEffect(() => {
         const history = authUser?.txn_history ?? [];
         if (!history || history.length === 0) {
-            setTransactions([]);
+            setTxnDetails([]);
             return;
         }
-        setTxnLoading(true);
+        setDetailsLoading(true);
         axios
-            .get<ApiResponse<{ transactions: TransactionRow[] }>>("/api/transaction/list", {
-                params: { ids: history.join(",") },
-            })
+            .post<ApiResponse<{ txns: TransactionDetails[] }>>("/api/transaction/details", { ids: history })
             .then((response) => {
-                if (response.data.code === "OK" && Array.isArray(response.data.body?.transactions)) {
-                    setTransactions(response.data.body.transactions);
+                if (response.data.code === "OK" && Array.isArray(response.data.body?.txns)) {
+                    setTxnDetails(response.data.body.txns);
                 } else {
-                    setTransactions([]);
+                    setTxnDetails([]);
                 }
             })
             .catch((error) => {
                 notify(error?.response?.data?.message || t(I18N_KEYS.PAYMENT_DETAIL_ERROR), "error");
-                setTransactions([]);
+                setTxnDetails([]);
             })
             .finally(() => {
-                setTxnLoading(false);
+                setDetailsLoading(false);
             });
     }, [authUser?.txn_history, t]);
-
-    useEffect(() => {
-        const history = authUser?.order_history ?? [];
-        if (!history || history.length === 0) {
-            setOrders([]);
-            return;
-        }
-        setOrderLoading(true);
-        axios
-            .get<ApiResponse<{ orders: OrderWithTxn[] }>>("/api/order/list", {
-                params: { ids: history.join(",") },
-            })
-            .then((response) => {
-                if (response.data.code === "OK" && Array.isArray(response.data.body?.orders)) {
-                    setOrders(response.data.body.orders);
-                } else {
-                    setOrders([]);
-                }
-            })
-            .catch((error) => {
-                notify(error?.response?.data?.message || t(I18N_KEYS.PAYMENT_DETAIL_ERROR), "error");
-                setOrders([]);
-            })
-            .finally(() => {
-                setOrderLoading(false);
-            });
-    }, [authUser?.order_history, t]);
 
     async function updateAccount(patch: AccountUpdatePayload) {
         const response = await axios.post<AccountUpdateResponse>("/api/v1/account/update", patch);
@@ -431,13 +422,13 @@ export default function AccountPage() {
 
                 {activeTab === "transactions" ? (
                     <section className="space-y-4">
-                        {txnLoading ? (
+                        {detailsLoading ? (
                             <p className="text-sm text-slate-500">{t(I18N_KEYS.COMMON_LOADING)}</p>
-                        ) : transactions.length === 0 ? (
+                        ) : sortedTransactions.length === 0 ? (
                             <p className="text-sm text-slate-500">{t(I18N_KEYS.ACCOUNT_TRANSACTIONS_EMPTY)}</p>
                         ) : (
                             <ul className="space-y-4">
-                                {transactions.map((item) => {
+                                {sortedTransactions.map((item) => {
                                     const normalizedType = item.txn_type as keyof typeof TXN_TYPE;
                                     const normalizedStatus = item.status as keyof typeof TXN_STATUS;
                                     const typeLabel = humanTxnType(normalizedType, locale);
@@ -445,6 +436,7 @@ export default function AccountPage() {
                                     const chipClass = chipClassForTxnStatus(normalizedStatus);
                                     const createdAt = formatInBangkok(item.created_at, locale);
                                     const expires = item.expired_at ? formatInBangkok(item.expired_at, locale) : null;
+                                    const hasExpired = item.status === "pending" && item.isExpired;
 
                                     return (
                                         <li key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -458,6 +450,16 @@ export default function AccountPage() {
                                                         {t(I18N_KEYS.DETAIL_STATUS_LABEL)}:
                                                         <span className={chipClass}>{statusLabel}</span>
                                                     </p>
+                                                    {hasExpired ? (
+                                                        <p className="text-[11px] text-rose-600">
+                                                            {t(I18N_KEYS.ACCOUNT_TRANSACTIONS_EXPIRED)}
+                                                        </p>
+                                                    ) : null}
+                                                    {item.method ? (
+                                                        <p className="text-xs text-slate-500">
+                                                            {item.method.name} ({item.method.code})
+                                                        </p>
+                                                    ) : null}
                                                     <p className="text-xs text-slate-400">{createdAt}</p>
                                                     {expires ? (
                                                         <p className="text-[11px] text-slate-400">
@@ -475,6 +477,15 @@ export default function AccountPage() {
                                                             {t(I18N_KEYS.ACCOUNT_TRANSACTIONS_PAY_NOW)}
                                                         </button>
                                                     ) : null}
+                                                    {item.status === "accepted" && item.txn_type === "payment" && item.order ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => router.push(`/payment/${item.id}`)}
+                                                            className="rounded-xl border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                                                        >
+                                                            {t(I18N_KEYS.ACCOUNT_TRANSACTIONS_VIEW_ORDER)}
+                                                        </button>
+                                                    ) : null}
                                                 </div>
                                             </div>
                                         </li>
@@ -487,43 +498,54 @@ export default function AccountPage() {
 
                 {activeTab === "orders" ? (
                     <section className="space-y-4">
-                        {orderLoading ? (
+                        {detailsLoading ? (
                             <p className="text-sm text-slate-500">{t(I18N_KEYS.COMMON_LOADING)}</p>
-                        ) : orders.length === 0 ? (
+                        ) : sortedOrders.length === 0 ? (
                             <p className="text-sm text-slate-500">{t(I18N_KEYS.ACCOUNT_ORDERS_EMPTY)}</p>
                         ) : (
                             <ul className="space-y-4">
-                                {orders.map((item) => (
-                                    <li key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <p className="text-sm font-semibold text-slate-900">
-                                                    {item.order_details.branchName}
-                                                </p>
-                                                <p className="text-xs text-slate-500">
-                                                    {humanOrderStatus(item.status as keyof typeof ORDER_STATUS, locale)}
-                                                </p>
-                                                <p className="text-xs text-slate-400">{formatInBangkok(item.created_at, locale)}</p>
+                                {sortedOrders.map((item) => {
+                                    const order = item.order!;
+                                    return (
+                                        <li key={order.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <p className="text-sm font-semibold text-slate-900">
+                                                        {order.order_details.branchName}
+                                                    </p>
+                                                    <p className="text-xs text-slate-500">
+                                                        {humanOrderStatus(order.status as keyof typeof ORDER_STATUS, locale)}
+                                                    </p>
+                                                    <p className="text-xs text-slate-400">{formatInBangkok(order.created_at, locale)}</p>
+                                                </div>
+                                                {item.status === "pending" ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => router.push(`/payment/${item.id}`)}
+                                                        className="rounded-xl border border-emerald-200 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                                                    >
+                                                        {t(I18N_KEYS.ACCOUNT_TRANSACTIONS_PAY_NOW)}
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => router.push(`/payment/${item.id}`)}
+                                                        className="rounded-xl border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                                                    >
+                                                        {t(I18N_KEYS.ACCOUNT_TRANSACTIONS_VIEW_ORDER)}
+                                                    </button>
+                                                )}
                                             </div>
-                                            {item.txn && item.txn.status === "pending" ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => router.push(`/payment/${item.txn?.id}`)}
-                                                    className="rounded-xl border border-emerald-200 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
-                                                >
-                                                    {t(I18N_KEYS.ACCOUNT_TRANSACTIONS_PAY_NOW)}
-                                                </button>
-                                            ) : null}
-                                        </div>
-                                        <ul className="mt-3 space-y-2 text-xs text-slate-600">
-                                            {item.order_details.productList.map((product, index) => (
-                                                <li key={`${product.productId}-${index}`}>
-                                                    {product.productName} × {product.qty}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </li>
-                                ))}
+                                            <ul className="mt-3 space-y-2 text-xs text-slate-600">
+                                                {order.order_details.productList.map((product, index) => (
+                                                    <li key={`${product.productId}-${index}`}>
+                                                        {product.productName} × {product.qty}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </li>
+                                    );
+                                })}
                             </ul>
                         )}
                     </section>
