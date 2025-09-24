@@ -6,7 +6,7 @@ import { useAppDispatch } from "@store/index";
 import { logout, setUser } from "@store/authSlice";
 import { useSelector } from "react-redux";
 import type { RootState } from "@/store";
-import type { TransactionRow, OrderRow, TxnStatus, TxnType, OrderStatus } from "@/types/transaction";
+import type { TransactionRow, OrderRow } from "@/types/transaction";
 import { signInWithPhoneNumber, signOut } from "firebase/auth";
 import { clearTokens, clearUser, saveUser } from "@utils/tokenStorage";
 import { useRouter } from "next/router";
@@ -18,6 +18,16 @@ import { I18N_KEYS } from "@/constants/i18nKeys";
 import { useI18n } from "@/utils/i18n";
 import { notify } from "@/utils/notify";
 import { formatTHB } from "@/utils/currency";
+import {
+    ORDER_STATUS,
+    TXN_STATUS,
+    TXN_TYPE,
+    chipClassForTxnStatus,
+    humanOrderStatus,
+    humanTxnStatus,
+    humanTxnType,
+} from "@/constants/statusMaps";
+import { formatInBangkok } from "@/utils/datetime";
 
 import type { ConfirmationResult } from "firebase/auth";
 
@@ -50,47 +60,10 @@ const emptyUser = normalizeUser(null);
 type TabKey = "profile" | "transactions" | "orders";
 type OrderWithTxn = OrderRow & { txn?: TransactionRow | null };
 
-const TXN_STATUS_COLORS: Record<TxnStatus, string> = {
-    pending: "bg-amber-100 text-amber-800",
-    accepted: "bg-emerald-100 text-emerald-800",
-    rejected: "bg-rose-100 text-rose-800",
-};
-
-const TXN_STATUS_LABEL: Record<TxnStatus, I18nKey> = {
-    pending: I18N_KEYS.PAYMENT_STATUS_PENDING,
-    accepted: I18N_KEYS.PAYMENT_STATUS_ACCEPTED,
-    rejected: I18N_KEYS.PAYMENT_STATUS_REJECTED,
-};
-
-const TXN_TYPE_LABEL: Record<TxnType, I18nKey> = {
-    deposit: I18N_KEYS.PAYMENT_TYPE_DEPOSIT,
-    payment: I18N_KEYS.PAYMENT_TYPE_PAYMENT,
-};
-
-const ORDER_STATUS_LABEL: Record<OrderStatus, I18nKey> = {
-    PENDING: I18N_KEYS.ORDER_STATUS_PENDING,
-    PREPARE: I18N_KEYS.ORDER_STATUS_PREPARE,
-    DELIVERY: I18N_KEYS.ORDER_STATUS_DELIVERY,
-    COMPLETED: I18N_KEYS.ORDER_STATUS_COMPLETED,
-    REJECTED: I18N_KEYS.ORDER_STATUS_REJECTED,
-};
-
-function StatusChip({ status }: { status: string }) {
-    const { t } = useI18n();
-    const normalized = status.toLowerCase() as TxnStatus;
-    const color = TXN_STATUS_COLORS[normalized] ?? "bg-amber-100 text-amber-800";
-    const labelKey = TXN_STATUS_LABEL[normalized] ?? I18N_KEYS.PAYMENT_STATUS_UNKNOWN;
-    return (
-        <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${color}`}>
-            {t(labelKey)}
-        </span>
-    );
-}
-
 export default function AccountPage() {
     const router = useRouter();
     const dispatch = useAppDispatch();
-    const { t } = useI18n();
+    const { t, locale } = useI18n();
     const authUser = useSelector((state: RootState) => state.auth.user);
     const resolveErrorMessage = useCallback(
         (error: any, fallbackKey: I18nKey) => {
@@ -464,33 +437,49 @@ export default function AccountPage() {
                             <p className="text-sm text-slate-500">{t(I18N_KEYS.ACCOUNT_TRANSACTIONS_EMPTY)}</p>
                         ) : (
                             <ul className="space-y-4">
-                                {transactions.map((item) => (
-                                    <li key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <p className="text-sm font-semibold text-slate-900">{formatTHB(item.amount)}</p>
-                                                <p className="text-xs text-slate-500">
-                                                    {t(I18N_KEYS.ACCOUNT_TRANSACTIONS_TYPE, {
-                                                        type: t(TXN_TYPE_LABEL[item.txn_type] ?? I18N_KEYS.PAYMENT_TYPE_PAYMENT),
-                                                    })}
-                                                </p>
-                                                <p className="text-xs text-slate-400">{new Date(item.created_at).toLocaleString()}</p>
+                                {transactions.map((item) => {
+                                    const normalizedType = item.txn_type as keyof typeof TXN_TYPE;
+                                    const normalizedStatus = item.status as keyof typeof TXN_STATUS;
+                                    const typeLabel = humanTxnType(normalizedType, locale);
+                                    const statusLabel = humanTxnStatus(normalizedStatus, locale);
+                                    const chipClass = chipClassForTxnStatus(normalizedStatus);
+                                    const createdAt = formatInBangkok(item.created_at, locale);
+                                    const expires = item.expired_at ? formatInBangkok(item.expired_at, locale) : null;
+
+                                    return (
+                                        <li key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <p className="text-sm font-semibold text-slate-900">{formatTHB(item.amount)}</p>
+                                                    <p className="text-xs text-slate-500">
+                                                        {t(I18N_KEYS.DETAIL_TYPE_LABEL)}: {typeLabel}
+                                                    </p>
+                                                    <p className="text-xs text-slate-500 flex items-center gap-2">
+                                                        {t(I18N_KEYS.DETAIL_STATUS_LABEL)}:
+                                                        <span className={chipClass}>{statusLabel}</span>
+                                                    </p>
+                                                    <p className="text-xs text-slate-400">{createdAt}</p>
+                                                    {expires ? (
+                                                        <p className="text-[11px] text-slate-400">
+                                                            {t(I18N_KEYS.DETAIL_EXPIRES_AT)}: {expires}
+                                                        </p>
+                                                    ) : null}
+                                                </div>
+                                                <div className="flex flex-col items-end gap-2">
+                                                    {item.txn_type === "payment" && item.status === "pending" ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => router.push(`/payment/${item.id}`)}
+                                                            className="rounded-xl border border-emerald-200 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                                                        >
+                                                            {t(I18N_KEYS.ACCOUNT_TRANSACTIONS_PAY_NOW)}
+                                                        </button>
+                                                    ) : null}
+                                                </div>
                                             </div>
-                                            <div className="flex flex-col items-end gap-2">
-                                                <StatusChip status={item.status} />
-                                                {item.txn_type === "payment" && item.status === "pending" ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => router.push(`/payment/${item.id}`)}
-                                                        className="rounded-xl border border-emerald-200 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
-                                                    >
-                                                        {t(I18N_KEYS.ACCOUNT_TRANSACTIONS_PAY_NOW)}
-                                                    </button>
-                                                ) : null}
-                                            </div>
-                                        </div>
-                                    </li>
-                                ))}
+                                        </li>
+                                    );
+                                })}
                             </ul>
                         )}
                     </section>
@@ -512,9 +501,9 @@ export default function AccountPage() {
                                                     {item.order_details.branchName}
                                                 </p>
                                                 <p className="text-xs text-slate-500">
-                                                    {t(ORDER_STATUS_LABEL[item.status] ?? I18N_KEYS.ORDER_STATUS_PENDING)}
+                                                    {humanOrderStatus(item.status as keyof typeof ORDER_STATUS, locale)}
                                                 </p>
-                                                <p className="text-xs text-slate-400">{new Date(item.created_at).toLocaleString()}</p>
+                                                <p className="text-xs text-slate-400">{formatInBangkok(item.created_at, locale)}</p>
                                             </div>
                                             {item.txn && item.txn.status === "pending" ? (
                                                 <button

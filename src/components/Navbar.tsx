@@ -2,15 +2,12 @@ import Link from "next/link";
 import { useSelector } from "react-redux";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import { useI18n } from "@/utils/i18n";
-import { formatTHB } from "@/utils/currency";
 import type { RootState } from "@/store";
+import BalanceDropdown from "@/components/layout/BalanceDropdown";
 
 const Navbar: React.FC = () => {
     const { t } = useI18n();
     const user = useSelector((state: RootState) => state.auth.user);
-
-    const balanceValue = typeof user?.balance === "number" ? user.balance : 0;
-    const formattedBalance = formatTHB(balanceValue);
 
     return (
         <nav className="border-b bg-white">
@@ -24,11 +21,7 @@ const Navbar: React.FC = () => {
                         {t(I18N_KEYS.NAV_ACCOUNT)}
                     </Link>
 
-                    {user && (
-                        <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm">
-                            {formattedBalance}
-                        </span>
-                    )}
+                    {user ? <BalanceDropdown /> : null}
                 </div>
             </div>
         </nav>

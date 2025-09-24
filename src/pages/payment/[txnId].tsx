@@ -1,65 +1,61 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import Layout from "@components/Layout";
 import SlipUpload from "@/components/payment/SlipUpload";
-import type { OrderRow, TransactionMethod, TransactionRow, TxnStatus, OrderStatus } from "@/types/transaction";
+import type { OrderRow, TransactionMethod, TransactionRow } from "@/types/transaction";
 import axios, { type ApiResponse } from "@/utils/apiClient";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
-import type { I18nKey } from "@/constants/i18nKeys";
 import { formatTHB } from "@/utils/currency";
 import { notify } from "@/utils/notify";
+import { useAppDispatch } from "@/store";
+import { setUser } from "@/store/authSlice";
+import { saveUser } from "@/utils/tokenStorage";
+import {
+    METHOD_TYPE,
+    ORDER_STATUS,
+    TXN_STATUS,
+    TXN_TYPE,
+    chipClassForTxnStatus,
+    humanMethodType,
+    humanOrderStatus,
+    humanTxnStatus,
+    humanTxnType,
+} from "@/constants/statusMaps";
+import { formatInBangkok } from "@/utils/datetime";
 
 const QR_REFRESH_INTERVAL = 60_000;
 
 type TxnResponse = ApiResponse<{ txn: TransactionRow | null; method: TransactionMethod | null }>;
 type OrderResponse = ApiResponse<{ order: OrderRow | null }>;
-type QrResponse = ApiResponse<{ pngDataUrl: string }>;
+type QrResponse = ApiResponse<{ pngDataUrl: string; payload?: string; amount?: number | null }>;
+type UserEnvelope = { user?: any };
 
 type TabKey = "qr" | "upload";
 
-const TXN_STATUS_COLORS: Record<TxnStatus, string> = {
-    pending: "bg-amber-100 text-amber-800",
-    accepted: "bg-emerald-100 text-emerald-800",
-    rejected: "bg-rose-100 text-rose-800",
-};
-
-const TXN_STATUS_LABEL: Record<TxnStatus, I18nKey> = {
-    pending: I18N_KEYS.PAYMENT_STATUS_PENDING,
-    accepted: I18N_KEYS.PAYMENT_STATUS_ACCEPTED,
-    rejected: I18N_KEYS.PAYMENT_STATUS_REJECTED,
-};
-
-const ORDER_STATUS_LABEL: Record<OrderStatus, I18nKey> = {
-    PENDING: I18N_KEYS.ORDER_STATUS_PENDING,
-    PREPARE: I18N_KEYS.ORDER_STATUS_PREPARE,
-    DELIVERY: I18N_KEYS.ORDER_STATUS_DELIVERY,
-    COMPLETED: I18N_KEYS.ORDER_STATUS_COMPLETED,
-    REJECTED: I18N_KEYS.ORDER_STATUS_REJECTED,
-};
-
-function StatusChip({ status }: { status: string }) {
-    const { t } = useI18n();
-    const normalized = status.toLowerCase() as TxnStatus;
-    const color = TXN_STATUS_COLORS[normalized] ?? "bg-amber-100 text-amber-800";
-    const labelKey = TXN_STATUS_LABEL[normalized] ?? I18N_KEYS.PAYMENT_STATUS_UNKNOWN;
-    return (
-        <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${color}`}>
-            {t(labelKey)}
-        </span>
-    );
+function parseNumberParam(value: string | string[] | undefined): number | null {
+    const raw = Array.isArray(value) ? value[0] : value;
+    if (!raw) return null;
+    const num = Number(raw);
+    return Number.isFinite(num) ? num : null;
 }
 
 export default function PaymentDetailPage() {
-    const { t } = useI18n();
+    const { t, locale } = useI18n();
+    const dispatch = useAppDispatch();
     const router = useRouter();
-    const { txnId: queryTxnId } = router.query;
+    const { txnId: queryTxnId, mode: queryMode, branchId: queryBranchId } = router.query;
     const txnId = useMemo(() => {
         const value = Array.isArray(queryTxnId) ? queryTxnId[0] : queryTxnId;
         if (!value) return null;
         const num = Number(value);
         return Number.isFinite(num) ? num : null;
     }, [queryTxnId]);
+    const depositMode = useMemo(() => {
+        const raw = Array.isArray(queryMode) ? queryMode[0] : queryMode;
+        return raw === "deposit";
+    }, [queryMode]);
+    const depositBranchId = useMemo(() => parseNumberParam(queryBranchId), [queryBranchId]);
 
     const [txn, setTxn] = useState<TransactionRow | null>(null);
     const [method, setMethod] = useState<TransactionMethod | null>(null);
@@ -72,34 +68,70 @@ export default function PaymentDetailPage() {
     useEffect(() => {
         if (!txnId) return;
         setLoading(true);
-        Promise.all([
-            axios.get<TxnResponse>(`/api/transaction/${txnId}`),
-            axios.get<OrderResponse>("/api/order/by-transaction", { params: { txnId } }),
-        ])
-            .then(([txnResponse, orderResponse]) => {
-                if (txnResponse.data.code === "OK") {
-                    setTxn(txnResponse.data.body?.txn ?? null);
-                    setMethod(txnResponse.data.body?.method ?? null);
-                }
-                if (orderResponse.data.code === "OK") {
-                    setOrder(orderResponse.data.body?.order ?? null);
-                }
-            })
-            .catch((error) => {
-                notify(error?.response?.data?.message || t(I18N_KEYS.PAYMENT_DETAIL_ERROR), "error");
+        const requests: Array<Promise<void>> = [];
+
+        requests.push(
+            axios
+                .get<TxnResponse>(`/api/transaction/${txnId}`)
+                .then((txnResponse) => {
+                    if (txnResponse.data.code === "OK") {
+                        setTxn(txnResponse.data.body?.txn ?? null);
+                        setMethod(txnResponse.data.body?.method ?? null);
+                    } else {
+                        setTxn(null);
+                        setMethod(null);
+                        notify(txnResponse.data.message || t(I18N_KEYS.PAYMENT_DETAIL_ERROR), "error");
+                    }
+                })
+                .catch((error) => {
+                    setTxn(null);
+                    setMethod(null);
+                    notify(error?.response?.data?.message || t(I18N_KEYS.PAYMENT_DETAIL_ERROR), "error");
+                })
+        );
+
+        if (!depositMode) {
+            requests.push(
+                axios
+                    .get<OrderResponse>("/api/order/by-transaction", { params: { txnId } })
+                    .then((orderResponse) => {
+                        if (orderResponse.data.code === "OK") {
+                            setOrder(orderResponse.data.body?.order ?? null);
+                        } else {
+                            setOrder(null);
+                        }
+                    })
+                    .catch((error) => {
+                        setOrder(null);
+                        notify(error?.response?.data?.message || t(I18N_KEYS.PAYMENT_DETAIL_ERROR), "error");
+                    })
+            );
+        } else {
+            setOrder(null);
+        }
+
+        Promise.all(requests)
+            .catch(() => {
+                // errors handled individually
             })
             .finally(() => {
                 setLoading(false);
             });
-    }, [txnId, t]);
+    }, [depositMode, t, txnId]);
 
-    const shouldShowQr = txn && txn.status === "pending" && method?.type === "qr";
+    const shouldShowQr = Boolean(txn && txn.status === "pending" && method?.type === "qr");
 
-    const fetchQr = () => {
-        if (!shouldShowQr || !order || !txn) return;
+    const fetchQr = useCallback(() => {
+        if (!shouldShowQr || !txn) return;
+        const baseBranchId = depositMode
+            ? depositBranchId && depositBranchId > 0
+                ? depositBranchId
+                : 1
+            : order?.branch_id ?? null;
+        if (!baseBranchId) return;
         setQrLoading(true);
         axios
-            .post<QrResponse>("/api/qr/generate", { branchId: order.branch_id, amount: txn.amount })
+            .post<QrResponse>("/api/qr/generate", { branchId: baseBranchId, amount: txn.amount })
             .then((response) => {
                 if (response.data.code === "OK" && response.data.body?.pngDataUrl) {
                     setQrDataUrl(response.data.body.pngDataUrl);
@@ -111,28 +143,65 @@ export default function PaymentDetailPage() {
             .finally(() => {
                 setQrLoading(false);
             });
-    };
+    }, [depositBranchId, depositMode, order?.branch_id, shouldShowQr, t, txn]);
 
     useEffect(() => {
         if (!shouldShowQr) return;
         fetchQr();
         const timer = setInterval(fetchQr, QR_REFRESH_INTERVAL);
         return () => clearInterval(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [shouldShowQr, order?.branch_id, txn?.amount]);
+    }, [fetchQr, shouldShowQr]);
 
     const handleSlipSuccess = (updatedTxn: TransactionRow) => {
         setTxn(updatedTxn);
         notify(t(I18N_KEYS.PAYMENT_SLIP_SUBMITTED_SUCCESS), "success");
     };
 
-    const statusText = txn ? t(TXN_STATUS_LABEL[txn.status] ?? I18N_KEYS.PAYMENT_STATUS_UNKNOWN) : "";
-    const statusLabel = statusText ? t(I18N_KEYS.PAYMENT_STATUS_LABEL, { status: statusText }) : "";
+    const refreshUser = useCallback(async () => {
+        try {
+            const response = await axios.get<ApiResponse<UserEnvelope>>("/api/user/me");
+            if (response.data.code === "OK" && response.data.body?.user) {
+                dispatch(setUser(response.data.body.user));
+                saveUser(response.data.body.user);
+            }
+        } catch {
+            // ignore refresh errors
+        }
+    }, [dispatch]);
+
+    const statusTrackerRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        const currentStatus = txn?.status ?? null;
+        if (!currentStatus) return;
+        if (statusTrackerRef.current === currentStatus) return;
+        if (depositMode && currentStatus === "accepted") {
+            refreshUser();
+            notify(t(I18N_KEYS.DEPOSIT_SUCCESS), "success");
+        }
+        statusTrackerRef.current = currentStatus;
+    }, [depositMode, refreshUser, t, txn?.status]);
+
+    const normalizedStatus = txn ? (txn.status as keyof typeof TXN_STATUS) : null;
+    const normalizedType = txn ? (txn.txn_type as keyof typeof TXN_TYPE) : null;
+    const statusLabel = normalizedStatus ? humanTxnStatus(normalizedStatus, locale) : "";
+    const statusChipClass = normalizedStatus
+        ? chipClassForTxnStatus(normalizedStatus)
+        : chipClassForTxnStatus("pending");
+    const typeLabel = normalizedType ? humanTxnType(normalizedType, locale) : "";
+    const expiresAt = txn?.expired_at ? formatInBangkok(txn.expired_at, locale) : null;
+    const createdAt = txn?.created_at ? formatInBangkok(txn.created_at, locale) : null;
+    const methodTypeLabel = method ? humanMethodType(method.type as keyof typeof METHOD_TYPE, locale) : "";
+    const headerTitle = txn
+        ? depositMode
+            ? t(I18N_KEYS.DETAIL_DEPOSIT_NO, { id: txn.id })
+            : t(I18N_KEYS.DETAIL_PAYMENT_NO, { id: txn.id })
+        : t(I18N_KEYS.DETAIL_PAYMENT_NO, { id: txnId ?? "" });
 
     return (
         <Layout>
             <div className="mx-auto max-w-3xl space-y-6">
-                <header className="flex flex-col gap-2">
+                <header className="flex flex-col gap-3">
                     <button
                         type="button"
                         onClick={() => router.back()}
@@ -140,11 +209,25 @@ export default function PaymentDetailPage() {
                     >
                         {t(I18N_KEYS.PAYMENT_BACK)}
                     </button>
-                    <h1 className="text-2xl font-semibold text-slate-900">
-                        {t(I18N_KEYS.PAYMENT_TITLE, { id: txnId ?? "" })}
-                    </h1>
-                    {txn ? <StatusChip status={txn.status} /> : null}
-                    <p className="text-xs text-slate-500">{statusLabel}</p>
+                    <div className="space-y-1.5">
+                        <h1 className="text-2xl font-semibold text-slate-900">{headerTitle}</h1>
+                        {txn ? (
+                            <>
+                                <p className="text-sm text-slate-600">
+                                    {t(I18N_KEYS.DETAIL_TYPE_LABEL)}: {typeLabel}
+                                </p>
+                                <p className="text-sm text-slate-600 flex items-center gap-2">
+                                    {t(I18N_KEYS.DETAIL_STATUS_LABEL)}:
+                                    <span className={statusChipClass}>{statusLabel}</span>
+                                </p>
+                                {expiresAt ? (
+                                    <p className="text-xs text-slate-500">
+                                        {t(I18N_KEYS.DETAIL_EXPIRES_AT)}: {expiresAt}
+                                    </p>
+                                ) : null}
+                            </>
+                        ) : null}
+                    </div>
                 </header>
 
                 {loading ? (
@@ -214,24 +297,34 @@ export default function PaymentDetailPage() {
                                 </div>
                                 <div className="flex justify-between">
                                     <dt>{t(I18N_KEYS.PAYMENT_SUMMARY_STATUS)}</dt>
-                                    <dd>{statusText}</dd>
+                                    <dd>{statusLabel}</dd>
                                 </div>
-                                {method ? (
+                                {createdAt ? (
                                     <div className="flex justify-between">
+                                        <dt>{t(I18N_KEYS.DETAIL_CREATED_AT)}</dt>
+                                        <dd>{createdAt}</dd>
+                                    </div>
+                                ) : null}
+                                {method ? (
+                                    <div className="flex justify-between text-right">
                                         <dt>{t(I18N_KEYS.PAYMENT_SUMMARY_METHOD)}</dt>
-                                        <dd>{method.name}</dd>
+                                        <dd className="space-y-0.5">
+                                            <span className="block">{method.name}</span>
+                                            <span className="block text-xs text-slate-500">{methodTypeLabel}</span>
+                                        </dd>
                                     </div>
                                 ) : null}
                             </dl>
                         </section>
 
-                        {order ? (
+                        {!depositMode && order ? (
                             <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                                 <h2 className="text-sm font-semibold text-slate-900">{t(I18N_KEYS.PAYMENT_ORDER_TITLE)}</h2>
                                 <p className="text-xs text-slate-500">{order.order_details.branchName}</p>
                                 <p className="text-xs text-slate-500">
-                                    {t(ORDER_STATUS_LABEL[order.status] ?? I18N_KEYS.ORDER_STATUS_PENDING)}
+                                    {humanOrderStatus(order.status as keyof typeof ORDER_STATUS, locale)}
                                 </p>
+                                <p className="text-xs text-slate-400">{formatInBangkok(order.created_at, locale)}</p>
                                 <ul className="mt-4 space-y-3">
                                     {order.order_details.productList.map((item, index) => {
                                         const addOnTotal = item.productAddOns.reduce((sum, addon) => sum + addon.price, 0);

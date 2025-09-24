@@ -25,6 +25,13 @@
   "common.total": { "th": "ยอดรวม", "en": "Total" },
   "common.digitPrefix": { "th": "หลักที่", "en": "Digit" },
 
+  "detail.type.label": { "th": "ชนิด", "en": "Type" },
+  "detail.status.label": { "th": "สถานะปัจจุบัน", "en": "Current status" },
+  "detail.payment.no": { "th": "การชำระเงิน #{{id}}", "en": "Payment #{{id}}" },
+  "detail.deposit.no": { "th": "การเติมเงิน #{{id}}", "en": "Deposit #{{id}}" },
+  "detail.expires.at": { "th": "หมดอายุ", "en": "Expires" },
+  "detail.created.at": { "th": "สร้างเมื่อ", "en": "Created" },
+
   "search.label": { "th": "ค้นหาอาหารหรือร้าน", "en": "Search dishes or restaurants" },
   "search.placeholder": { "th": "วันนี้อยากทานอะไร?", "en": "What are you craving today?" },
   "search.category": { "th": "หมวดหมู่", "en": "Category" },
@@ -187,6 +194,19 @@
   "account.transactions.type": { "th": "ประเภท: {{type}}", "en": "Type: {{type}}" },
   "account.transactions.payNow": { "th": "ชำระตอนนี้", "en": "Pay now" },
   "account.orders.empty": { "th": "ยังไม่มีคำสั่งซื้อ", "en": "No orders yet." },
+
+  "deposit.action": { "th": "เติมเงิน", "en": "Deposit" },
+  "deposit.title": { "th": "เติมเงินเข้ากระเป๋า", "en": "Deposit funds" },
+  "deposit.subtitle": { "th": "เพิ่มยอดเงินในกระเป๋าของคุณผ่านการสแกนสลิปคิวอาร์", "en": "Add balance to your wallet via QR slip" },
+  "deposit.amount.label": { "th": "จำนวนเงิน", "en": "Amount" },
+  "deposit.amount.placeholder": { "th": "เช่น 200", "en": "e.g. 200" },
+  "deposit.amount.invalid": { "th": "จำนวนเงินไม่ถูกต้อง", "en": "Invalid deposit amount" },
+  "deposit.method.label": { "th": "เลือกวิธีการ", "en": "Choose a method" },
+  "deposit.method.empty": { "th": "ยังไม่มีวิธีการเติมเงินที่พร้อมใช้งาน", "en": "No deposit methods available." },
+  "deposit.method.loading": { "th": "กำลังโหลดวิธีการ…", "en": "Loading methods…" },
+  "deposit.method.error": { "th": "โหลดวิธีการไม่สำเร็จ", "en": "Failed to load methods" },
+  "deposit.continue": { "th": "ดำเนินการต่อ", "en": "Continue" },
+  "deposit.success": { "th": "เติมเงินสำเร็จแล้ว", "en": "Deposit completed" },
 
   "checkout.title": { "th": "ชำระเงิน", "en": "Checkout" },
   "checkout.subtitle": { "th": "ตรวจสอบรายการที่เลือกก่อนสั่งซื้อ", "en": "Review your selected dishes before placing the order." },
