@@ -212,8 +212,7 @@
     "en": "LINE returned no profile. Enable OpenID Connect and add 'openid profile' (and 'email' if needed) scopes in your LINE Login channel."
   },
   "line.errorNoTokens": { "th": "เซิร์ฟเวอร์ไม่ได้ส่งโทเคนกลับมา", "en": "Server did not return tokens" },
-  "line.backToLogin": { "th": "กลับไปหน้าเข้าสู่ระบบ", "en": "Back to Login" }
-}
+  "line.backToLogin": { "th": "กลับไปหน้าเข้าสู่ระบบ", "en": "Back to Login" },
   "payment.method.title": { "th": "เลือกวิธีชำระเงิน", "en": "Choose a payment method" },
   "payment.method.subtitle": { "th": "เลือกวิธีที่ต้องการใช้สำหรับรายการนี้", "en": "Pick how you'd like to pay." },
   "payment.method.qr": { "th": "สแกนสลิปคิวอาร์", "en": "Scan QR slip" },
@@ -261,4 +260,6 @@
   "order.status.prepare": { "th": "กำลังเตรียม", "en": "Preparing" },
   "order.status.delivery": { "th": "กำลังจัดส่ง", "en": "Out for delivery" },
   "order.status.completed": { "th": "เสร็จสมบูรณ์", "en": "Completed" },
-  "order.status.rejected": { "th": "ถูกปฏิเสธ", "en": "Rejected" },
+  "order.status.rejected": { "th": "ถูกปฏิเสธ", "en": "Rejected" }
+}
+
