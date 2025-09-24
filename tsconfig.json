@@ -25,7 +25,8 @@
       "@store/*": ["src/store/*"],
       "@repository/*": ["src/repository/*"],
       "@components/*": ["src/components/*"],
-      "@pages/*": ["src/pages/*"]
+      "@pages/*": ["src/pages/*"],
+      "promptpay-qr": ["src/vendor/promptpay-qr"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

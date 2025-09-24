@@ -7,6 +7,8 @@ export type Locale = "en" | "th";
 
 type Dictionary = Record<I18nKey, Record<Locale, string>>;
 
+export type TranslationParams = Record<string, string | number | boolean | null | undefined>;
+
 const STORAGE_KEY = "app.lang";
 const LEGACY_STORAGE_KEY = "locale";
 const DEFAULT_LOCALE: Locale = "en";
@@ -106,7 +108,39 @@ export function setLocale(locale: Locale) {
     persistLocale(locale);
 }
 
-export function t(key: I18nKey, localeOverride?: Locale): string {
+function interpolate(value: string, params?: TranslationParams): string {
+    if (!params) {
+        return value;
+    }
+    return value.replace(/{{\s*([^{}\s]+)\s*}}/g, (match, token) => {
+        const raw = params[token];
+        if (raw === undefined || raw === null) {
+            return match;
+        }
+        return String(raw);
+    });
+}
+
+export function t(key: I18nKey, localeOverride?: Locale): string;
+export function t(key: I18nKey, params: TranslationParams, localeOverride?: Locale): string;
+export function t(
+    key: I18nKey,
+    paramsOrLocale?: TranslationParams | Locale,
+    maybeLocale?: Locale
+): string {
+    let params: TranslationParams | undefined;
+    let localeOverride: Locale | undefined;
+
+    if (typeof paramsOrLocale === "string") {
+        localeOverride = paramsOrLocale;
+    } else if (paramsOrLocale && typeof paramsOrLocale === "object") {
+        params = paramsOrLocale;
+    }
+
+    if (typeof maybeLocale === "string") {
+        localeOverride = maybeLocale;
+    }
+
     const locale = localeOverride ?? getLocale();
     const record = DICTIONARY[key];
     if (!record) {
@@ -114,12 +148,12 @@ export function t(key: I18nKey, localeOverride?: Locale): string {
     }
     const value = record[locale];
     if (value && value.length > 0) {
-        return value;
+        return interpolate(value, params);
     }
     const fallbackLocale: Locale = locale === "en" ? "th" : "en";
     const fallback = record[fallbackLocale];
     if (fallback && fallback.length > 0) {
-        return fallback;
+        return interpolate(fallback, params);
     }
     return key;
 }
@@ -137,7 +171,7 @@ export function useI18n() {
     }, [router.isReady, router.query.lang, locale]);
 
     const translate = useCallback(
-        (key: I18nKey, override?: Locale) => t(key, override ?? locale),
+        (key: I18nKey, params?: TranslationParams, override?: Locale) => t(key, params ?? undefined, override ?? locale),
         [locale]
     );
 

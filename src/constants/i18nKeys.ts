@@ -28,6 +28,14 @@ export const I18N_KEYS = {
     COMMON_TOTAL: "common.total",
     COMMON_DIGIT_PREFIX: "common.digitPrefix",
 
+    // Detail labels
+    DETAIL_TYPE_LABEL: "detail.type.label",
+    DETAIL_STATUS_LABEL: "detail.status.label",
+    DETAIL_PAYMENT_NO: "detail.payment.no",
+    DETAIL_DEPOSIT_NO: "detail.deposit.no",
+    DETAIL_EXPIRES_AT: "detail.expires.at",
+    DETAIL_CREATED_AT: "detail.created.at",
+
     // Search
     SEARCH_LABEL: "search.label",
     SEARCH_PLACEHOLDER: "search.placeholder",
@@ -195,6 +203,20 @@ export const I18N_KEYS = {
     ACCOUNT_TRANSACTIONS_TYPE: "account.transactions.type",
     ACCOUNT_TRANSACTIONS_PAY_NOW: "account.transactions.payNow",
     ACCOUNT_ORDERS_EMPTY: "account.orders.empty",
+
+    // Deposit
+    DEPOSIT_ACTION: "deposit.action",
+    DEPOSIT_TITLE: "deposit.title",
+    DEPOSIT_SUBTITLE: "deposit.subtitle",
+    DEPOSIT_AMOUNT_LABEL: "deposit.amount.label",
+    DEPOSIT_AMOUNT_PLACEHOLDER: "deposit.amount.placeholder",
+    DEPOSIT_AMOUNT_INVALID: "deposit.amount.invalid",
+    DEPOSIT_METHOD_LABEL: "deposit.method.label",
+    DEPOSIT_METHOD_EMPTY: "deposit.method.empty",
+    DEPOSIT_METHOD_LOADING: "deposit.method.loading",
+    DEPOSIT_METHOD_ERROR: "deposit.method.error",
+    DEPOSIT_CONTINUE: "deposit.continue",
+    DEPOSIT_SUCCESS: "deposit.success",
 
     // Checkout
     CHECKOUT_TITLE: "checkout.title",
