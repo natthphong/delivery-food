@@ -38,6 +38,7 @@ export type OrderDetails = {
         productName: string;
         productAddOns: Array<{ name: string; price: number }>;
     }>;
+    delivery?: { lat: number; lng: number; distanceKm: number | null } | null;
 };
 
 export type OrderRow = {

@@ -144,6 +144,27 @@ NEXT_PUBLIC_FIREBASE_PROJECT_ID=REPLACE_ME
 
 > Phone Auth on Firebase **free** plan requires **test numbers** (Authentication → Phone → “Phone numbers for testing”). Otherwise you’ll see `auth/billing-not-enabled`.
 
+### SlipOK verification
+
+```
+NEXT_PUBLIC_ENV_SLIP_OK=LOCAL
+NEXT_PUBLIC_SLIP_OK_VERIFY_URL=https://api.slipok.com/api/line/apikey/50976
+NEXT_PUBLIC_SLIP_OK_TOKEN=REPLACE
+```
+
+* `LOCAL` skips remote verification; `PROD` calls SlipOK.
+* Always set `Cache-Control: no-store` on SlipOK endpoints.
+
+### Timezone
+
+* All repository mappers must convert timestamp fields (e.g. `created_at`, `updated_at`, `expired_at`) to **Asia/Bangkok** using `utils/time.ts`.
+* API controllers should rely on these normalized values—avoid mixing timezones in responses.
+
+### Maps / UI dependencies
+
+* Leaflet map components live in `src/components/checkout/MapConfirm.tsx` (OSM tiles via `react-leaflet`).
+* Ensure `leaflet/dist/leaflet.css` is imported globally (see `_app.tsx`).
+
 ---
 
 ## 3) Database schema (expected)

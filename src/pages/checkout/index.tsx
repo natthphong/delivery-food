@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { useSelector } from "react-redux";
+import dynamic from "next/dynamic";
 import Layout from "@components/Layout";
 import MethodPicker from "@/components/payment/MethodPicker";
 import type { TransactionMethod, TransactionRow } from "@/types/transaction";
@@ -14,6 +15,11 @@ import { notify } from "@/utils/notify";
 import { setUser } from "@/store/authSlice";
 import { appendIdWithTrim } from "@/utils/history";
 import { buildCartItemKey } from "@/utils/cart";
+import { saveUser } from "@/utils/tokenStorage";
+import type { MapConfirmValue } from "@/components/checkout/MapConfirm";
+import { logError } from "@/utils/logger";
+
+const MapConfirm = dynamic(() => import("@/components/checkout/MapConfirm"), { ssr: false });
 
 const CHECKOUT_DRAFT_KEY = "CHECKOUT_DRAFT";
 const TXN_HISTORY_LIMIT = 50;
@@ -49,6 +55,11 @@ export default function CheckoutPage() {
     const [methodsLoading, setMethodsLoading] = useState(false);
     const [selectedMethodId, setSelectedMethodId] = useState<number | null>(null);
     const [submitting, setSubmitting] = useState(false);
+    const [branchLocation, setBranchLocation] = useState<{ lat: number; lng: number } | null>(null);
+    const [branchLocationLoading, setBranchLocationLoading] = useState(false);
+    const [locationValue, setLocationValue] = useState<MapConfirmValue | null>(null);
+    const [locationConfirmed, setLocationConfirmed] = useState(false);
+    const previousLocationRef = useRef<MapConfirmValue | null>(null);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -69,6 +80,12 @@ export default function CheckoutPage() {
     const companyId = useMemo(() => {
         if (!firstGroup?.companyId) return null;
         const num = Number(firstGroup.companyId);
+        return Number.isFinite(num) ? num : null;
+    }, [firstGroup]);
+
+    const branchIdNumeric = useMemo(() => {
+        if (!firstGroup?.branchId) return null;
+        const num = Number(firstGroup.branchId);
         return Number.isFinite(num) ? num : null;
     }, [firstGroup]);
 
@@ -101,50 +118,66 @@ export default function CheckoutPage() {
             });
     }, [companyId, user, t]);
 
+    useEffect(() => {
+        if (!branchIdNumeric) {
+            setBranchLocation(null);
+            return;
+        }
+        setBranchLocationLoading(true);
+        axios
+            .get<ApiResponse<{ branch: { lat: number | null; lng: number | null } | null }>>(
+                `/api/branches/${branchIdNumeric}/menu`,
+                {
+                    params: { page: 1, size: 1 },
+                }
+            )
+            .then((response) => {
+                const branch = (response.data.body as any)?.branch;
+                if (branch && Number.isFinite(branch.lat) && Number.isFinite(branch.lng)) {
+                    setBranchLocation({ lat: Number(branch.lat), lng: Number(branch.lng) });
+                } else {
+                    setBranchLocation(null);
+                }
+            })
+            .catch((error) => {
+                notify(error?.response?.data?.message || t(I18N_KEYS.CHECKOUT_LOCATION_BRANCH_ERROR), "error");
+                setBranchLocation(null);
+            })
+            .finally(() => {
+                setBranchLocationLoading(false);
+            });
+    }, [branchIdNumeric, t]);
+
+    useEffect(() => {
+        setLocationValue(null);
+        setLocationConfirmed(false);
+        previousLocationRef.current = null;
+    }, [branchIdNumeric]);
+
     const totalAmount = useMemo(() => computeTotal(draft), [draft]);
+
+    const handleLocationChange = useCallback(
+        (next: MapConfirmValue) => {
+            const prev = previousLocationRef.current;
+            const hasChanged =
+                !prev || prev.lat !== next.lat || prev.lng !== next.lng || prev.distanceKm !== next.distanceKm;
+            previousLocationRef.current = next;
+            setLocationValue(next);
+            if (hasChanged) {
+                setLocationConfirmed(false);
+            }
+        },
+        []
+    );
 
     const handleClearDraft = () => {
         if (typeof window !== "undefined") {
             window.localStorage.removeItem(CHECKOUT_DRAFT_KEY);
         }
         setDraft([]);
-    };
-
-    const updateUserAfterCheckout = (payload: {
-        txnId?: number | null;
-        orderId?: number | null;
-        balance?: number;
-    }) => {
-        if (!user) return;
-        const branch = firstGroup;
-        const purchasedKeys = new Set<string>();
-        if (branch) {
-            branch.productList.forEach((item) => {
-                purchasedKeys.add(buildCartItemKey(branch.branchId, item));
-            });
-        }
-
-        const updatedCard = (user.card ?? [])
-            .map((group) => {
-                if (group.branchId !== branch?.branchId) return group;
-                const filtered = group.productList.filter((item) => !purchasedKeys.has(buildCartItemKey(group.branchId, item)));
-                return { ...group, productList: filtered };
-            })
-            .filter((group) => group.productList.length > 0);
-
-        const nextUser: UserRecord = {
-            ...user,
-            card: updatedCard,
-            balance: payload.balance ?? user.balance,
-            txn_history: payload.txnId
-                ? appendIdWithTrim(user.txn_history, payload.txnId, TXN_HISTORY_LIMIT)
-                : user.txn_history,
-            order_history: payload.orderId
-                ? appendIdWithTrim(user.order_history, payload.orderId, ORDER_HISTORY_LIMIT)
-                : user.order_history,
-        };
-
-        dispatch(setUser(nextUser));
+        setLocationValue(null);
+        setLocationConfirmed(false);
+        previousLocationRef.current = null;
     };
 
     const handleSubmit = async () => {
@@ -161,6 +194,11 @@ export default function CheckoutPage() {
             return;
         }
 
+        if (!locationValue || !locationConfirmed) {
+            notify(t(I18N_KEYS.CHECKOUT_LOCATION_CONFIRM_REQUIRED), "warning");
+            return;
+        }
+
         const orderDetails = {
             userId: user.id,
             branchId: firstGroup.branchId,
@@ -172,6 +210,11 @@ export default function CheckoutPage() {
                 productName: item.productName,
                 productAddOns: item.productAddOns.map((addon) => ({ name: addon.name, price: addon.price })),
             })),
+            delivery: {
+                lat: locationValue.lat,
+                lng: locationValue.lng,
+                distanceKm: locationValue.distanceKm,
+            },
         };
 
         const payload = {
@@ -193,11 +236,47 @@ export default function CheckoutPage() {
             const txn = response.data.body.txn;
             const order = response.data.body.order;
 
-            updateUserAfterCheckout({
-                txnId: txn.id,
-                orderId: order.id,
-                balance: response.data.body.balance,
-            });
+            const applyFallbackUser = () => {
+                if (!user) return;
+                const purchasedKeys = new Set<string>();
+                firstGroup.productList.forEach((item) => {
+                    purchasedKeys.add(buildCartItemKey(firstGroup.branchId, item));
+                });
+                const updatedCard = (user.card ?? [])
+                    .map((group) => {
+                        if (group.branchId !== firstGroup.branchId) return group;
+                        const filtered = group.productList.filter(
+                            (item) => !purchasedKeys.has(buildCartItemKey(group.branchId, item))
+                        );
+                        return { ...group, productList: filtered };
+                    })
+                    .filter((group) => group.productList.length > 0);
+                const fallbackUser: UserRecord = {
+                    ...user,
+                    card: updatedCard,
+                    balance: response.data.body.balance ?? user.balance,
+                    txn_history: appendIdWithTrim(user.txn_history, txn.id, TXN_HISTORY_LIMIT),
+                    order_history: appendIdWithTrim(user.order_history, order.id, ORDER_HISTORY_LIMIT),
+                };
+                dispatch(setUser(fallbackUser));
+                saveUser(fallbackUser);
+            };
+
+            try {
+                const clearResponse = await axios.post<ApiResponse<{ user: UserRecord }>>(
+                    "/api/card/clear-by-branch",
+                    { branchId: Number(firstGroup.branchId) }
+                );
+                if (clearResponse.data.code === "OK" && clearResponse.data.body?.user) {
+                    dispatch(setUser(clearResponse.data.body.user));
+                    saveUser(clearResponse.data.body.user);
+                } else {
+                    applyFallbackUser();
+                }
+            } catch (error: any) {
+                logError("checkout clear card error", { message: error?.message });
+                applyFallbackUser();
+            }
 
             handleClearDraft();
 
@@ -280,6 +359,15 @@ export default function CheckoutPage() {
                             />
                         </section>
 
+                        <MapConfirm
+                            branchLocation={branchLocation}
+                            loading={branchLocationLoading}
+                            value={locationValue}
+                            onChange={handleLocationChange}
+                            confirmed={locationConfirmed}
+                            onConfirmChange={setLocationConfirmed}
+                        />
+
                         <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
                             <button
                                 type="button"
@@ -291,7 +379,12 @@ export default function CheckoutPage() {
                             <button
                                 type="button"
                                 onClick={handleSubmit}
-                                disabled={submitting || !selectedMethodId}
+                                disabled={
+                                    submitting ||
+                                    !selectedMethodId ||
+                                    !locationValue ||
+                                    !locationConfirmed
+                                }
                                 className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 {submitting ? t(I18N_KEYS.COMMON_PROCESSING) : t(I18N_KEYS.PAYMENT_SUBMIT_BUTTON)}

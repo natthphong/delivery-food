@@ -73,11 +73,30 @@ function sanitizeOrderDetails(raw: any, userId: number, branchId: number): Order
         };
     });
 
+    const delivery = (() => {
+        const source = (raw as any).delivery;
+        if (!source || typeof source !== "object") {
+            return null;
+        }
+        const lat = Number((source as any).lat);
+        const lng = Number((source as any).lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            return null;
+        }
+        const distance = Number((source as any).distanceKm);
+        return {
+            lat,
+            lng,
+            distanceKm: Number.isFinite(distance) ? distance : null,
+        };
+    })();
+
     return {
         userId,
         branchId: branchIdStr,
         branchName: typeof (raw as any).branchName === "string" ? (raw as any).branchName : "",
         productList,
+        delivery,
     };
 }
 
