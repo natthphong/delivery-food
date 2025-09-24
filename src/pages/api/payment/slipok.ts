@@ -80,10 +80,10 @@ function parseTxnId(value: string | undefined): number | null {
     return Number.isFinite(num) ? num : null;
 }
 
-function isExpired(txn: TransactionRow): boolean {
-    if (!txn.expired_at) return false;
-    return Date.now() >= new Date(txn.expired_at).getTime();
-}
+// function isExpired(txn: TransactionRow): boolean {
+//     if (!txn.expired_at) return false;
+//     return Date.now() >= new Date(txn.expired_at).getTime();
+// }
 
 async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) {
     const reqId = Math.random().toString(36).slice(2, 8);
@@ -123,10 +123,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) 
             return res.status(400).json({ code: "TXN_ALREADY_FINAL", message: "Transaction already finalized", body: { txn } });
         }
 
-        if (isExpired(txn)) {
-            await updateTxnStatus(txn.id, "rejected");
-            return res.status(400).json({ code: "TXN_EXPIRED", message: "Transaction expired", body: { txn: { ...txn, status: "rejected" } });
-        }
+        // if (isExpired(txn)) {
+        //     await updateTxnStatus(txn.id, "rejected");
+        //     return res.status(400).json({ code: "TXN_EXPIRED", message: "Transaction expired", body: { txn: { ...txn, status: "rejected" } }});
+        // }
 
         const method = txn.txn_method_id ? await getMethodById(txn.txn_method_id) : null;
         if (method && method.type !== "qr") {

@@ -4,6 +4,7 @@ import { withAuth } from "@/utils/authMiddleware";
 import { getSupabase } from "@/utils/supabaseServer";
 import { logError, logInfo } from "@/utils/logger";
 import { renderQr } from "@/utils/qrRenderer";
+import QRCode from "qrcode";
 
 type Body = { branchId?: number; amount?: number };
 
@@ -65,7 +66,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
         logInfo("qr/generate: creating png", { reqId, branchId, companyId: branch.company_id, amount: normalizedAmount });
 
-        const png = renderQr(payload);
+        const png = await QRCode.toBuffer(payload, {
+            type: "png",
+            errorCorrectionLevel: "M",
+            margin: 2,
+            scale: 6,
+        });
 
         const wantsJson = (req.headers.accept || "").includes("application/json");
         if (wantsJson) {
