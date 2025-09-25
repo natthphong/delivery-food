@@ -4,6 +4,7 @@ import { getTransactionsByIds, getMethodById } from "@/repository/transaction";
 import { getOrdersByTxnIds } from "@/repository/order";
 import { logError, logInfo } from "@/utils/logger";
 import type { OrderRow, TransactionMethod, TransactionRow } from "@/types/transaction";
+import { isExpiredUTC } from "@/utils/time";
 
 export const config = { runtime: "nodejs" };
 
@@ -46,13 +47,6 @@ function parseIds(value: unknown): number[] {
         return [value];
     }
     return [];
-}
-
-function isExpired(expiredAt: string | null): boolean {
-    if (!expiredAt) return false;
-    const ts = new Date(expiredAt).getTime();
-    if (Number.isNaN(ts)) return false;
-    return ts <= Date.now();
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse<DetailsResponse>) {
@@ -127,7 +121,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse<DetailsResponse
             const order = orderMap.get(txn.id) ?? null;
             return {
                 ...txn,
-                isExpired: isExpired(txn.expired_at),
+                isExpired: isExpiredUTC(txn.expired_at),
                 method: method
                     ? { id: method.id, code: method.code, name: method.name, type: method.type }
                     : null,
