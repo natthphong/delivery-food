@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
+import dynamic from "next/dynamic";
 import Layout from "@components/Layout";
 import SlipUpload from "@/components/payment/SlipUpload";
-import type { OrderRow, TransactionMethod, TransactionRow } from "@/types/transaction";
+import Preparing from "@/components/order/Preparing";
+import type { OrderRow, TransactionMethod, TransactionRow, TxnStatus } from "@/types/transaction";
 import axios, { type ApiResponse } from "@/utils/apiClient";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
@@ -13,16 +15,20 @@ import { setUser } from "@/store/authSlice";
 import { saveUser } from "@/utils/tokenStorage";
 import {
     METHOD_TYPE,
-    ORDER_STATUS,
-    TXN_STATUS,
     TXN_TYPE,
     chipClassForTxnStatus,
     humanMethodType,
-    humanOrderStatus,
     humanTxnStatus,
     humanTxnType,
 } from "@/constants/statusMaps";
 import { formatInBangkok } from "@/utils/datetime";
+import {
+    STATUS_I18N_KEY,
+    type DisplayStatus,
+    deriveDisplayStatus,
+} from "@/constants/status";
+
+const OrderLocationMap = dynamic(() => import("@/components/order/LocationMap"), { ssr: false });
 
 const QR_REFRESH_INTERVAL = 60_000;
 
@@ -30,6 +36,32 @@ type TxnResponse = ApiResponse<{ txn: TransactionRow | null; method: Transaction
 type OrderResponse = ApiResponse<{ order: OrderRow | null }>;
 type QrResponse = ApiResponse<{ pngDataUrl: string; payload?: string; amount?: number | null }>;
 type UserEnvelope = { user?: any };
+
+type OrderTxnSummary = {
+    id: number;
+    status: TxnStatus;
+    expired_at: string | null;
+    isExpired: boolean;
+};
+
+type OrderDetailEntry = {
+    id: number;
+    status: OrderRow["status"];
+    displayStatus: DisplayStatus;
+    created_at: string;
+    updated_at: string;
+    order_details: OrderRow["order_details"];
+    branch: {
+        id: number;
+        name: string;
+        address: string | null;
+        lat: number | null;
+        lng: number | null;
+    } | null;
+    txn: OrderTxnSummary | null;
+};
+
+type OrderDetailsResponse = ApiResponse<{ orders: OrderDetailEntry[] }>;
 
 type TabKey = "qr" | "upload";
 
@@ -60,6 +92,8 @@ export default function PaymentDetailPage() {
     const [txn, setTxn] = useState<TransactionRow | null>(null);
     const [method, setMethod] = useState<TransactionMethod | null>(null);
     const [order, setOrder] = useState<OrderRow | null>(null);
+    const [orderDetailEntry, setOrderDetailEntry] = useState<OrderDetailEntry | null>(null);
+    const [orderDetailLoading, setOrderDetailLoading] = useState(false);
     const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
     const [tab, setTab] = useState<TabKey>("qr");
     const [loading, setLoading] = useState(true);
@@ -118,6 +152,35 @@ export default function PaymentDetailPage() {
                 setLoading(false);
             });
     }, [depositMode, t, txnId]);
+
+    useEffect(() => {
+        if (depositMode) {
+            setOrderDetailEntry(null);
+            setOrderDetailLoading(false);
+            return;
+        }
+        if (!order?.id) {
+            setOrderDetailEntry(null);
+            return;
+        }
+        setOrderDetailLoading(true);
+        axios
+            .post<OrderDetailsResponse>("/api/order/details", { ids: [order.id] })
+            .then((response) => {
+                if (response.data.code === "OK" && Array.isArray(response.data.body?.orders)) {
+                    setOrderDetailEntry(response.data.body.orders[0] ?? null);
+                } else {
+                    setOrderDetailEntry(null);
+                }
+            })
+            .catch((error) => {
+                notify(error?.response?.data?.message || t(I18N_KEYS.PAYMENT_DETAIL_ERROR), "error");
+                setOrderDetailEntry(null);
+            })
+            .finally(() => {
+                setOrderDetailLoading(false);
+            });
+    }, [depositMode, order?.id, t]);
 
     const shouldShowQr = Boolean(txn && txn.status === "pending" && method?.type === "qr");
 
@@ -182,21 +245,47 @@ export default function PaymentDetailPage() {
         statusTrackerRef.current = currentStatus;
     }, [depositMode, refreshUser, t, txn?.status]);
 
-    const normalizedStatus = txn ? (txn.status as keyof typeof TXN_STATUS) : null;
+    const normalizedStatus = txn ? (txn.status as TxnStatus) : null;
     const normalizedType = txn ? (txn.txn_type as keyof typeof TXN_TYPE) : null;
     const statusLabel = normalizedStatus ? humanTxnStatus(normalizedStatus, locale) : "";
-    const statusChipClass = normalizedStatus
-        ? chipClassForTxnStatus(normalizedStatus)
-        : chipClassForTxnStatus("pending");
+    const statusChipClass = chipClassForTxnStatus((normalizedStatus ?? "pending") as TxnStatus);
     const typeLabel = normalizedType ? humanTxnType(normalizedType, locale) : "";
     const expiresAt = txn?.expired_at ? formatInBangkok(txn.expired_at, locale) : null;
     const createdAt = txn?.created_at ? formatInBangkok(txn.created_at, locale) : null;
     const methodTypeLabel = method ? humanMethodType(method.type as keyof typeof METHOD_TYPE, locale) : "";
+    const paymentLabel = t(I18N_KEYS.DETAIL_PAYMENT_NO);
+    const depositLabel = t(I18N_KEYS.DETAIL_DEPOSIT_NO);
     const headerTitle = txn
-        ? depositMode
-            ? t(I18N_KEYS.DETAIL_DEPOSIT_NO, { id: txn.id })
-            : t(I18N_KEYS.DETAIL_PAYMENT_NO, { id: txn.id })
-        : t(I18N_KEYS.DETAIL_PAYMENT_NO, { id: txnId ?? "" });
+        ? `${depositMode ? depositLabel : paymentLabel} #${txn.id}`
+        : txnId
+        ? `${paymentLabel} #${txnId}`
+        : paymentLabel;
+    const localeKey = locale === "th" ? "th" : "en";
+    const displayStatus: DisplayStatus | null = !depositMode && order
+        ? orderDetailEntry
+            ? orderDetailEntry.displayStatus
+            : deriveDisplayStatus(order, txn ? { status: txn.status, expired_at: txn.expired_at } : undefined)
+        : null;
+    const displayStatusLabel = displayStatus ? STATUS_I18N_KEY[displayStatus][localeKey] : null;
+    const showPreparing = displayStatus === "PREPARE";
+    const orderBranchName = order?.order_details.branchName ?? "";
+    const orderCreatedAt = orderDetailEntry?.created_at ?? order?.created_at ?? null;
+    const orderCreatedLabel = orderCreatedAt ? formatInBangkok(orderCreatedAt, locale) : null;
+    const orderProducts = orderDetailEntry?.order_details.productList ?? order?.order_details.productList ?? [];
+    const deliveryInfo = !depositMode
+        ? orderDetailEntry?.order_details.delivery ?? order?.order_details.delivery ?? null
+        : null;
+    const branchInfo = orderDetailEntry?.branch ?? null;
+    const customerHasCoords = Boolean(
+        deliveryInfo &&
+            typeof deliveryInfo.lat === "number" &&
+            Number.isFinite(deliveryInfo.lat) &&
+            typeof deliveryInfo.lng === "number" &&
+            Number.isFinite(deliveryInfo.lng)
+    );
+    const googleMapsHref = customerHasCoords
+        ? `https://www.google.com/maps?q=${deliveryInfo!.lat},${deliveryInfo!.lng}`
+        : null;
 
     return (
         <Layout>
@@ -319,14 +408,22 @@ export default function PaymentDetailPage() {
 
                         {!depositMode && order ? (
                             <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                                <h2 className="text-sm font-semibold text-slate-900">{t(I18N_KEYS.PAYMENT_ORDER_TITLE)}</h2>
-                                <p className="text-xs text-slate-500">{order.order_details.branchName}</p>
-                                <p className="text-xs text-slate-500">
-                                    {humanOrderStatus(order.status as keyof typeof ORDER_STATUS, locale)}
-                                </p>
-                                <p className="text-xs text-slate-400">{formatInBangkok(order.created_at, locale)}</p>
+                                <div className="flex items-center justify-between">
+                                    <h2 className="text-sm font-semibold text-slate-900">{t(I18N_KEYS.PAYMENT_ORDER_TITLE)}</h2>
+                                    {orderDetailLoading ? (
+                                        <span className="text-[11px] text-slate-400">{t(I18N_KEYS.COMMON_LOADING)}</span>
+                                    ) : null}
+                                </div>
+                                <p className="text-xs text-slate-500">{orderBranchName}</p>
+                                {displayStatusLabel ? (
+                                    <p className="text-xs text-slate-500">{displayStatusLabel}</p>
+                                ) : null}
+                                {showPreparing ? <Preparing /> : null}
+                                {orderCreatedLabel ? (
+                                    <p className="text-xs text-slate-400">{orderCreatedLabel}</p>
+                                ) : null}
                                 <ul className="mt-4 space-y-3">
-                                    {order.order_details.productList.map((item, index) => {
+                                    {orderProducts.map((item, index) => {
                                         const addOnTotal = item.productAddOns.reduce((sum, addon) => sum + addon.price, 0);
                                         const total = (item.price + addOnTotal) * item.qty;
                                         return (
@@ -334,7 +431,10 @@ export default function PaymentDetailPage() {
                                                 <div className="flex items-center justify-between">
                                                     <div>
                                                         <p className="text-sm font-semibold text-slate-800">{item.productName}</p>
-                                                        <p className="text-xs text-slate-500">{t(I18N_KEYS.CHECKOUT_ITEM_QTY, { qty: item.qty })}</p>
+                                                        <p className="text-xs text-slate-500">
+                                                            {t(I18N_KEYS.CHECKOUT_ITEM_QTY)}
+                                                            {item.qty}
+                                                        </p>
                                                         {item.productAddOns.length > 0 && (
                                                             <p className="mt-1 text-xs text-slate-500">
                                                                 {item.productAddOns
@@ -349,6 +449,27 @@ export default function PaymentDetailPage() {
                                         );
                                     })}
                                 </ul>
+                                {branchInfo || deliveryInfo ? (
+                                    <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                        <div className="overflow-hidden rounded-2xl">
+                                            <OrderLocationMap branch={branchInfo ?? undefined} customer={deliveryInfo ?? undefined} />
+                                        </div>
+                                        {googleMapsHref ? (
+                                            <a
+                                                className="text-xs text-blue-600 underline"
+                                                href={googleMapsHref}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                            >
+                                                {locale === "th" ? "เปิดใน Google Maps" : "Open in Google Maps"}
+                                            </a>
+                                        ) : (
+                                            <p className="text-xs text-slate-500">
+                                                {locale === "th" ? "ไม่พบตำแหน่งลูกค้า" : "Customer location not found"}
+                                            </p>
+                                        )}
+                                    </div>
+                                ) : null}
                             </section>
                         ) : null}
                     </div>

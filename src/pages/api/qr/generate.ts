@@ -3,7 +3,6 @@ import generatePayload from "promptpay-qr";
 import { withAuth } from "@/utils/authMiddleware";
 import { getSupabase } from "@/utils/supabaseServer";
 import { logError, logInfo } from "@/utils/logger";
-import { renderQr } from "@/utils/qrRenderer";
 import QRCode from "qrcode";
 
 type Body = { branchId?: number; amount?: number };

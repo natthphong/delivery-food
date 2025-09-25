@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { withAuth } from "@/utils/authMiddleware";
 import { getMethodById, createTransaction } from "@/repository/transaction";
 import { getUserByFirebaseUid, getUserById, adjustBalance } from "@/repository/user";
-import type { TransactionRow, TxnStatus, TxnType } from "@/types/transaction";
+import type { TransactionRow, TxnType } from "@/types/transaction";
 import { logError, logInfo } from "@/utils/logger";
 
 export const config = { runtime: "nodejs" };

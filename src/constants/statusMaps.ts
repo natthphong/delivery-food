@@ -1,24 +1,13 @@
 import type { Locale } from "@/utils/i18n";
+import { STATUS_I18N_KEY, TXN_STATUS_I18N, type DisplayStatus, type TxnStatus } from "@/constants/status";
 
 export type LocaleCode = Locale;
 
-export const TXN_STATUS = {
-    pending: {
-        en: "Pending",
-        th: "รอดำเนินการ",
-        chip: "bg-amber-50 text-amber-700 border-amber-200",
-    },
-    accepted: {
-        en: "Accepted",
-        th: "สำเร็จ",
-        chip: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    },
-    rejected: {
-        en: "Rejected",
-        th: "ถูกปฏิเสธ",
-        chip: "bg-rose-50 text-rose-700 border-rose-200",
-    },
-} as const;
+const TXN_STATUS_CHIP: Record<TxnStatus, string> = {
+    pending: "bg-amber-50 text-amber-700 border-amber-200",
+    accepted: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    rejected: "bg-rose-50 text-rose-700 border-rose-200",
+};
 
 export const TXN_TYPE = {
     deposit: {
@@ -42,36 +31,13 @@ export const METHOD_TYPE = {
     },
 } as const;
 
-export const ORDER_STATUS = {
-    PENDING: {
-        en: "Pending",
-        th: "รอดำเนินการ",
-    },
-    PREPARE: {
-        en: "Preparing",
-        th: "กำลังเตรียม",
-    },
-    DELIVERY: {
-        en: "Delivering",
-        th: "กำลังจัดส่ง",
-    },
-    COMPLETED: {
-        en: "Completed",
-        th: "สำเร็จ",
-    },
-    REJECTED: {
-        en: "Rejected",
-        th: "ถูกปฏิเสธ",
-    },
-} as const;
-
-export function humanTxnStatus(status: keyof typeof TXN_STATUS, locale: LocaleCode): string {
-    return TXN_STATUS[status]?.[locale] ?? status;
+export function humanTxnStatus(status: TxnStatus | "expired", locale: LocaleCode): string {
+    return TXN_STATUS_I18N[status]?.[locale] ?? status;
 }
 
-export function chipClassForTxnStatus(status: keyof typeof TXN_STATUS): string {
+export function chipClassForTxnStatus(status: TxnStatus): string {
     const base = "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ";
-    const chip = TXN_STATUS[status]?.chip ?? "border-slate-200 bg-slate-100 text-slate-700";
+    const chip = TXN_STATUS_CHIP[status] ?? "border-slate-200 bg-slate-100 text-slate-700";
     return base + chip;
 }
 
@@ -83,6 +49,6 @@ export function humanMethodType(type: keyof typeof METHOD_TYPE, locale: LocaleCo
     return METHOD_TYPE[type]?.[locale] ?? type;
 }
 
-export function humanOrderStatus(status: keyof typeof ORDER_STATUS, locale: LocaleCode): string {
-    return ORDER_STATUS[status]?.[locale] ?? status;
+export function humanOrderStatus(status: DisplayStatus, locale: LocaleCode): string {
+    return STATUS_I18N_KEY[status]?.[locale] ?? status;
 }

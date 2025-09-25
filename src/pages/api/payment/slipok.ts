@@ -4,7 +4,7 @@ import { getTransactionById, updateTxnStatus, getMethodById } from "@/repository
 import { adjustBalance } from "@/repository/user";
 import { logError, logInfo } from "@/utils/logger";
 import type { TransactionRow } from "@/types/transaction";
-import { toBangkokIso } from "@/utils/time";
+import { isExpiredUTC, toBangkokIso } from "@/utils/time";
 import FormData from "form-data";
 
 export const config = { api: { bodyParser: false }, runtime: "nodejs" };
@@ -79,11 +79,6 @@ function parseTxnId(value: string | undefined): number | null {
     if (!value) return null;
     const num = Number(value);
     return Number.isFinite(num) ? num : null;
-}
-
-function isExpiredUTC(ts: string | null | undefined): boolean {
-    if (!ts) return false;
-    return Date.now() >= new Date(ts).getTime();
 }
 
 async function callSlipOkVerify({

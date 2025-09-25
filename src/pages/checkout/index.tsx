@@ -325,7 +325,8 @@ export default function CheckoutPage() {
                                                 <div>
                                                     <p className="text-sm font-semibold text-slate-800">{item.productName}</p>
                                                     <p className="text-xs text-slate-500">
-                                                        {t(I18N_KEYS.CHECKOUT_ITEM_QTY, { qty: item.qty })}
+                                                        {t(I18N_KEYS.CHECKOUT_ITEM_QTY)}
+                                                        {item.qty}
                                                     </p>
                                                     {item.productAddOns.length > 0 && (
                                                         <p className="mt-1 text-xs text-slate-500">
