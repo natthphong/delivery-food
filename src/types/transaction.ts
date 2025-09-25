@@ -20,6 +20,9 @@ export type TransactionRow = {
     amount: number;
     adjust_amount: number;
     status: TxnStatus;
+    trans_ref: string | null;
+    trans_date: string | null;
+    trans_timestamp: string | null;
     expired_at: string | null;
     created_at: string;
     updated_at: string;

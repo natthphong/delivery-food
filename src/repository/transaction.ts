@@ -40,6 +40,7 @@ export function mapTransactionRow(row: any): TransactionRow {
     const createdAt = toBangkokIso(row.created_at ?? new Date()) ?? toBangkokIso(new Date())!;
     const updatedAt = toBangkokIso(row.updated_at ?? new Date()) ?? createdAt;
     const expiredAt = toBangkokIso(row.expired_at ?? null);
+    const transTimestamp = toBangkokIso(row.trans_timestamp ?? null);
 
     return {
         id: Number(row.id),
@@ -51,6 +52,9 @@ export function mapTransactionRow(row: any): TransactionRow {
         amount: parseNumber(row.amount),
         adjust_amount: parseNumber(row.adjust_amount),
         status: (row.status as TxnStatus) ?? "pending",
+        trans_ref: row.trans_ref == null ? null : String(row.trans_ref),
+        trans_date: row.trans_date == null ? null : String(row.trans_date),
+        trans_timestamp: transTimestamp,
         expired_at: expiredAt,
         created_at: createdAt,
         updated_at: updatedAt,
@@ -169,6 +173,48 @@ export async function updateTxnStatus(txnId: number, status: TxnStatus): Promise
 
     if (error) {
         throw new Error(error.message || "Failed to update transaction status");
+    }
+}
+
+export async function stampTxnSlipMeta(input: {
+    txnId: number;
+    transRef: string | null;
+    transDate: string | Date | null;
+    transTimestamp: string | Date | null;
+}): Promise<void> {
+    const supabase = getSupabase();
+
+    let trans_date: string | null = null;
+    if (typeof input.transDate === "string" && /^\d{8}$/.test(input.transDate)) {
+        trans_date = `${input.transDate.slice(0, 4)}-${input.transDate.slice(4, 6)}-${input.transDate.slice(6, 8)}`;
+    } else if (input.transDate instanceof Date) {
+        trans_date = input.transDate.toISOString().slice(0, 10);
+    } else if (typeof input.transDate === "string" && input.transDate.trim()) {
+        trans_date = input.transDate;
+    }
+
+    let trans_timestamp: string | null = null;
+    if (input.transTimestamp instanceof Date) {
+        trans_timestamp = input.transTimestamp.toISOString();
+    } else if (typeof input.transTimestamp === "string" && input.transTimestamp.trim()) {
+        const parsed = new Date(input.transTimestamp);
+        if (!Number.isNaN(parsed.getTime())) {
+            trans_timestamp = parsed.toISOString();
+        }
+    }
+
+    const { error } = await supabase
+        .from("tbl_transaction")
+        .update({
+            trans_ref: input.transRef,
+            trans_date,
+            trans_timestamp,
+            updated_at: new Date().toISOString(),
+        })
+        .eq("id", input.txnId);
+
+    if (error) {
+        throw new Error(error.message || "Failed to stamp transaction slip meta");
     }
 }
 
