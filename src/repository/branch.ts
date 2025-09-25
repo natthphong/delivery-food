@@ -138,7 +138,7 @@ function escapeIlike(input: string): string {
 //     return results;
 // }
 
-async function getBranchById(branchId: number): Promise<BranchRow | null> {
+export async function getBranchById(branchId: number): Promise<BranchRow | null> {
     const supabase = getSupabase();
     const { data, error } = await supabase
         .from("tbl_branch")
