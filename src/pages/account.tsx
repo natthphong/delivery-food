@@ -4,7 +4,7 @@ import axios, { type ApiResponse } from "@utils/apiClient";
 import { auth, makeRecaptcha } from "@utils/firebaseClient";
 import { useAppDispatch } from "@store/index";
 import { logout, setUser } from "@store/authSlice";
-import { signInWithPhoneNumber, signOut } from "firebase/auth";
+import { signInWithPhoneNumber, signOut, type ConfirmationResult } from "firebase/auth";
 import { clearTokens, clearUser, saveUser } from "@utils/tokenStorage";
 import { useRouter } from "next/router";
 import ProfileCard from "@/components/account/ProfileCard";
@@ -15,7 +15,7 @@ import { I18N_KEYS } from "@/constants/i18nKeys";
 import { useI18n } from "@/utils/i18n";
 import { notify } from "@/utils/notify";
 
-import type { ConfirmationResult } from "firebase/auth";
+type Locale = "en" | "th";
 
 type AccountUpdatePayload = {
     email?: string | null;
@@ -25,11 +25,61 @@ type AccountUpdatePayload = {
 };
 
 type UserEnvelope = { user?: any };
-
 type AccountUpdateResponse = ApiResponse<UserEnvelope>;
 type SendVerifyEmailResponse = ApiResponse<{ ok: boolean }>;
+type OrdersResponse = ApiResponse<{ orders: OrderDto[] }>;
 
 type MessageState = { key: I18nKey } | { text: string } | null;
+
+type OrderDto = {
+    id: number;
+    status: string;
+    displayStatus: string;
+    created_at: string | null;
+    updated_at: string | null;
+    order_details: any;
+    branch: {
+        id: number;
+        name: string;
+        address: string | null;
+        lat: number | null;
+        lng: number | null;
+    } | null;
+    txn: {
+        id: number;
+        status: string;
+        expired_at: string | null;
+        isExpired: boolean;
+    } | null;
+};
+
+type TransactionItem = {
+    id: number;
+    status: string | null;
+    expired_at: string | null;
+    isExpired: boolean;
+    latestCreatedAt: string | null;
+    orders: Array<{ id: number; status: string; created_at: string | null }>;
+};
+
+type TabValue = "details" | "orders" | "transactions";
+
+const ORDER_STATUS_KEYS: Record<string, string> = {
+    PENDING: I18N_KEYS.ORDER_STATUS_PENDING,
+    PEND: I18N_KEYS.ORDER_STATUS_PENDING,
+    PREPARE: I18N_KEYS.ORDER_STATUS_PREPARE,
+    PREPARING: I18N_KEYS.ORDER_STATUS_PREPARE,
+    ACCEPTED: I18N_KEYS.ORDER_STATUS_ACCEPTED,
+    APPROVED: I18N_KEYS.ORDER_STATUS_ACCEPTED,
+    REJECTED: I18N_KEYS.ORDER_STATUS_REJECTED,
+    FAILED: I18N_KEYS.ORDER_STATUS_REJECTED,
+    EXPIRED: I18N_KEYS.ORDER_STATUS_EXPIRED,
+    COMPLETED: I18N_KEYS.ORDER_STATUS_COMPLETED,
+    DONE: I18N_KEYS.ORDER_STATUS_COMPLETED,
+    SUCCESS: I18N_KEYS.ORDER_STATUS_COMPLETED,
+    CANCELLED: I18N_KEYS.ORDER_STATUS_CANCELLED,
+    CANCELED: I18N_KEYS.ORDER_STATUS_CANCELLED,
+};
 
 function normalizeUser(payload: any | null | undefined): Me {
     return {
@@ -44,10 +94,41 @@ function normalizeUser(payload: any | null | undefined): Me {
 
 const emptyUser = normalizeUser(null);
 
+function formatBangkok(input: string | null | undefined, locale: Locale): string {
+    if (!input) {
+        return "-";
+    }
+    const date = new Date(input);
+    if (Number.isNaN(date.getTime())) {
+        return String(input);
+    }
+    const formatLocale = locale === "th" ? "th-TH" : "en-US";
+    return date.toLocaleString(formatLocale, {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: "Asia/Bangkok",
+    });
+}
+
+function resolveStatusLabel(status: string | null | undefined, t: ReturnType<typeof useI18n>["t"]): string {
+    if (!status) {
+        return t(I18N_KEYS.ORDER_STATUS_UNKNOWN);
+    }
+    const normalized = status.toUpperCase();
+    const key = ORDER_STATUS_KEYS[normalized] ?? I18N_KEYS.ORDER_STATUS_UNKNOWN;
+    return t(key);
+}
+
+function isValidTab(tab: string | null | undefined): tab is TabValue {
+    if (!tab) return false;
+    return tab === "details" || tab === "orders" || tab === "transactions";
+}
+
 export default function AccountPage() {
     const router = useRouter();
     const dispatch = useAppDispatch();
-    const { t } = useI18n();
+    const { t, locale } = useI18n();
+
     const resolveErrorMessage = useCallback(
         (error: any, fallbackKey: I18nKey) => {
             const code = error?.response?.data?.code;
@@ -65,6 +146,7 @@ export default function AccountPage() {
         },
         [t]
     );
+
     const [me, setMe] = useState<Me | null>(null);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState<MessageState>(null);
@@ -80,6 +162,13 @@ export default function AccountPage() {
     const [confirmingOtp, setConfirmingOtp] = useState(false);
 
     const confirmRef = useRef<ConfirmationResult | null>(null);
+
+    const [activeTab, setActiveTab] = useState<TabValue>("details");
+    const [showTopUpModal, setShowTopUpModal] = useState(false);
+    const [orders, setOrders] = useState<OrderDto[]>([]);
+    const [ordersLoaded, setOrdersLoaded] = useState(false);
+    const [ordersLoading, setOrdersLoading] = useState(false);
+    const [ordersError, setOrdersError] = useState<string | null>(null);
 
     const resolvedMessage = useMemo(() => {
         if (!message) return "";
@@ -118,6 +207,44 @@ export default function AccountPage() {
     useEffect(() => {
         fetchMe().catch(() => {});
     }, [fetchMe]);
+
+    const loadOrders = useCallback(async () => {
+        setOrdersLoading(true);
+        setOrdersError(null);
+        try {
+            const response = await axios.get<OrdersResponse>("/api/order/details");
+            if (response.data.code !== "OK") {
+                throw new Error(response.data.message || "");
+            }
+            setOrders(response.data.body?.orders ?? []);
+        } catch {
+            setOrdersError(t(I18N_KEYS.ACCOUNT_ORDERS_ERROR));
+        } finally {
+            setOrdersLoading(false);
+            setOrdersLoaded(true);
+        }
+    }, [t]);
+
+    useEffect(() => {
+        if (!router.isReady) return;
+        const tabParam = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
+        if (isValidTab(tabParam)) {
+            setActiveTab(tabParam);
+        }
+        if (router.query.openTopup !== undefined) {
+            setActiveTab("transactions");
+            setShowTopUpModal(true);
+            const nextQuery = { ...router.query } as Record<string, any>;
+            delete nextQuery.openTopup;
+            router.replace({ pathname: "/account", query: nextQuery }, undefined, { shallow: true }).catch(() => {});
+        }
+    }, [router, router.isReady, router.query]);
+
+    useEffect(() => {
+        if ((activeTab === "orders" || activeTab === "transactions") && !ordersLoaded && !ordersLoading) {
+            loadOrders().catch(() => {});
+        }
+    }, [activeTab, loadOrders, ordersLoaded, ordersLoading]);
 
     async function updateAccount(patch: AccountUpdatePayload) {
         const response = await axios.post<AccountUpdateResponse>("/api/v1/account/update", patch);
@@ -266,45 +393,324 @@ export default function AccountPage() {
         router.replace("/login");
     }
 
+    const handleTabChange = useCallback(
+        (tab: TabValue) => {
+            setActiveTab(tab);
+            if (!router.isReady) return;
+            const nextQuery = { ...router.query } as Record<string, any>;
+            if (tab === "details") {
+                delete nextQuery.tab;
+            } else {
+                nextQuery.tab = tab;
+            }
+            delete nextQuery.openTopup;
+            router.replace({ pathname: "/account", query: nextQuery }, undefined, { shallow: true }).catch(() => {});
+        },
+        [router]
+    );
+
+    const handleRetryOrders = useCallback(() => {
+        setOrdersLoaded(false);
+        loadOrders().catch(() => {});
+    }, [loadOrders]);
+
+    const transactions = useMemo<TransactionItem[]>(() => {
+        const map = new Map<number, TransactionItem>();
+        orders.forEach((order) => {
+            if (!order.txn) return;
+            const existing = map.get(order.txn.id) ?? {
+                id: order.txn.id,
+                status: order.txn.status ?? null,
+                expired_at: order.txn.expired_at ?? null,
+                isExpired: !!order.txn.isExpired,
+                latestCreatedAt: order.created_at ?? null,
+                orders: [],
+            };
+            if (order.created_at) {
+                const currentLatest = existing.latestCreatedAt ? new Date(existing.latestCreatedAt).getTime() : 0;
+                const candidate = new Date(order.created_at).getTime();
+                if (!Number.isNaN(candidate) && candidate > currentLatest) {
+                    existing.latestCreatedAt = order.created_at;
+                }
+            }
+            existing.status = order.txn.status ?? existing.status;
+            existing.expired_at = order.txn.expired_at ?? existing.expired_at;
+            existing.isExpired = order.txn.isExpired ?? existing.isExpired;
+            existing.orders.push({ id: order.id, status: order.displayStatus ?? order.status, created_at: order.created_at });
+            map.set(order.txn.id, existing);
+        });
+        return Array.from(map.values()).sort((a, b) => {
+            const aTime = a.latestCreatedAt ? new Date(a.latestCreatedAt).getTime() : 0;
+            const bTime = b.latestCreatedAt ? new Date(b.latestCreatedAt).getTime() : 0;
+            return bTime - aTime;
+        });
+    }, [orders]);
+
     const safeUser = me ?? emptyUser;
+
+    const renderOrders = () => {
+        if (ordersLoading && !ordersLoaded) {
+            return <p className="text-sm text-slate-500">{t(I18N_KEYS.COMMON_LOADING)}</p>;
+        }
+        if (ordersError) {
+            return (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                    <div>{ordersError}</div>
+                    <button
+                        type="button"
+                        onClick={handleRetryOrders}
+                        className="mt-3 inline-flex items-center rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+                    >
+                        {t(I18N_KEYS.COMMON_RETRY)}
+                    </button>
+                </div>
+            );
+        }
+        if (!orders.length) {
+            return <p className="text-sm text-slate-500">{t(I18N_KEYS.ACCOUNT_ORDERS_EMPTY)}</p>;
+        }
+        return (
+            <div className="space-y-4">
+                {orders.map((order) => (
+                    <div key={order.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <p className="text-sm font-semibold text-slate-800">
+                                    {t(I18N_KEYS.ACCOUNT_ORDER_NUMBER_PREFIX)} {order.id}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                    {formatBangkok(order.created_at, locale)}
+                                </p>
+                                {order.branch && (
+                                    <p className="mt-2 text-sm text-slate-600">
+                                        {order.branch.name}
+                                        {order.branch.address ? ` • ${order.branch.address}` : ""}
+                                    </p>
+                                )}
+                            </div>
+                            <span className="inline-flex h-7 items-center rounded-full bg-slate-100 px-3 text-xs font-medium text-slate-700">
+                                {resolveStatusLabel(order.displayStatus || order.status, t)}
+                            </span>
+                        </div>
+                        {order.txn && (
+                            <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs text-slate-600">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span>
+                                        {t(I18N_KEYS.ACCOUNT_TRANSACTION_NUMBER_PREFIX)} {order.txn.id}
+                                    </span>
+                                    <span>{resolveStatusLabel(order.txn.status, t)}</span>
+                                </div>
+                                {order.txn.expired_at && (
+                                    <p className="mt-2 text-[11px] text-slate-500">
+                                        {t(I18N_KEYS.ORDER_STATUS_EXPIRED)}: {formatBangkok(order.txn.expired_at, locale)}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
+    const renderTransactions = () => {
+        if (ordersLoading && !ordersLoaded) {
+            return <p className="text-sm text-slate-500">{t(I18N_KEYS.COMMON_LOADING)}</p>;
+        }
+        if (ordersError) {
+            return (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                    <div>{ordersError}</div>
+                    <button
+                        type="button"
+                        onClick={handleRetryOrders}
+                        className="mt-3 inline-flex items-center rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+                    >
+                        {t(I18N_KEYS.COMMON_RETRY)}
+                    </button>
+                </div>
+            );
+        }
+        if (!transactions.length) {
+            return <p className="text-sm text-slate-500">{t(I18N_KEYS.ACCOUNT_TRANSACTIONS_EMPTY)}</p>;
+        }
+        return (
+            <div className="space-y-4">
+                {transactions.map((txn) => (
+                    <div key={txn.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <p className="text-sm font-semibold text-slate-800">
+                                    {t(I18N_KEYS.ACCOUNT_TRANSACTION_NUMBER_PREFIX)} {txn.id}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                    {formatBangkok(txn.latestCreatedAt, locale)}
+                                </p>
+                            </div>
+                            <span className="inline-flex h-7 items-center rounded-full bg-slate-100 px-3 text-xs font-medium text-slate-700">
+                                {resolveStatusLabel(txn.status, t)}
+                            </span>
+                        </div>
+                        <div className="mt-3 space-y-2">
+                            {txn.orders.map((order) => (
+                                <div
+                                    key={order.id}
+                                    className="flex flex-col gap-1 rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between"
+                                >
+                                    <span>
+                                        {t(I18N_KEYS.ACCOUNT_ORDER_NUMBER_PREFIX)} {order.id}
+                                    </span>
+                                    <span className="font-medium text-slate-700">
+                                        {resolveStatusLabel(order.status, t)}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        );
+    };
 
     return (
         <Layout>
-            <div className="mx-auto max-w-2xl space-y-6">
+            <div className="mx-auto max-w-4xl space-y-6 px-4 pb-10 pt-6">
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900">{t(I18N_KEYS.ACCOUNT_TITLE)}</h1>
                     <p className="text-sm text-slate-500">{t(I18N_KEYS.ACCOUNT_SUBTITLE)}</p>
                 </div>
 
-                <ProfileCard me={safeUser} loading={loading} onLogout={handleLogout} />
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div className="flex rounded-2xl bg-slate-100 p-1">
+                        {([
+                            { key: "details", label: I18N_KEYS.ACCOUNT_TAB_DETAILS },
+                            { key: "orders", label: I18N_KEYS.ACCOUNT_TAB_ORDERS },
+                            { key: "transactions", label: I18N_KEYS.ACCOUNT_TAB_TRANSACTIONS },
+                        ] as Array<{ key: TabValue; label: I18nKey }>).map((tab) => {
+                            const isActive = activeTab === tab.key;
+                            return (
+                                <button
+                                    key={tab.key}
+                                    type="button"
+                                    onClick={() => handleTabChange(tab.key)}
+                                    className={`inline-flex min-w-[110px] items-center justify-center rounded-2xl px-4 py-2 text-sm font-medium transition focus:outline-none ${
+                                        isActive
+                                            ? "bg-white text-slate-800 shadow-sm"
+                                            : "text-slate-600 hover:bg-white/70"
+                                    }`}
+                                    aria-pressed={isActive}
+                                >
+                                    {t(tab.label)}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    {activeTab === "transactions" && (
+                        <button
+                            type="button"
+                            onClick={() => setShowTopUpModal(true)}
+                            className="inline-flex items-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500"
+                        >
+                            {t(I18N_KEYS.NAV_ACCOUNT_TOP_UP)}
+                        </button>
+                    )}
+                </div>
 
-                <VerifyUpdateCard
-                    me={me}
-                    newEmail={newEmail}
-                    setNewEmail={setNewEmail}
-                    onResendEmail={handleVerifyEmail}
-                    onChangeEmail={handleChangeEmail}
-                    phone={phone}
-                    setPhone={setPhone}
-                    otp={otp}
-                    setOtp={setOtp}
-                    onSendOtp={handleSendOtp}
-                    onConfirmOtp={handleConfirmOtp}
-                    verifyingEmail={verifyingEmail}
-                    updatingEmail={updatingEmail}
-                    sendingOtp={sendingOtp}
-                    confirmingOtp={confirmingOtp}
-                />
+                {activeTab === "details" && (
+                    <div className="space-y-6">
+                        <ProfileCard me={safeUser} loading={loading} onLogout={handleLogout} />
 
-                {!!resolvedMessage && (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
-                        {resolvedMessage}
+                        <VerifyUpdateCard
+                            me={me}
+                            newEmail={newEmail}
+                            setNewEmail={setNewEmail}
+                            onResendEmail={handleVerifyEmail}
+                            onChangeEmail={handleChangeEmail}
+                            phone={phone}
+                            setPhone={setPhone}
+                            otp={otp}
+                            setOtp={setOtp}
+                            onSendOtp={handleSendOtp}
+                            onConfirmOtp={handleConfirmOtp}
+                            verifyingEmail={verifyingEmail}
+                            updatingEmail={updatingEmail}
+                            sendingOtp={sendingOtp}
+                            confirmingOtp={confirmingOtp}
+                        />
+
+                        {!!resolvedMessage && (
+                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                                {resolvedMessage}
+                            </div>
+                        )}
+                        {!!resolvedError && (
+                            <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                                {resolvedError}
+                            </div>
+                        )}
                     </div>
                 )}
-                {!!resolvedError && (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{resolvedError}</div>
+
+                {activeTab === "orders" && (
+                    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                        {renderOrders()}
+                    </div>
+                )}
+
+                {activeTab === "transactions" && (
+                    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                        {renderTransactions()}
+                    </div>
                 )}
             </div>
+
+            {showTopUpModal && (
+                <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 px-4">
+                    <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl">
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900">{t(I18N_KEYS.ACCOUNT_TOPUP_TITLE)}</h2>
+                                <p className="mt-1 text-sm text-slate-500">{t(I18N_KEYS.ACCOUNT_TOPUP_DESCRIPTION)}</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowTopUpModal(false)}
+                                className="rounded-full bg-slate-100 p-2 text-slate-500 transition hover:bg-slate-200"
+                                aria-label={t(I18N_KEYS.ACCOUNT_TOPUP_CLOSE)}
+                            >
+                                <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path
+                                        d="M6 6L14 14M14 6L6 14"
+                                        stroke="currentColor"
+                                        strokeWidth="1.5"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="mt-5 space-y-4">
+                            <div className="rounded-2xl border border-slate-200 p-4">
+                                <h3 className="text-sm font-semibold text-slate-800">{t(I18N_KEYS.ACCOUNT_TOPUP_QR)}</h3>
+                                <p className="mt-2 text-xs text-slate-500">{t(I18N_KEYS.ACCOUNT_TOPUP_QR_HINT)}</p>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200 p-4">
+                                <h3 className="text-sm font-semibold text-slate-800">{t(I18N_KEYS.ACCOUNT_TOPUP_BALANCE)}</h3>
+                                <p className="mt-2 text-xs text-slate-500">{t(I18N_KEYS.ACCOUNT_TOPUP_BALANCE_HINT)}</p>
+                            </div>
+                        </div>
+                        <div className="mt-6 flex justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setShowTopUpModal(false)}
+                                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+                            >
+                                {t(I18N_KEYS.ACCOUNT_TOPUP_CLOSE)}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </Layout>
     );
 }
