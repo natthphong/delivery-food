@@ -281,3 +281,48 @@ export async function saveUserCard(uid: string, card: CartBranchGroup[]): Promis
 
     return mapUser(inserted);
 }
+
+export async function adjustBalance(userId: number, amount: number): Promise<void> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+        .from("tbl_user")
+        .select("balance")
+        .eq("id", userId)
+        .maybeSingle();
+
+    if (error) {
+        throw new Error(error.message || "Failed to adjust balance");
+    }
+
+    if (!data) {
+        return;
+    }
+
+    const delta = (() => {
+        if (typeof amount === "number" && Number.isFinite(amount)) {
+            return amount;
+        }
+        const parsed = Number(amount);
+        return Number.isFinite(parsed) ? parsed : 0;
+    })();
+
+    const currentRaw = data.balance;
+    const current = (() => {
+        if (typeof currentRaw === "number" && Number.isFinite(currentRaw)) {
+            return currentRaw;
+        }
+        const parsed = Number(currentRaw);
+        return Number.isFinite(parsed) ? parsed : 0;
+    })();
+
+    const next = current + delta;
+
+    const { error: updateError } = await supabase
+        .from("tbl_user")
+        .update({ balance: next, updated_at: new Date().toISOString() })
+        .eq("id", userId);
+
+    if (updateError) {
+        throw new Error(updateError.message || "Failed to update balance");
+    }
+}

@@ -587,3 +587,16 @@ export async function getTopMenu(branchId: number): Promise<BranchMenuPayload | 
 
     return { branch, menu };
 }
+
+export async function getBranchesByIds(ids: number[]) {
+    if (!ids.length) return [];
+    const sb = getSupabase();
+    const { data, error } = await sb
+        .from("tbl_branch")
+        .select("id,name,address_line,lat,lng")
+        .in("id", ids);
+    if (error) {
+        throw new Error(error.message || "Failed to load branches");
+    }
+    return data || [];
+}
