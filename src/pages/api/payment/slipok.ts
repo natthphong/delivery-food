@@ -6,6 +6,11 @@ import { logError, logInfo } from "@/utils/logger";
 import type { TransactionRow } from "@/types/transaction";
 import FormData from "form-data";
 import { toBangkokIso } from "@/utils/time";
+import axios from "axios";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import {getCompanyById} from "@repository/company";
 
 function uuidv4(): string {
     return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -104,9 +109,9 @@ function isExpiredUTC(ts: string | null | undefined): boolean {
 }
 
 async function callSlipOkVerify({
-    file,
-    amount,
-}: {
+                                    file,
+                                    amount,
+                                }: {
     file: { filename: string; buffer: Buffer };
     amount: number;
 }): Promise<
@@ -117,31 +122,79 @@ async function callSlipOkVerify({
     const token = process.env.NEXT_PUBLIC_SLIP_OK_TOKEN || "";
 
     if (!url || !token) {
-        return { ok: false, code: "CONFIG_MISSING", message: "SlipOK config missing" };
+        return { ok: false, code: "CONFIG_MISSING", message: "SLIPOK config missing" };
     }
+    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "slipok-"));
+    const tmpName =
+        (file.filename && path.basename(file.filename)) || `slip-${Date.now()}.jpg`;
+    const tmpPath = path.join(tmpDir, tmpName);
+    await fs.promises.writeFile(tmpPath, file.buffer);
 
     const form = new FormData();
-    form.append("amount", amount.toString());
-    form.append("files", file.buffer, { filename: file.filename || "slip.jpg" });
+    form.append("amount", String(amount));
+
+    form.append("files", fs.createReadStream(tmpPath), { filename: tmpName });
+
+
+    const headers = {
+        "x-authorization": token,
+        ...form.getHeaders(), // includes correct content-type with boundary
+    };
 
     try {
-        const response = await fetch(url, {
-            method: "POST",
-            headers: {
-                "x-authorization": token,
-                ...(typeof (form as any).getHeaders === "function" ? (form as any).getHeaders() : {}),
-            },
-            body: form as any,
+        const res = await axios.post(url, form, {
+            headers,
+            maxBodyLength: Infinity,
+            validateStatus: () => true,
         });
 
-        const data = await response.json().catch(() => ({}));
+        const data = res.data ?? {};
+        const success = data?.success === true || data?.data?.success === true;
 
-        if (data?.success === true || data?.data?.success === true) {
+        if (data?.code === 1013) {
+            return {
+                ok: false,
+                code: "SLIP_AMOUNT_MISMATCH",
+                message: "Amount does not match slip",
+                payload: data,
+            };
+        }
+        if (data?.code === 1000) {
+            return {
+                ok: false,
+                code: "INVALID_SLIP",
+                message: "Slip data incomplete",
+                payload: data,
+            };
+        }
+
+        if (success) {
             return { ok: true, payload: data };
         }
 
-        if (typeof data?.code === "number") {
-            if (data.code === 1013) {
+        // Non-success; map by HTTP status
+        if (res.status >= 500) {
+            return {
+                ok: false,
+                code: "SLIPOK_UPSTREAM_ERROR",
+                message: `SlipOK error (${res.status})`,
+                payload: data,
+            };
+        }
+
+        return {
+            ok: false,
+            code: typeof data?.code === "string" ? data.code : "INVALID_SLIP",
+            message: data?.message || `Slip verify failed (${res.status})`,
+            payload: data,
+        };
+    } catch (err: any) {
+        // Network / Axios transport errors
+        if (axios.isAxiosError(err)) {
+            const status = err.response?.status ?? 0;
+            const data = err.response?.data;
+
+            if (data?.code === 1013) {
                 return {
                     ok: false,
                     code: "SLIP_AMOUNT_MISMATCH",
@@ -149,7 +202,7 @@ async function callSlipOkVerify({
                     payload: data,
                 };
             }
-            if (data.code === 1000) {
+            if (data?.code === 1000) {
                 return {
                     ok: false,
                     code: "INVALID_SLIP",
@@ -157,35 +210,72 @@ async function callSlipOkVerify({
                     payload: data,
                 };
             }
+            if (status >= 500) {
+                return {
+                    ok: false,
+                    code: "SLIPOK_UPSTREAM_ERROR",
+                    message: `SlipOK error (${status})`,
+                    payload: data,
+                };
+            }
+
+            return {
+                ok: false,
+                code: "INVALID_SLIP",
+                message: data?.message || err.message || "Slip verify failed",
+                payload: data,
+            };
         }
 
         return {
             ok: false,
-            code: typeof data?.code === "string" ? data.code : "INVALID_SLIP",
-            message: data?.message || "Slip verify failed",
-            payload: data,
-        };
-    } catch (error: any) {
-        return {
-            ok: false,
             code: "NETWORK_ERROR",
-            message: error?.message || "Network error",
+            message: err?.message || "Network error",
         };
+    } finally {
+        try {
+            await fs.promises.unlink(tmpPath);
+        } catch {}
+        try {
+            await fs.promises.rmdir(tmpDir);
+        } catch {}
     }
 }
-
 function extractSlipMeta(payload: any): {
     transRef: string | null;
     transDate: string | null;
     transTimestamp: string | null;
+    receiverLast4: string | null;
+    receiverRaw: string | null;
 } {
     const source = payload?.data || payload || {};
+    const receiver = source?.receiver || {};
+    const proxyVal = receiver?.proxy?.value ?? null;
+    const acctVal  = receiver?.account?.value ?? null;
+
+    const fromProxy = last4Digits(proxyVal);
+    const fromAcct  = last4Digits(acctVal);
+
     return {
         transRef: source?.transRef ?? null,
         transDate: source?.transDate ?? null,
         transTimestamp: source?.transTimestamp ?? null,
+        receiverLast4: fromProxy || fromAcct || null,
+        receiverRaw: proxyVal || acctVal || null,
     };
 }
+
+
+function last4Digits(input?: string | null): string | null {
+    if (!input) return null;
+    const normalized = String(input).replace(/[xX]/g, "0");
+
+    const digits = normalized.replace(/\D+/g, "");
+    if (!digits) return null;
+
+    return digits.slice(-4);
+}
+
 
 async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) {
     const reqId = Math.random().toString(36).slice(2, 8);
@@ -259,7 +349,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) 
 
                 try {
                     const meta = extractSlipMeta(verify.payload);
+
                     if (meta.transRef || meta.transDate || meta.transTimestamp) {
+                        const company = await getCompanyById(txn.company_id);
+                        const expectedLast4 = last4Digits(company?.payment_id ?? null);
+                        const receiverLast4 = meta.receiverLast4;
+                        if (expectedLast4 && expectedLast4 !== receiverLast4) {
+                            await updateTxnStatus(txn.id, "rejected");
+                            const rejected = await getTransactionById(txn.id);
+                            return res.status(200).json({
+                                code: "RECEIVER_MISMATCH",
+                                message: "Slip receiver does not match destination",
+                                body: { txn: rejected ?? { ...txn, status: "rejected" } },
+                            });
+                        }
                         await stampTxnSlipMeta({
                             txnId: txn.id,
                             transRef: meta.transRef,
@@ -268,7 +371,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) 
                         });
                     }
                 } catch (stampError: any) {
-                    logError("payment slipok: stamp on fail error", { reqId, message: stampError?.message });
+                    logError("payment slipok: stamp error", { reqId, message: stampError?.message });
+                    if (stampError?.message === 'duplicate key value violates unique constraint "ux_tbl_transaction_transref_transdate_notnull"'){
+                        return res.status(500).json({ code: "TXN_REF_ALREADY", message: "Duplicate Txn Ref", body: { txn: null } });
+                    }
+                    return res.status(500).json({ code: "INTERNAL_ERROR", message: "error", body: { txn: null } });
                 }
 
                 await updateTxnStatus(txn.id, "rejected");
@@ -280,17 +387,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) 
                 });
             }
 
-            try {
-                const meta = extractSlipMeta(verify.payload);
-                await stampTxnSlipMeta({
-                    txnId: txn.id,
-                    transRef: meta.transRef,
-                    transDate: meta.transDate,
-                    transTimestamp: meta.transTimestamp,
-                });
-            } catch (stampError: any) {
-                logError("payment slipok: stamp error", { reqId, message: stampError?.message });
-            }
         } else {
             const now = new Date();
             const yyyy = now.getUTCFullYear();
