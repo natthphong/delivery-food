@@ -1,15 +1,19 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { withAuth } from "@/utils/authMiddleware";
-import { getTransactionById, updateTxnStatus, getMethodById } from "@/repository/transaction";
+import { getTransactionById, updateTxnStatus, getMethodById, stampTxnSlipMeta } from "@/repository/transaction";
 import { adjustBalance } from "@/repository/user";
 import { logError, logInfo } from "@/utils/logger";
 import type { TransactionRow } from "@/types/transaction";
-import { isExpiredUTC, toBangkokIso } from "@/utils/time";
-import axios from "axios";
-import fs from "fs";
-import os from "os";
-import path from "path";
 import FormData from "form-data";
+import { toBangkokIso } from "@/utils/time";
+
+function uuidv4(): string {
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === "x" ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+    });
+}
 
 export const config = { api: { bodyParser: false }, runtime: "nodejs" };
 
@@ -85,19 +89,24 @@ function parseTxnId(value: string | undefined): number | null {
     return Number.isFinite(num) ? num : null;
 }
 
+function isExpiredUTC(ts: string | null | undefined): boolean {
+    if (!ts) return false;
+    let value = String(ts).trim();
+    if (value.includes(" ") && !value.includes("T")) {
+        value = value.replace(" ", "T");
+    }
+    value = value.replace(/(\.\d{3})\d+$/, "$1");
+    if (!/Z$|[+\-]\d{2}:?\d{2}$/.test(value)) {
+        value = `${value}Z`;
+    }
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? Date.now() >= parsed : false;
+}
 
-/**
- * SlipOK verify using axios + temp file (safer with multipart streams).
- * - Writes incoming Buffer to a temp file; posts as ReadStream
- * - Uses form-data headers (DON'T set your own content-type/length)
- * - Maps SlipOK codes:
- *   - 1013 → SLIP_AMOUNT_MISMATCH
- *   - 1000 → INVALID_SLIP
- */
 async function callSlipOkVerify({
-                                    file,
-                                    amount,
-                                }: {
+    file,
+    amount,
+}: {
     file: { filename: string; buffer: Buffer };
     amount: number;
 }): Promise<
@@ -108,85 +117,31 @@ async function callSlipOkVerify({
     const token = process.env.NEXT_PUBLIC_SLIP_OK_TOKEN || "";
 
     if (!url || !token) {
-        return { ok: false, code: "CONFIG_MISSING", message: "SLIPOK config missing" };
+        return { ok: false, code: "CONFIG_MISSING", message: "SlipOK config missing" };
     }
 
-    // --- write the incoming buffer to a temp file
-    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "slipok-"));
-    const tmpName =
-        (file.filename && path.basename(file.filename)) || `slip-${Date.now()}.jpg`;
-    const tmpPath = path.join(tmpDir, tmpName);
-    await fs.promises.writeFile(tmpPath, file.buffer);
-
     const form = new FormData();
-    // SlipOK accepts amount (string). Comment out if you don't want strict amount checking.
-    form.append("amount", String(amount));
-    // Field name must be "files"
-    form.append("files", fs.createReadStream(tmpPath), { filename: tmpName });
-    // Optional: enable server logging at SlipOK (if supported by your plan)
-    // form.append("log", "true");
-
-    const headers = {
-        "x-authorization": token,
-        ...form.getHeaders(), // includes correct content-type with boundary
-    };
+    form.append("amount", amount.toString());
+    form.append("files", file.buffer, { filename: file.filename || "slip.jpg" });
 
     try {
-        const res = await axios.post(url, form, {
-            headers,
-            maxBodyLength: Infinity, // allow large images
-            // DO NOT set maxContentLength here; axios treats it differently
-            validateStatus: () => true, // we handle mapping below
+        const response = await fetch(url, {
+            method: "POST",
+            headers: {
+                "x-authorization": token,
+                ...(typeof (form as any).getHeaders === "function" ? (form as any).getHeaders() : {}),
+            },
+            body: form as any,
         });
 
-        const data = res.data ?? {};
-        const success = data?.success === true || data?.data?.success === true;
+        const data = await response.json().catch(() => ({}));
 
-        // Map known SlipOK error codes even on 2xx
-        if (data?.code === 1013) {
-            return {
-                ok: false,
-                code: "SLIP_AMOUNT_MISMATCH",
-                message: "Amount does not match slip",
-                payload: data,
-            };
-        }
-        if (data?.code === 1000) {
-            return {
-                ok: false,
-                code: "INVALID_SLIP",
-                message: "Slip data incomplete",
-                payload: data,
-            };
-        }
-
-        if (success) {
+        if (data?.success === true || data?.data?.success === true) {
             return { ok: true, payload: data };
         }
 
-        // Non-success; map by HTTP status
-        if (res.status >= 500) {
-            return {
-                ok: false,
-                code: "SLIPOK_UPSTREAM_ERROR",
-                message: `SlipOK error (${res.status})`,
-                payload: data,
-            };
-        }
-
-        return {
-            ok: false,
-            code: typeof data?.code === "string" ? data.code : "INVALID_SLIP",
-            message: data?.message || `Slip verify failed (${res.status})`,
-            payload: data,
-        };
-    } catch (err: any) {
-        // Network / Axios transport errors
-        if (axios.isAxiosError(err)) {
-            const status = err.response?.status ?? 0;
-            const data = err.response?.data;
-
-            if (data?.code === 1013) {
+        if (typeof data?.code === "number") {
+            if (data.code === 1013) {
                 return {
                     ok: false,
                     code: "SLIP_AMOUNT_MISMATCH",
@@ -194,7 +149,7 @@ async function callSlipOkVerify({
                     payload: data,
                 };
             }
-            if (data?.code === 1000) {
+            if (data.code === 1000) {
                 return {
                     ok: false,
                     code: "INVALID_SLIP",
@@ -202,39 +157,35 @@ async function callSlipOkVerify({
                     payload: data,
                 };
             }
-            if (status >= 500) {
-                return {
-                    ok: false,
-                    code: "SLIPOK_UPSTREAM_ERROR",
-                    message: `SlipOK error (${status})`,
-                    payload: data,
-                };
-            }
-
-            return {
-                ok: false,
-                code: "INVALID_SLIP",
-                message: data?.message || err.message || "Slip verify failed",
-                payload: data,
-            };
         }
 
         return {
             ok: false,
-            code: "NETWORK_ERROR",
-            message: err?.message || "Network error",
+            code: typeof data?.code === "string" ? data.code : "INVALID_SLIP",
+            message: data?.message || "Slip verify failed",
+            payload: data,
         };
-    } finally {
-        // Always cleanup the temp file + directory
-        try {
-            await fs.promises.unlink(tmpPath);
-        } catch {}
-        try {
-            await fs.promises.rmdir(tmpDir);
-        } catch {}
+    } catch (error: any) {
+        return {
+            ok: false,
+            code: "NETWORK_ERROR",
+            message: error?.message || "Network error",
+        };
     }
 }
 
+function extractSlipMeta(payload: any): {
+    transRef: string | null;
+    transDate: string | null;
+    transTimestamp: string | null;
+} {
+    const source = payload?.data || payload || {};
+    return {
+        transRef: source?.transRef ?? null,
+        transDate: source?.transDate ?? null,
+        transTimestamp: source?.transTimestamp ?? null,
+    };
+}
 
 async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) {
     const reqId = Math.random().toString(36).slice(2, 8);
@@ -252,32 +203,41 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) 
             return res.status(401).json({ code: "UNAUTHORIZED", message: "Missing token", body: { txn: null } });
         }
 
-        const { fields, files } = await parseMultipart(req);
+        let parsed: ParsedForm;
+        try {
+            parsed = await parseMultipart(req);
+        } catch {
+            return res.status(200).json({ code: "BAD_REQUEST", message: "Invalid payload", body: { txn: null } });
+        }
+
+        const { fields, files } = parsed;
         const txnId = parseTxnId(fields.txnId);
         if (txnId == null) {
-            return res.status(400).json({ code: "BAD_REQUEST", message: "Invalid txnId", body: { txn: null } });
+            return res.status(200).json({ code: "BAD_REQUEST", message: "Invalid txnId", body: { txn: null } });
         }
 
         const fileEntry = files.qrFile || files.file || null;
         logInfo("payment slipok: received", { reqId, txnId, hasFile: !!fileEntry });
         if (!fileEntry || !fileEntry.buffer?.length) {
             await updateTxnStatus(txnId, "rejected");
-            return res.status(400).json({ code: "INVALID_SLIP", message: "Invalid slip", body: { txn: null } });
+            return res.status(200).json({ code: "INVALID_SLIP", message: "Invalid slip", body: { txn: null } });
         }
 
         const txn = await getTransactionById(txnId);
         if (!txn) {
-            return res.status(404).json({ code: "NOT_FOUND", message: "Transaction not found", body: { txn: null } });
+            return res.status(200).json({ code: "NOT_FOUND", message: "Transaction not found", body: { txn: null } });
         }
 
         if (txn.status !== "pending") {
-            return res.status(400).json({ code: "TXN_ALREADY_FINAL", message: "Transaction already finalized", body: { txn } });
+            return res
+                .status(200)
+                .json({ code: "TXN_ALREADY_FINAL", message: "Transaction already finalized", body: { txn } });
         }
 
         if (isExpiredUTC(txn.expired_at)) {
             await updateTxnStatus(txn.id, "rejected");
             const rejected = await getTransactionById(txn.id);
-            return res.status(400).json({
+            return res.status(200).json({
                 code: "TXN_EXPIRED",
                 message: "Transaction expired",
                 body: { txn: rejected ?? { ...txn, status: "rejected" } },
@@ -286,23 +246,63 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) 
 
         const method = txn.txn_method_id ? await getMethodById(txn.txn_method_id) : null;
         if (method && method.type !== "qr") {
-            return res.status(400).json({ code: "INVALID_METHOD", message: "Invalid method", body: { txn } });
+            return res.status(200).json({ code: "INVALID_METHOD", message: "Invalid method", body: { txn } });
         }
 
         const localBypass = (process.env.NEXT_PUBLIC_ENV_SLIP_OK || "").toUpperCase() === "LOCAL";
         if (!localBypass) {
             const verify = await callSlipOkVerify({ file: fileEntry, amount: txn.amount });
             if (!verify.ok) {
+                if (verify.code === "CONFIG_MISSING") {
+                    throw new Error("SLIPOK config missing");
+                }
+
+                try {
+                    const meta = extractSlipMeta(verify.payload);
+                    if (meta.transRef || meta.transDate || meta.transTimestamp) {
+                        await stampTxnSlipMeta({
+                            txnId: txn.id,
+                            transRef: meta.transRef,
+                            transDate: meta.transDate,
+                            transTimestamp: meta.transTimestamp,
+                        });
+                    }
+                } catch (stampError: any) {
+                    logError("payment slipok: stamp on fail error", { reqId, message: stampError?.message });
+                }
+
                 await updateTxnStatus(txn.id, "rejected");
                 const rejected = await getTransactionById(txn.id);
-                const code = verify.code || "INVALID_SLIP";
-                const message = verify.message || "Slip verification failed";
-                return res.status(code === "CONFIG_MISSING" ? 500 : 400).json({
-                    code,
-                    message,
+                return res.status(200).json({
+                    code: verify.code || "INVALID_SLIP",
+                    message: verify.message || "Slip verification failed",
                     body: { txn: rejected ?? { ...txn, status: "rejected" } },
                 });
             }
+
+            try {
+                const meta = extractSlipMeta(verify.payload);
+                await stampTxnSlipMeta({
+                    txnId: txn.id,
+                    transRef: meta.transRef,
+                    transDate: meta.transDate,
+                    transTimestamp: meta.transTimestamp,
+                });
+            } catch (stampError: any) {
+                logError("payment slipok: stamp error", { reqId, message: stampError?.message });
+            }
+        } else {
+            const now = new Date();
+            const yyyy = now.getUTCFullYear();
+            const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+            const dd = String(now.getUTCDate()).padStart(2, "0");
+            const yyyymmdd = `${yyyy}${mm}${dd}`;
+            await stampTxnSlipMeta({
+                txnId: txn.id,
+                transRef: uuidv4(),
+                transDate: yyyymmdd,
+                transTimestamp: now.toISOString(),
+            });
         }
 
         await updateTxnStatus(txn.id, "accepted");
@@ -323,9 +323,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) 
         return res.status(200).json({ code: "OK", message: "success", body: { txn: normalized } });
     } catch (error: any) {
         logError("payment slipok: error", { reqId, message: error?.message });
-        const code = error?.message === "INVALID_CONTENT_TYPE" ? "BAD_REQUEST" : "ERROR";
-        const message = code === "BAD_REQUEST" ? "Invalid request" : "Slip verification failed";
-        return res.status(code === "BAD_REQUEST" ? 400 : 500).json({ code, message, body: { txn: null } });
+        if (error?.message === "SLIPOK config missing") {
+            return res.status(500).json({ code: "CONFIG_MISSING", message: "SlipOK config missing", body: { txn: null } });
+        }
+        return res.status(200).json({ code: "ERROR", message: "Slip verification failed", body: { txn: null } });
     }
 }
 

@@ -1,7 +1,6 @@
-import { useMemo } from "react";
-import { useSelector } from "react-redux";
+import { useSelector, shallowEqual } from "react-redux";
 import type { RootState } from "@store/index";
-import { totalItemCount } from "@utils/cart";
+import { selectCartCount, selectUserCardItems } from "@/store/selectors";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 
@@ -11,10 +10,9 @@ type FloatingCartButtonProps = {
 
 export default function FloatingCartButton({ onClick }: FloatingCartButtonProps) {
     const { t } = useI18n();
-    const card = useSelector((state: RootState) => state.auth.user?.card ?? []);
     const hasUser = useSelector((state: RootState) => !!state.auth.user);
-
-    const count = useMemo(() => totalItemCount(card), [card]);
+    const items = useSelector(selectUserCardItems, shallowEqual);
+    const count = useSelector(selectCartCount);
 
     if (!hasUser) return null;
 
@@ -24,6 +22,7 @@ export default function FloatingCartButton({ onClick }: FloatingCartButtonProps)
             onClick={onClick}
             className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 active:scale-[0.98]"
             aria-label={t(I18N_KEYS.CART_OPEN_CART)}
+            data-item-count={items.length}
         >
             <span className="relative inline-flex items-center justify-center">
                 <svg
