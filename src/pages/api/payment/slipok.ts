@@ -5,6 +5,10 @@ import { adjustBalance } from "@/repository/user";
 import { logError, logInfo } from "@/utils/logger";
 import type { TransactionRow } from "@/types/transaction";
 import { isExpiredUTC, toBangkokIso } from "@/utils/time";
+import axios from "axios";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import FormData from "form-data";
 
 export const config = { api: { bodyParser: false }, runtime: "nodejs" };
@@ -81,10 +85,19 @@ function parseTxnId(value: string | undefined): number | null {
     return Number.isFinite(num) ? num : null;
 }
 
+
+/**
+ * SlipOK verify using axios + temp file (safer with multipart streams).
+ * - Writes incoming Buffer to a temp file; posts as ReadStream
+ * - Uses form-data headers (DON'T set your own content-type/length)
+ * - Maps SlipOK codes:
+ *   - 1013 → SLIP_AMOUNT_MISMATCH
+ *   - 1000 → INVALID_SLIP
+ */
 async function callSlipOkVerify({
-    file,
-    amount,
-}: {
+                                    file,
+                                    amount,
+                                }: {
     file: { filename: string; buffer: Buffer };
     amount: number;
 }): Promise<
@@ -98,31 +111,130 @@ async function callSlipOkVerify({
         return { ok: false, code: "CONFIG_MISSING", message: "SLIPOK config missing" };
     }
 
+    // --- write the incoming buffer to a temp file
+    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "slipok-"));
+    const tmpName =
+        (file.filename && path.basename(file.filename)) || `slip-${Date.now()}.jpg`;
+    const tmpPath = path.join(tmpDir, tmpName);
+    await fs.promises.writeFile(tmpPath, file.buffer);
+
     const form = new FormData();
-    form.append("amount", amount.toString());
-    form.append("files", file.buffer, { filename: file.filename || "slip.jpg" });
+    // SlipOK accepts amount (string). Comment out if you don't want strict amount checking.
+    form.append("amount", String(amount));
+    // Field name must be "files"
+    form.append("files", fs.createReadStream(tmpPath), { filename: tmpName });
+    // Optional: enable server logging at SlipOK (if supported by your plan)
+    // form.append("log", "true");
 
-    const resp = await fetch(url, {
-        method: "POST",
-        headers: { "x-authorization": token, ...(typeof (form as any).getHeaders === "function" ? (form as any).getHeaders() : {}) },
-        body: form as any,
-    });
+    const headers = {
+        "x-authorization": token,
+        ...form.getHeaders(), // includes correct content-type with boundary
+    };
 
-    const data = await resp.json().catch(() => ({}));
+    try {
+        const res = await axios.post(url, form, {
+            headers,
+            maxBodyLength: Infinity, // allow large images
+            // DO NOT set maxContentLength here; axios treats it differently
+            validateStatus: () => true, // we handle mapping below
+        });
 
-    if (data?.success === true || data?.data?.success === true) {
-        return { ok: true, payload: data };
-    }
-    if (typeof data?.code === "number") {
-        if (data.code === 1013) {
-            return { ok: false, code: "SLIP_AMOUNT_MISMATCH", message: "Amount does not match slip", payload: data };
+        const data = res.data ?? {};
+        const success = data?.success === true || data?.data?.success === true;
+
+        // Map known SlipOK error codes even on 2xx
+        if (data?.code === 1013) {
+            return {
+                ok: false,
+                code: "SLIP_AMOUNT_MISMATCH",
+                message: "Amount does not match slip",
+                payload: data,
+            };
         }
-        if (data.code === 1000) {
-            return { ok: false, code: "INVALID_SLIP", message: "Slip data incomplete", payload: data };
+        if (data?.code === 1000) {
+            return {
+                ok: false,
+                code: "INVALID_SLIP",
+                message: "Slip data incomplete",
+                payload: data,
+            };
         }
+
+        if (success) {
+            return { ok: true, payload: data };
+        }
+
+        // Non-success; map by HTTP status
+        if (res.status >= 500) {
+            return {
+                ok: false,
+                code: "SLIPOK_UPSTREAM_ERROR",
+                message: `SlipOK error (${res.status})`,
+                payload: data,
+            };
+        }
+
+        return {
+            ok: false,
+            code: typeof data?.code === "string" ? data.code : "INVALID_SLIP",
+            message: data?.message || `Slip verify failed (${res.status})`,
+            payload: data,
+        };
+    } catch (err: any) {
+        // Network / Axios transport errors
+        if (axios.isAxiosError(err)) {
+            const status = err.response?.status ?? 0;
+            const data = err.response?.data;
+
+            if (data?.code === 1013) {
+                return {
+                    ok: false,
+                    code: "SLIP_AMOUNT_MISMATCH",
+                    message: "Amount does not match slip",
+                    payload: data,
+                };
+            }
+            if (data?.code === 1000) {
+                return {
+                    ok: false,
+                    code: "INVALID_SLIP",
+                    message: "Slip data incomplete",
+                    payload: data,
+                };
+            }
+            if (status >= 500) {
+                return {
+                    ok: false,
+                    code: "SLIPOK_UPSTREAM_ERROR",
+                    message: `SlipOK error (${status})`,
+                    payload: data,
+                };
+            }
+
+            return {
+                ok: false,
+                code: "INVALID_SLIP",
+                message: data?.message || err.message || "Slip verify failed",
+                payload: data,
+            };
+        }
+
+        return {
+            ok: false,
+            code: "NETWORK_ERROR",
+            message: err?.message || "Network error",
+        };
+    } finally {
+        // Always cleanup the temp file + directory
+        try {
+            await fs.promises.unlink(tmpPath);
+        } catch {}
+        try {
+            await fs.promises.rmdir(tmpDir);
+        } catch {}
     }
-    return { ok: false, code: "INVALID_SLIP", message: data?.message || "Slip verify failed", payload: data };
 }
+
 
 async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) {
     const reqId = Math.random().toString(36).slice(2, 8);
