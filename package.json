@@ -22,10 +22,8 @@
     "next": "15.0.3",
     "promptpay-qr": "^0.4.2",
     "qrcode": "^1.5.4",
-    "react-leaflet": "^4.2.1",
     "react": "19.0.0-rc-66855b96-20241106",
     "react-dom": "19.0.0-rc-66855b96-20241106",
-    "leaflet": "^1.9.4",
     "react-redux": "^9.2.0",
     "react-syntax-highlighter": "^15.6.6"
   },

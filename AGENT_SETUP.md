@@ -162,8 +162,8 @@ NEXT_PUBLIC_SLIP_OK_TOKEN=REPLACE
 
 ### Maps / UI dependencies
 
-* Leaflet map components live in `src/components/checkout/MapConfirm.tsx` (OSM tiles via `react-leaflet`).
-* Ensure `leaflet/dist/leaflet.css` is imported globally (see `_app.tsx`).
+* Longdo Map integrations live in `src/components/checkout/LongdoMapPicker.tsx` and `src/components/order/LongdoRoute.tsx` (via local wrapper module `src/vendor/longdomap-react.tsx`).
+* The Longdo script loads dynamically; ensure `NEXT_PUBLIC_LONG_DO_API_KEY` is configured.
 
 ---
 
