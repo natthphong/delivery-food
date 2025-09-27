@@ -7,6 +7,7 @@ import { getCompanyById } from "@/repository/company";
 import { getBranchById } from "@/repository/branch";
 import type { OrderDetails, OrderRow, TransactionMethod, TransactionRow } from "@/types/transaction";
 import { logError, logInfo } from "@/utils/logger";
+import { isBranchOpen } from "@/utils/branchOpen";
 
 export const config = { runtime: "nodejs" };
 
@@ -18,6 +19,7 @@ type PaymentRequest = {
     amount?: unknown;
     branchId?: unknown;
     orderDetails?: unknown;
+    delivery?: unknown;
 };
 
 type PaymentResponse = JsonResponse<{
@@ -27,6 +29,15 @@ type PaymentResponse = JsonResponse<{
     paymentPayload?: { payment_id: string } | null;
     balance?: number;
 }>;
+
+function respondBusiness(
+    res: NextApiResponse<PaymentResponse>,
+    code: string,
+    message: string,
+    body: PaymentResponse["body"] = { method: null, txn: null, order: null }
+) {
+    return res.status(200).json({ code, message, body });
+}
 
 function parseNumber(value: unknown): number | null {
     if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -73,31 +84,35 @@ function sanitizeOrderDetails(raw: any, userId: number, branchId: number): Order
         };
     });
 
-    const delivery = (() => {
-        const source = (raw as any).delivery;
-        if (!source || typeof source !== "object") {
-            return null;
-        }
-        const lat = Number((source as any).lat);
-        const lng = Number((source as any).lng);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-            return null;
-        }
-        const distance = Number((source as any).distanceKm);
-        return {
-            lat,
-            lng,
-            distanceKm: Number.isFinite(distance) ? distance : null,
-        };
-    })();
-
     return {
         userId,
         branchId: branchIdStr,
         branchName: typeof (raw as any).branchName === "string" ? (raw as any).branchName : "",
         productList,
-        delivery,
     };
+}
+
+function sanitizeDeliveryCandidate(candidate: unknown) {
+    if (!candidate || typeof candidate !== "object") {
+        return null;
+    }
+    const lat = Number((candidate as any).lat);
+    const lng = Number((candidate as any).lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return null;
+    }
+    const distance = Number((candidate as any).distanceKm);
+    return {
+        lat,
+        lng,
+        distanceKm: Number.isFinite(distance) ? distance : null,
+    };
+}
+
+function extractDelivery(orderRaw: any, fallback: unknown) {
+    const first = sanitizeDeliveryCandidate(orderRaw?.delivery);
+    if (first) return first;
+    return sanitizeDeliveryCandidate(fallback);
 }
 
 function ensureQtyLimits(details: OrderDetails, maxQty: number) {
@@ -114,17 +129,17 @@ function ensureQtyLimits(details: OrderDetails, maxQty: number) {
 async function handler(req: NextApiRequest, res: NextApiResponse<PaymentResponse>) {
     const reqId = Math.random().toString(36).slice(2, 8);
 
+    if (req.method !== "POST") {
+        res.setHeader("Allow", "POST");
+        return res
+            .status(405)
+            .json({ code: "METHOD_NOT_ALLOWED", message: "Method Not Allowed", body: { method: null, txn: null, order: null } });
+    }
+
+    res.setHeader("Cache-Control", "no-store");
+
     try {
-        if (req.method !== "POST") {
-            res.setHeader("Allow", "POST");
-            return res
-                .status(405)
-                .json({ code: "METHOD_NOT_ALLOWED", message: "Method Not Allowed", body: { method: null, txn: null, order: null } });
-        }
-
-        res.setHeader("Cache-Control", "no-store");
-
-        const auth = (req as any).auth as { uid: string; userId: number | null };
+        const auth = (req as any).auth as { uid: string; userId: number | null } | undefined;
         if (!auth?.uid) {
             return res
                 .status(401)
@@ -138,9 +153,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse<PaymentResponse
         const branchId = parseNumber(payload.branchId);
 
         if (companyId == null || methodId == null || amount == null || amount <= 0 || branchId == null) {
-            return res
-                .status(400)
-                .json({ code: "BAD_REQUEST", message: "Invalid payload", body: { method: null, txn: null, order: null } });
+            return respondBusiness(res, "BAD_REQUEST", "Invalid payload");
         }
 
         const user =
@@ -149,41 +162,38 @@ async function handler(req: NextApiRequest, res: NextApiResponse<PaymentResponse
                 : await getUserByFirebaseUid(auth.uid);
 
         if (!user) {
-            return res
-                .status(404)
-                .json({ code: "NOT_FOUND", message: "User not found", body: { method: null, txn: null, order: null } });
+            return respondBusiness(res, "USER_NOT_FOUND", "User not found");
         }
 
         const method = await getMethodById(methodId);
         if (!method || (method.type !== "qr" && method.type !== "balance")) {
-            return res
-                .status(400)
-                .json({ code: "INVALID_METHOD", message: "Invalid method", body: { method: null, txn: null, order: null } });
+            return respondBusiness(res, "INVALID_METHOD", "Invalid method");
         }
 
         const branch = await getBranchById(branchId);
         if (!branch) {
-            return res
-                .status(404)
-                .json({ code: "NOT_FOUND", message: "Branch not found", body: { method: null, txn: null, order: null } });
+            return respondBusiness(res, "BRANCH_NOT_FOUND", "Branch not found");
         }
 
         if (branch.company_id !== companyId) {
-            return res
-                .status(400)
-                .json({ code: "BAD_REQUEST", message: "Branch mismatch", body: { method: null, txn: null, order: null } });
+            return respondBusiness(res, "BRANCH_MISMATCH", "Branch mismatch");
+        }
+
+        const branchIsOpen = isBranchOpen({
+            isForceClosed: !!branch.is_force_closed,
+            openHours: branch.open_hours,
+        });
+        if (!branchIsOpen) {
+            return respondBusiness(res, "BRANCH_CLOSED", "Branch is closed");
         }
 
         const company = await getCompanyById(companyId);
         if (!company) {
-            return res
-                .status(404)
-                .json({ code: "NOT_FOUND", message: "Company not found", body: { method: null, txn: null, order: null } });
+            return respondBusiness(res, "COMPANY_NOT_FOUND", "Company not found");
         }
-
         if (!company.payment_id) {
             return res
-                .status(400)
+                .status(500)
                 .json({ code: "CONFIG_MISSING", message: "Missing payment config", body: { method: null, txn: null, order: null } });
         }
 
@@ -191,23 +201,39 @@ async function handler(req: NextApiRequest, res: NextApiResponse<PaymentResponse
         const maxQtyPerItem = Number(configMap.MAX_QTY_PER_ITEM ?? "10") || 10;
         const maxBranchOrder = Number(configMap.MAXIMUM_BRANCH_ORDER ?? "0") || 0;
 
-        const orderDetails = sanitizeOrderDetails(payload.orderDetails, user.id, branchId);
+        const orderDetailsBase = sanitizeOrderDetails(payload.orderDetails, user.id, branchId);
 
-        if (maxBranchOrder === 1 && orderDetails.branchId !== String(branchId)) {
-            return res
-                .status(400)
-                .json({ code: "MULTI_BRANCH_NOT_ALLOWED", message: "Branch restriction", body: { method: null, txn: null, order: null } });
+        if (maxBranchOrder === 1 && orderDetailsBase.branchId !== String(branchId)) {
+            return respondBusiness(res, "MULTI_BRANCH_NOT_ALLOWED", "Branch restriction");
         }
 
-        ensureQtyLimits(orderDetails, maxQtyPerItem);
+        ensureQtyLimits(orderDetailsBase, maxQtyPerItem);
 
         if (method.type === "balance" && user.balance < amount) {
-            return res
-                .status(400)
-                .json({ code: "INSUFFICIENT_BALANCE", message: "Insufficient balance", body: { method, txn: null, order: null } });
+            return respondBusiness(res, "INSUFFICIENT_BALANCE", "Insufficient balance", {
+                method,
+                txn: null,
+                order: null,
+                balance: user.balance,
+                paymentPayload: null,
+            });
         }
 
-        logInfo("payment: start", { reqId, userId: user.id, method: method.type, amount });
+        const delivery = extractDelivery(payload.orderDetails, payload.delivery);
+        const mergedOrderDetails: OrderDetails = {
+            ...orderDetailsBase,
+            delivery,
+            branchLat: branch.lat ?? null,
+            branchLng: branch.lng ?? null,
+        };
+
+        logInfo("payment:start", {
+            reqId,
+            userId: user.id,
+            method: method.type,
+            amount,
+            branchId,
+        });
 
         let txn: TransactionRow | null = null;
         let order: OrderRow | null = null;
@@ -232,17 +258,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse<PaymentResponse
                 userId: user.id,
                 branchId,
                 txnId: txn.id,
-                details: orderDetails,
+                details: mergedOrderDetails,
                 status: "PENDING",
             });
-        } catch (error) {
+        } catch (error: any) {
             if (txn?.id) {
                 await updateTxnStatus(txn.id, "rejected");
             }
             if (balanceAdjusted) {
                 await adjustBalance(user.id, amount);
             }
-            logError("payment: creation error", { reqId, message: (error as any)?.message });
+            logError("payment:creation_error", { reqId, message: error?.message });
             return res
                 .status(500)
                 .json({ code: "ORDER_CREATION_FAILED", message: "Failed to create order", body: { method, txn: null, order: null } });
@@ -262,21 +288,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse<PaymentResponse
 
         return res.status(200).json({ code: "OK", message: "success", body: responseBody });
     } catch (error: any) {
-        logError("payment: error", { reqId, message: error?.message });
+        logError("payment:error", { reqId, message: error?.message });
         const code = (() => {
             if (error?.message === "BAD_ORDER_DETAILS") return "BAD_REQUEST";
+            if (error?.message?.startsWith("BAD_PRODUCT_")) return "BAD_REQUEST";
             if (error?.message === "MAX_QTY_EXCEEDED") return "BAD_REQUEST";
             if (error?.message === "INVALID_QTY") return "BAD_REQUEST";
-            return error?.message === "INSUFFICIENT_BALANCE" ? "INSUFFICIENT_BALANCE" : "ERROR";
+            return "ERROR";
         })();
-        const statusCode = code === "BAD_REQUEST" ? 400 : code === "INSUFFICIENT_BALANCE" ? 400 : 500;
-        const message =
-            code === "BAD_REQUEST"
-                ? "Invalid order details"
-                : code === "INSUFFICIENT_BALANCE"
-                ? "Insufficient balance"
-                : "Payment failed";
-        return res.status(statusCode).json({ code, message, body: { method: null, txn: null, order: null } });
+        if (code === "BAD_REQUEST") {
+            return respondBusiness(res, code, "Invalid order details");
+        }
+        return res
+            .status(500)
+            .json({ code: "ERROR", message: "Payment failed", body: { method: null, txn: null, order: null } });
     }
 }
 

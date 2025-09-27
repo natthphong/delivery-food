@@ -276,7 +276,7 @@ export const selectCardMemo = createSelector([selectCard], card => card);
 
 ## 5) Maps/Location (No Google key)
 
-* Use **react-leaflet** + **OpenStreetMap** tiles.
+* Use **Longdo Map** components (`LongdoMapPicker`, `LongdoRoute`) via the provided wrapper.
 * `MapConfirm` component for checkout: draggable user marker, fixed branch marker, Haversine distance, “Confirm my location” gating Pay button.
 * On success → clear user’s cart **for that branch** via `/api/card/clear-by-branch`.
 
