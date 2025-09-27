@@ -441,16 +441,6 @@ export default function AccountPage() {
                     </button>
                     <button
                         type="button"
-                        onClick={() => setActiveTab("transactions")}
-                        className={`rounded-xl px-4 py-2 text-xs font-medium transition ${
-                            activeTab === "transactions" ? "bg-white shadow-sm" : "text-slate-500"
-                        }`}
-                        aria-pressed={activeTab === "transactions"}
-                    >
-                        {t(I18N_KEYS.ACCOUNT_TAB_TRANSACTIONS)}
-                    </button>
-                    <button
-                        type="button"
                         onClick={() => setActiveTab("orders")}
                         className={`rounded-xl px-4 py-2 text-xs font-medium transition ${
                             activeTab === "orders" ? "bg-white shadow-sm" : "text-slate-500"
@@ -459,11 +449,22 @@ export default function AccountPage() {
                     >
                         {t(I18N_KEYS.ACCOUNT_TAB_ORDERS)}
                     </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab("transactions")}
+                        className={`rounded-xl px-4 py-2 text-xs font-medium transition ${
+                            activeTab === "transactions" ? "bg-white shadow-sm" : "text-slate-500"
+                        }`}
+                        aria-pressed={activeTab === "transactions"}
+                    >
+                        {t(I18N_KEYS.ACCOUNT_TAB_TRANSACTIONS)}
+                    </button>
+
                 </div>
 
                 {activeTab === "profile" ? (
                     <div className="space-y-6">
-                        <ProfileCard me={safeUser} loading={loading} onLogout={handleLogout} />
+                        <ProfileCard me={safeUser} loading={loading} onLogout={handleLogout}/>
 
                         <VerifyUpdateCard
                             me={me}

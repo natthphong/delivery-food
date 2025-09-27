@@ -56,7 +56,14 @@ const Navbar: React.FC = () => {
                 <Link href="/" className="text-lg font-semibold text-emerald-600">
                     {t(I18N_KEYS.BRAND_NAME)}
                 </Link>
+
                 <div className="flex items-center gap-3 text-sm text-slate-700">
+                    {user && (
+                        <span
+                            className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm">
+                            {formattedBalance}
+                        </span>
+                    )}
                     <div className="relative" ref={menuRef}>
                         <button
                             type="button"
@@ -120,13 +127,6 @@ const Navbar: React.FC = () => {
                             </div>
                         )}
                     </div>
-
-                    {user && (
-                        <span
-                            className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm">
-                            {formattedBalance}
-                        </span>
-                    )}
                 </div>
             </div>
         </nav>

@@ -192,8 +192,8 @@
   "account.duplicatePhone": { "th": "หมายเลขโทรศัพท์นี้ถูกใช้งานแล้ว", "en": "This phone number is already in use." },
   "account.resetVerificationConfirm": { "th": "การอัปเดตจะรีเซ็ตสถานะการยืนยัน ต้องการดำเนินการต่อหรือไม่?", "en": "Updating will reset verification status. Continue?" },
   "account.tabProfile": { "th": "โปรไฟล์", "en": "Profile" },
-  "account.tabTransactions": { "th": "ธุรกรรม", "en": "Transactions" },
-  "account.tabOrders": { "th": "คำสั่งซื้อ", "en": "Orders" },
+  "account.tabTransactions": { "th": "รายการธุรกรรม", "en": "Transaction history" },
+  "account.tabOrders":{ "th": "รายการสั่งอาหาร", "en": "Food orders" },
   "account.transactions.empty": { "th": "ยังไม่มีประวัติธุรกรรม", "en": "No transactions yet." },
   "account.transactions.type": { "th": "ประเภท", "en": "Type" },
   "account.transactions.payNow": { "th": "ชำระตอนนี้", "en": "Pay now" },
@@ -291,10 +291,13 @@
   "payment.summary.status": { "th": "สถานะ", "en": "Status" },
   "payment.summary.method": { "th": "ช่องทางชำระเงิน", "en": "Method" },
   "payment.order.title": { "th": "รายละเอียดคำสั่งซื้อ", "en": "Order details" },
-  "order.status.pending": { "th": "รอร้านยืนยัน", "en": "Pending" },
+  "order.status.pending": { "th": "รอชำระ", "en": "Pending" },
   "order.status.prepare": { "th": "กำลังเตรียม", "en": "Preparing" },
-  "order.status.delivery": { "th": "กำลังจัดส่ง", "en": "Out for delivery" },
-  "order.status.completed": { "th": "เสร็จสมบูรณ์", "en": "Completed" },
-  "order.status.rejected": { "th": "ถูกปฏิเสธ", "en": "Rejected" }
+  "order.status.accepted": { "th": "ยืนยันแล้ว", "en": "Accepted" },
+  "order.status.rejected": { "th": "ถูกปฏิเสธ", "en": "Rejected" },
+  "order.status.expired": { "th": "หมดอายุ", "en": "Expired" },
+  "order.status.completed": { "th": "สำเร็จ", "en": "Completed" },
+  "order.status.cancelled": { "th": "ยกเลิก", "en": "Cancelled" },
+  "order.status.unknown": { "th": "ไม่ทราบสถานะ", "en": "Unknown status" }
 }
 
