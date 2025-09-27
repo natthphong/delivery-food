@@ -69,55 +69,42 @@
 > Source of truth is Supabase Postgres. Only migration `V9_txn_slip_stamping.sql` is committed; all other schemas are inferred from repository usage and TypeScript types. Fields marked *(inferred)* are deduced from query patterns.
 
 ### 2.1 `tbl_user`
-| Attribute | Type (inferred) | Default/Constraint | Notes |
-| --- | --- | --- | --- |
-| `id` | `bigint` | Primary key | Fetched as `Number(row.id)` in `mapUser`. |
-| `firebase_uid` | `text` | Unique (inferred) | All lookups (`upsertUser`, `getUserByFirebaseUid`) filter by this natural key. |
-| `email` | `text` | Nullable | Updated via `updateUserContact`; uniqueness checks in `isEmailTaken`. |
-| `phone` | `text` | Nullable | Verified via `isPhoneTaken`; used for phone auth. |
-| `provider` | `text` | Nullable | Stores Firebase provider (`google.com`, `password`, etc.). |
-| `is_email_verified` | `boolean` | Nullable | Normalized to boolean/null in `mapUser`. |
-| `is_phone_verified` | `boolean` | Nullable | Normalized; OTP verification toggles. |
-| `balance` | `numeric` | Defaults to `0` (enforced in code) | Adjusted via `adjustBalance`. |
-| `card` | `jsonb` | Defaults to `[]` (code fallback) | Persisted cart grouped by branch. |
-| `txn_history` | `int8[]` | Defaults to `[]` (code fallback) | Maintained by `updateTxnHistory`. Trimmed to 50 entries by `appendIdWithTrim`. |
-| `order_history` | `int8[]` | Defaults to `[]` (code fallback) | Maintained by `updateOrderHistory` with limit 100. |
-| `created_at` | `timestamptz` | Default `now()` (inferred) | Converted via `toBangkokIso`. |
-| `updated_at` | `timestamptz` | Updated by triggers/queries (inferred) | Normalized to Bangkok timezone. |
-| `last_login` | `timestamptz` | Nullable | Set in `upsertUser` update path. |
 
-**Indexes (inferred):**
-- Unique index on `firebase_uid` (required for upsert semantics).
-- Additional unique indexes on `email` and `phone` likely exist to support uniqueness checks (not enforced in code but recommended).
+**Columns**
 
-**Relationships:**
-- Referenced by `tbl_order.order_details.userId` (JSON field, not FK).
-- Many-to-one from `tbl_transaction.user_id` (FK), enforced by repository.
+- `id` — SERIAL, PK, not null.
+- `firebase_uid` — VARCHAR(128), UNIQUE, not null.
+- `email` — VARCHAR(320), nullable.
+- `phone` — VARCHAR(64), nullable.
+- `provider` — VARCHAR(64), nullable.
+- `is_email_verified` — BOOLEAN, default FALSE.
+- `is_phone_verified` — BOOLEAN, default FALSE.
+- `created_at` — TIMESTAMPTZ, default NOW().
+- `updated_at` — TIMESTAMPTZ, default NOW().
+- `last_login` — TIMESTAMPTZ, nullable.
+- `card` — JSONB, default NULL (cart snapshot; branch imagery is resolved at read-time, not stored in JSON).
+- `balance` — NUMERIC(10,2), default 0.00.
+- `txn_history` — INT[], default '{}'.
+- `order_history` — INT[], default '{}'.
 
-**Example row (derived from flows):**
-```json
-{
-  "id": 42,
-  "firebase_uid": "firebase-uid-123",
-  "email": "diners@baanfoodie.com",
-  "phone": "+66123456789",
-  "provider": "google.com",
-  "is_email_verified": true,
-  "is_phone_verified": false,
-  "balance": 1500,
-  "card": [
-    {
-      "branchId": "17",
-      "companyId": "3",
-      "branchName": "Baan Thai Flagship",
-      "branchImage": "https://cdn/.../branch.jpg",
-      "productList": [
-        {
-          "productId": "88",
-          "productName": "Pad Krapow",
-          "qty": 2,
-          "price": 95,
-          "productAddOns": [
+**Keys/Indexes**
+
+- `PK(id)`.
+- `UNIQUE(firebase_uid)`.
+- `idx_tbl_user_firebase_uid` on (`firebase_uid`).
+
+**Used By**
+
+- `/api/login`, `/api/signup`, `/api/refresh-token`, `/api/user/me`, `/api/card/*`, `/api/payment`, `/api/order/*`.
+- Repository helpers in `src/repository/user.ts` and cart utilities.
+
+**Notes**
+
+- Cart JSON is server-managed and must omit deprecated `branchImage`; frontend hydrates branch media via joins.
+- History arrays are trimmed server-side to keep payloads light.
+
+**Example row**
+
             { "name": "Fried Egg", "price": 15 }
           ]
         }
@@ -134,171 +121,271 @@
 **Used by:** `/api/login`, `/api/signup`, `/api/refresh-token` (indirect), `/api/user/me`, `/api/user/send-verify-email`, `/api/card/*`, `/api/transaction/*` history updates, `/api/order/*` for history, `/api/payment/slipok` (balance adjustments), repository functions `user.ts`, `transaction.ts`, `order.ts`.
 
 ### 2.2 `tbl_company`
-| Attribute | Type | Notes |
-| --- | --- | --- |
-| `id` | `bigint` | Primary key. |
-| `name` | `text` | Optional display name. |
-| `payment_id` | `text` | Used for SlipOK receiver verification (`payment/slipok`). |
-| `txn_method_id` | `bigint` | Default transaction method for QR generation (inferred). |
 
-**Usage:** Queried via `getCompanyById` for QR generation (`/api/qr/generate`), payment slip verification, and to determine default transaction method in payment flows.
+**Columns**
 
-### 2.3 `tbl_branch`
-| Attribute | Type | Notes |
-| --- | --- | --- |
-| `id` | `bigint` | Primary key. |
-| `company_id` | `bigint` | Foreign key to `tbl_company`. |
-| `name` | `text` | Branch display name. |
-| `description` | `text` | Nullable marketing copy. |
-| `image_url` | `text` | Nullable hero image. |
-| `address_line` | `text` | Nullable textual address. |
-| `lat` | `numeric` | Nullable; used for map/distance. |
-| `lng` | `numeric` | Nullable. |
-| `open_hours` | `jsonb` | Maps weekday → `[open, close]` ranges. |
-| `is_force_closed` | `boolean` | Hard override flag for closures. |
-| `tags` | `text[]` *(inferred)* | Referenced indirectly through search terms (no direct selection). |
+- `id` — SERIAL, PK.
+- `name` — TEXT, not null.
+- `description` — TEXT, nullable.
+- `logo_url` — TEXT, nullable.
+- `currency_code` — VARCHAR(3), default `'THB'`.
+- `created_at` — TIMESTAMPTZ, default NOW().
+- `updated_at` — TIMESTAMPTZ, default NOW().
+- `payment_id` — VARCHAR(100), nullable. (Receiver last-4 verify for SlipOK.)
+- `txn_method_id` — INT, nullable. (Ref → `tbl_transaction_method.id`.)
 
-**Indexes (inferred):** location-based indexes recommended for distance queries; not present in repo.
+**Used By**
 
-**Relationships:**
-- One-to-many with `tbl_branch_product`.
-- Joined in search results to display branch metadata.
-- `branchMenu.ts` ensures branch is open before returning menu.
+- Payment flows validate `payment_id` before generating PromptPay/SlipOK payloads.
+- Repository `company.ts` fetches company metadata during `/api/payment` and `/api/qr/generate`.
 
-**Example row (constructed):**
-```json
-{
-  "id": 17,
-  "company_id": 3,
-  "name": "Baan Thai Flagship",
-  "description": "Authentic Thai comfort food",
-  "image_url": "https://cdn/.../flagship.jpg",
-  "address_line": "123 Sukhumvit Rd, Bangkok",
-  "lat": 13.744,
-  "lng": 100.541,
-  "open_hours": {
-    "mon": [["09:00", "20:00"]],
-    "sat": [["10:00", "22:00"]]
-  },
-  "is_force_closed": false
-}
-```
+**Relationships**
 
-**Used by:** `/api/branches/[id]/menu`, `/api/branches/[id]/top-menu`, `/api/search`, `/api/qr/generate`, frontend branch page, checkout branch gating logic.
+- Logical link from `txn_method_id` to `tbl_transaction_method.id` (not enforced by FK in V7 but observed in repository contract).
+
+### 2.3 `tbl_category`
+
+**Columns**
+
+- `id` — SERIAL, PK.
+- `company_id` — INT, not null, FK → `tbl_company(id)` ON DELETE CASCADE.
+- `name` — TEXT, not null.
+- `description` — TEXT, nullable.
+- `image_url` — TEXT, nullable.
+- `created_at` — TIMESTAMPTZ, default NOW().
+- `updated_at` — TIMESTAMPTZ, default NOW().
+
+**Indexes**
+
+- `idx_category_company` on (`company_id`).
+
+**Usage**
+
+- `/api/search` joins categories to display chips.
+- Branch detail pages render category sections using this table.
 
 ### 2.4 `tbl_product`
-| Attribute | Type | Notes |
-| --- | --- | --- |
-| `id` | `bigint` | Primary key. |
-| `name` | `text` | Menu item name. |
-| `description` | `text` | Nullable; shown on product cards. |
-| `image_url` | `text` | Nullable image path. |
-| `base_price` | `numeric` | Default price before branch overrides. |
-| `search_terms` | `text` | Additional keywords for search. |
-| `is_deleted` | `char(1)` *(inferred)* | Filtered implicitly by `is_enabled` on branch mapping. |
 
-**Usage:** joined with `tbl_branch_product` for branch menus, search results, and add-to-cart modal.
+**Columns**
+
+- `id` — SERIAL, PK.
+- `company_id` — INT, not null, FK → `tbl_company(id)` ON DELETE CASCADE.
+- `name` — TEXT, not null.
+- `description` — TEXT, nullable.
+- `image_url` — TEXT, nullable.
+- `base_price` — NUMERIC(12,2), not null.
+- `search_terms` — TEXT, nullable.
+- `search_tsv` — TSVECTOR, nullable.
+- `created_at` — TIMESTAMPTZ, default NOW().
+- `updated_at` — TIMESTAMPTZ, default NOW().
+
+**Indexes**
+
+- `idx_product_company` on (`company_id`).
+- `idx_product_tsv` GIN on (`search_tsv`).
+
+**Notes**
+
+- Migration comments mention optional `embedding VECTOR(384)` column when pgvector is enabled (disabled in current setup).
+
+**Usage**
+
+- Source of base menu data. Joined with `tbl_branch_product` for branch-specific pricing and availability.
 
 ### 2.5 `tbl_product_add_on`
-| Attribute | Type | Notes |
-| --- | --- | --- |
-| `id` | `bigint` | Primary key. |
-| `product_id` | `bigint` | FK to `tbl_product`. |
-| `name` | `text` | Add-on label. |
-| `price` | `numeric` | Nullable; default 0 if null. |
-| `is_required` | `boolean` | Flag for mandatory add-on groups. |
-| `group_name` | `text` | Grouping label for UI sections. |
 
-**Usage:** `branch.ts` loads add-ons per product; `AddToCartModal` enforces required groups.
+**Columns**
+
+- `id` — SERIAL, PK.
+- `product_id` — INT, not null, FK → `tbl_product(id)` ON DELETE CASCADE.
+- `name` — TEXT, not null.
+- `price` — NUMERIC(12,2), not null default 0.
+- `is_required` — BOOLEAN, not null default FALSE.
+- `group_name` — TEXT, nullable.
+- `created_at` — TIMESTAMPTZ, default NOW().
+- `updated_at` — TIMESTAMPTZ, default NOW().
+
+**Indexes**
+
+- `idx_addon_product` on (`product_id`).
+
+**Usage**
+
+- Add-on metadata for branch menu builder; Add-to-cart modal uses `is_required` to block submission without required groups.
 
 ### 2.6 `tbl_product_category`
-| Attribute | Type | Notes |
-| --- | --- | --- |
-| `product_id` | `bigint` | Combined with `category_id` for mapping. |
-| `category_id` | `bigint` | Category filter; used by search and menu filters. |
 
-**Usage:** `searchBranches` filters by `category_id` to restrict results. Category metadata served by `tbl_category`.
+**Columns**
 
-### 2.7 `tbl_category`
-| Attribute | Type | Notes |
-| --- | --- | --- |
-| `id` | `bigint` | Primary key. |
-| `name` | `text` | Display name. |
-| `icon` | `text` *(inferred)* | Possibly available for UI; not selected currently. |
+- `product_id` — INT, not null, FK → `tbl_product(id)` ON DELETE CASCADE.
+- `category_id` — INT, not null, FK → `tbl_category(id)` ON DELETE CASCADE.
 
-**Usage:** `listAllCategories` returns `id` and `name` fallback when supabase query fails; used to populate search filter chips.
+**Keys**
+
+- PK (`product_id`, `category_id`).
+
+**Usage**
+
+- Many-to-many relationship powering category filters in `/api/search` and branch menu groupings.
+
+### 2.7 `tbl_branch`
+
+**Columns**
+
+- `id` — SERIAL, PK.
+- `company_id` — INT, not null, FK → `tbl_company(id)` ON DELETE CASCADE.
+- `name` — TEXT, not null.
+- `description` — TEXT, nullable.
+- `image_url` — TEXT, nullable.
+- `address_line` — TEXT, nullable.
+- `lat` — DOUBLE PRECISION, nullable.
+- `lng` — DOUBLE PRECISION, nullable.
+- `open_hours` — JSONB, nullable (e.g., `{ "mon": [["09:00", "20:00"]], ... }`).
+- `is_force_closed` — BOOLEAN, not null default FALSE.
+- `created_at` — TIMESTAMPTZ, default NOW().
+- `updated_at` — TIMESTAMPTZ, default NOW().
+
+**Indexes**
+
+- `idx_branch_company` on (`company_id`).
+- Optional `idx_branch_name_trgm` trigram index on (`name`) when pg_trgm extension enabled.
+
+**Notes**
+
+- API layer computes `branchIsOpen` each request using `open_hours` + `is_force_closed`; frontend should not rely on cached state.
 
 ### 2.8 `tbl_branch_product`
-| Attribute | Type | Notes |
-| --- | --- | --- |
-| `branch_id` | `bigint` | Part of composite key. |
-| `product_id` | `bigint` | Part of composite key. |
-| `price_override` | `numeric` | Branch-specific pricing. |
-| `is_enabled` | `boolean` | Controls menu availability. |
-| `stock_qty` | `integer` | Optional stock tracking. |
-| `recommend_menu` | `boolean` | Flag for top menu API. |
-| `search_terms` | `text` *(inferred)* | Branch-specific search keywords. |
-| `updated_at` | `timestamptz` | Used for caching invalidation. |
 
-**Usage:** central to branch menu retrieval, search results, and cart validation. `BranchMenuGrid` uses `price_override` or falls back to `base_price`.
+**Columns**
+
+- `id` — SERIAL, PK.
+- `branch_id` — INT, not null, FK → `tbl_branch(id)` ON DELETE CASCADE.
+- `product_id` — INT, not null, FK → `tbl_product(id)` ON DELETE CASCADE.
+- `is_enabled` — BOOLEAN, not null default TRUE.
+- `stock_qty` — INT, nullable.
+- `price_override` — NUMERIC(12,2), nullable.
+- `search_terms` — TEXT, nullable.
+- `search_tsv` — TSVECTOR, nullable.
+- `created_at` — TIMESTAMPTZ, default NOW().
+- `updated_at` — TIMESTAMPTZ, default NOW().
+- `recommend_menu` — BOOLEAN, default FALSE.
+
+**Indexes**
+
+- `idx_branch_product_branch` on (`branch_id`).
+- `idx_branch_product_product` on (`product_id`).
+- `idx_branch_product_tsv` GIN on (`search_tsv`).
+
+**Constraints**
+
+- `UNIQUE(branch_id, product_id)`.
+
+**Usage**
+
+- Primary linkage for branch menus, recommended lists, and cart validation.
 
 ### 2.9 `tbl_system_config`
-| Attribute | Type | Notes |
-| --- | --- | --- |
-| `config_name` | `text` | Primary key (string). |
-| `config_value` | `text` | Stored as string; parsed by consumer. |
 
-**Usage:** `getSystemConfig` returns map for `/api/system/config`, enabling runtime toggles (e.g., enabling SlipOK, map provider keys).
+**Columns**
+
+- `config_name` — VARCHAR(50), PK.
+- `config_value` — TEXT, nullable.
+- `created_at` — TIMESTAMPTZ, default NOW().
+- `updated_at` — TIMESTAMPTZ, default NOW().
+
+**Seeds**
+
+- `MAXIMUM_CARD` → `'100'`.
+- `MAXIMUM_BRANCH_ORDER` → `'1'`.
+- `MAX_QTY_PER_ITEM` → `'10'`.
+
+**Usage**
+
+- `/api/system/config` returns the config map; `/api/payment` enforces cart and branch limits using the seeded values.
 
 ### 2.10 `tbl_transaction_method`
-| Attribute | Type | Notes |
-| --- | --- | --- |
-| `id` | `bigint` | Primary key. |
-| `code` | `text` | Programmatic code (e.g., `QR_PROMPTPAY`). |
-| `name` | `text` | Display name for UI. |
-| `type` | `text` | Must be `qr` or `balance` (supported). |
-| `details` | `jsonb` | Additional data (QR templates, account names). |
-| `is_deleted` | `char(1)` | Filtered by repositories (`eq("is_deleted", "N")`). |
 
-**Usage:** Payment flows, method listing, and default method selection for transactions.
+**Columns**
+
+- `id` — SERIAL, PK.
+- `code` — VARCHAR(50), UNIQUE, not null (e.g., `QR_SLIP_VERIFY`, `USER_BALANCE`).
+- `name` — VARCHAR(255), not null.
+- `type` — VARCHAR(255), nullable (`qr`, `balance`, etc.).
+- `details` — JSONB, nullable.
+- `is_deleted` — CHAR(1), not null default `'N'`.
+- `created_at` — TIMESTAMPTZ, default NOW().
+- `updated_at` — TIMESTAMPTZ, default NOW().
+
+**Notes**
+
+- Simplified non-partitioned design since V8.
+
+**Usage**
+
+- `/api/payment` ensures method exists and is active; `/api/transaction/method` lists available methods.
 
 ### 2.11 `tbl_transaction`
-| Attribute | Type | Default/Notes |
-| --- | --- | --- |
-| `id` | `bigint` | Primary key. |
-| `company_id` | `bigint` | Required; ties to `tbl_company`. |
-| `user_id` | `bigint` | Nullable; set for customer transactions. |
-| `txn_type` | `text` | `deposit` or `payment`. |
-| `txn_method_id` | `bigint` | Nullable; points to `tbl_transaction_method`. |
-| `reversal` | `boolean` | Flag for reversed txns. |
-| `amount` | `numeric` | Base transaction amount. |
-| `adjust_amount` | `numeric` | Manual adjustments (defaults to 0). |
-| `status` | `text` | `pending`, `accepted`, or `rejected`. |
-| `trans_ref` | `text` | Added in V9 for SlipOK reference. |
-| `trans_date` | `date` | Added in V9; used for unique constraint. |
-| `trans_timestamp` | `timestamptz` | Added in V9. |
-| `expired_at` | `timestamptz` | Null when not expiring; for QR transactions. |
-| `created_at` | `timestamptz` | Default now. |
-| `updated_at` | `timestamptz` | Updated on status/meta changes. |
 
-**Indexes:**
-- `ux_tbl_transaction_transref_transdate_notnull` (unique) + `ix_tbl_transaction_transdate` (time-based lookups).
-- Expectation of indexes on `user_id`, `status`, `created_at` for history queries.
+**Columns**
 
-**Usage:** Created via `createTransaction`, updated by `updateTxnStatus`, `stampTxnSlipMeta`, retrieved by `/api/transaction/*`, `/api/payment/slipok`, and order-related flows.
+- `id` — BIGSERIAL, PK.
+- `company_id` — INT, not null.
+- `user_id` — INT, not null.
+- `txn_type` — VARCHAR(50), not null (`deposit` | `payment`).
+- `txn_method_id` — INT, not null (FK → `tbl_transaction_method.id`).
+- `reversal` — BOOLEAN, not null default FALSE.
+- `amount` — NUMERIC(10,2), not null.
+- `adjust_amount` — NUMERIC(10,2), default 0.
+- `status` — VARCHAR(50), not null (`pending` | `accepted` | `rejected`).
+- `expired_at` — TIMESTAMPTZ, nullable.
+- `created_at` — TIMESTAMPTZ, default NOW().
+- `updated_at` — TIMESTAMPTZ, default NOW().
+- `trans_ref` — VARCHAR(255), nullable. (V9 slip reference.)
+- `trans_date` — DATE, nullable. (V9.)
+- `trans_timestamp` — TIMESTAMPTZ, nullable. (V9.)
+
+**Indexes**
+
+- `idx_txn_company_id` on (`company_id`).
+- `idx_txn_company_method` on (`company_id`, `txn_method_id`).
+- `idx_txn_company_status` on (`company_id`, `status`).
+- `idx_txn_user_id` on (`user_id`).
+- `ux_tbl_transaction_transref_transdate_notnull` unique partial on (`trans_ref`, `trans_date`) WHERE `trans_ref IS NOT NULL`.
+- `ix_tbl_tbl_transaction_transdate` on (`trans_date`).
+
+**Notes**
+
+- SlipOK acceptance stamps reference metadata and sets `status='accepted'`.
+
+**Usage**
+
+- Created by `/api/payment`, updated by `/api/payment/slipok`, enumerated via `/api/transaction/*`.
 
 ### 2.12 `tbl_order`
-| Attribute | Type | Notes |
-| --- | --- | --- |
-| `id` | `bigint` | Primary key. |
-| `branch_id` | `bigint` | FK to `tbl_branch`. |
-| `txn_id` | `bigint` | Nullable FK to `tbl_transaction`. |
-| `order_details` | `jsonb` | Denormalized cart with userId, branchName, product list, delivery info. |
-| `status` | `text` | `PENDING`, `PREPARE`, `DELIVERY`, `COMPLETED`, `REJECTED`. |
-| `created_at` | `timestamptz` | Default now. |
-| `updated_at` | `timestamptz` | Maintained on updates. |
 
-**Usage:** Managed through `order.ts` repository and `/api/order/*` API set. `order_details` used to reconstruct UI timeline.
+**Columns**
+
+- `id` — BIGSERIAL, PK.
+- `branch_id` — INT, not null (FK → `tbl_branch.id`).
+- `txn_id` — BIGINT, nullable (logical FK → `tbl_transaction.id`).
+- `order_details` — JSONB, nullable (stores cart snapshot, `customerLocation`, `branchLocation`).
+- `status` — VARCHAR(20), not null (`PENDING` | `PREPARE` | `DELIVERY` | `COMPLETED` | `REJECTED`).
+- `created_at` — TIMESTAMPTZ, default NOW().
+- `updated_at` — TIMESTAMPTZ, default NOW().
+
+**Indexes**
+
+- `idx_order_txn_status` on (`txn_id`, `status`).
+- `idx_order_txn` on (`txn_id`).
+- `idx_order_branch` on (`branch_id`).
+
+**Notes**
+
+- Frontend toggles route display when transaction accepted and order in active state.
+
+**Usage**
+
+- Created in `/api/payment`; read/mutated by `/api/order/*` endpoints and order tracking UI.
 
 ### 2.13 `tbl_transaction_method_company` *(inferred, not present)*
 - Not found in repo, but references in flows imply a mapping between companies and methods. Documenting for completeness: might store `company_id`, `method_id`, `priority`, `is_default`.
@@ -314,6 +401,8 @@
 ## 3. Backend API Documentation
 
 > All APIs adhere to the envelope defined in the BAAN prompt pattern (`ApiOk` / `ApiErr`). Business errors return HTTP 200 with non-`OK` codes unless fatal; auth/method mismatches use HTTP 401/405. Unless noted, routes set `Cache-Control: no-store` or rely on implicit no-cache defaults.
+
+> **OpenAPI reference:** the generated `swagger.json` (OpenAPI 3.0.3) in the repo root captures the schemas, query parameters, and request/response envelopes for every route under `src/pages/api/**`.
 
 ### 3.1 Authentication APIs
 
@@ -474,7 +563,7 @@
 - **Auth:** Uses `resolveAuth`; accepts Bearer access tokens or Firebase ID tokens (`Authorization` header or `x-id-token`). Missing credentials return `401 UNAUTHORIZED`.
 - **Request body options:**
   - `{ card: CartBranchGroup[], replace: true }` to overwrite card.
-  - `{ add: { branchId, companyId, branchName, branchImage?, item|items|productList }, replace?: false }` to merge new items.
+- `{ add: { branchId, companyId, branchName, item|items|productList }, replace?: false }` to merge new items (API strips deprecated `branchImage`).
 - **Validations:** Extensive structure checks for branch/product IDs, names, quantity (max from config), add-on price numbers.
 - **Config dependency:** `getNumberConfig("max_cart_qty_per_item")` with fallback `DEFAULT_MAX_QTY_PER_ITEM = 10`.
 - **Processing:**
