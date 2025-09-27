@@ -30,16 +30,6 @@ function toName(value: unknown, field: string): string {
     throw new Error(`Invalid value for ${field}`);
 }
 
-function toNullableString(value: unknown): string | null {
-    if (value === null || value === undefined) {
-        return null;
-    }
-    if (typeof value === "string") {
-        return value || null;
-    }
-    throw new Error("Invalid branchImage");
-}
-
 function toNumber(value: unknown, field: string): number {
     const num = typeof value === "number" ? value : Number(value);
     if (!Number.isFinite(num)) {
@@ -100,13 +90,12 @@ function sanitizeBranch(raw: unknown, index: number): CartBranchGroup {
     const branchId = toId((raw as any).branchId, "branchId");
     const companyId = toId((raw as any).companyId, "companyId");
     const branchName = toName((raw as any).branchName, "branchName");
-    const branchImage = toNullableString((raw as any).branchImage);
     const productListRaw = (raw as any).productList;
     if (!Array.isArray(productListRaw) || productListRaw.length === 0) {
         throw new Error("productList must contain at least one product");
     }
     const productList = productListRaw.map((item: unknown, productIndex: number) => sanitizeProduct(item, productIndex));
-    return { branchId, companyId, branchName, branchImage, productList };
+    return { branchId, companyId, branchName, productList };
 }
 
 function sanitizeCardStrict(input: unknown): CartBranchGroup[] {
@@ -132,7 +121,6 @@ function sanitizeAddRequest(raw: unknown): CartBranchGroup[] {
     const branchId = toId((raw as any).branchId, "branchId");
     const companyId = toId((raw as any).companyId, "companyId");
     const branchName = toName((raw as any).branchName, "branchName");
-    const branchImage = toNullableString((raw as any).branchImage);
 
     const productSources: unknown[] = [];
     if ((raw as any).item) {
@@ -155,7 +143,6 @@ function sanitizeAddRequest(raw: unknown): CartBranchGroup[] {
             branchId,
             companyId,
             branchName,
-            branchImage,
             productList,
         },
     ];
@@ -163,7 +150,7 @@ function sanitizeAddRequest(raw: unknown): CartBranchGroup[] {
 
 
 function cloneItem(item: CartItem, maxQty: number): CartItem {
-    if (item.qty >maxQty){
+    if (item.qty > maxQty) {
         throw new Error("item qty more than maxQty");
     }
 
@@ -181,7 +168,6 @@ function cloneBranch(branch: CartBranchGroup, maxQty: number): CartBranchGroup {
         branchId: branch.branchId,
         companyId: branch.companyId,
         branchName: branch.branchName,
-        branchImage: branch.branchImage,
         productList: branch.productList.map((item) => cloneItem(item, maxQty)),
     };
 }
@@ -210,7 +196,6 @@ function mergeCards(base: CartBranchGroup[], patch: CartBranchGroup[], maxQty: n
         }
 
         existing.branchName = branch.branchName;
-        existing.branchImage = branch.branchImage;
 
         for (const product of branch.productList) {
             const normalized = cloneItem(product, maxQty);

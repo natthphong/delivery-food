@@ -138,6 +138,24 @@ function escapeIlike(input: string): string {
 //     return results;
 // }
 
+function mapBranchRow(row: any): BranchRow {
+    if (!row) {
+        throw new Error("Branch row is empty");
+    }
+    return {
+        id: Number(row.id),
+        company_id: Number(row.company_id),
+        name: String(row.name ?? ""),
+        description: row.description ?? null,
+        image_url: row.image_url ?? null,
+        address_line: row.address_line ?? null,
+        lat: row.lat == null ? null : Number(row.lat),
+        lng: row.lng == null ? null : Number(row.lng),
+        open_hours: row.open_hours ?? null,
+        is_force_closed: !!row.is_force_closed,
+    };
+}
+
 export async function getBranchById(branchId: number): Promise<BranchRow | null> {
     const supabase = getSupabase();
     const { data, error } = await supabase
@@ -151,18 +169,28 @@ export async function getBranchById(branchId: number): Promise<BranchRow | null>
     if (error) throw new Error(error.message || "Failed to load branch");
     if (!data) return null;
 
-    return {
-        id: data.id,
-        company_id: data.company_id,
-        name: data.name,
-        description: data.description ?? null,
-        image_url: data.image_url ?? null,
-        address_line: data.address_line ?? null,
-        lat: data.lat ?? null,
-        lng: data.lng ?? null,
-        open_hours: data.open_hours ?? null,
-        is_force_closed: !!data.is_force_closed,
-    };
+    return mapBranchRow(data);
+}
+
+export async function getBranchSummaries(ids: number[]): Promise<BranchRow[]> {
+    if (!Array.isArray(ids) || ids.length === 0) {
+        return [];
+    }
+    const uniqueIds = Array.from(new Set(ids.filter((id) => Number.isFinite(id)))).map((id) => Number(id));
+    if (uniqueIds.length === 0) {
+        return [];
+    }
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+        .from("tbl_branch")
+        .select("id, company_id, name, description, image_url, address_line, lat, lng, open_hours, is_force_closed")
+        .in("id", uniqueIds);
+
+    if (error) {
+        throw new Error(error.message || "Failed to load branches");
+    }
+
+    return (data ?? []).map(mapBranchRow);
 }
 
 async function loadAddOns(productIds: number[]): Promise<Map<number, ProductAddOnRow[]>> {

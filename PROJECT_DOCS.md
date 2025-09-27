@@ -53,7 +53,7 @@
 - **Firebase REST & JWKS:** `firebaseRest.ts` handles password signup + verify email; `firebaseVerify.ts` validates tokens.
 - **Supabase PostgREST:** Repositories issue typed queries through supabase-js.
 - **SlipOK verification:** `/api/payment/slipok` interacts with SlipOK API (via env-provided URL/token) to validate bank transfer slips.
-- **Longdo Map:** Checkout and order pages integrate map coordinates for delivery location and branch route display (`components/order/LocationMap.tsx`, `components/checkout/MapConfirm.tsx`).
+- **Longdo Map:** Checkout uses `LongdoMapPicker` to capture delivery coordinates; payment/order detail renders branch→customer routes through `LongdoRoute` (both backed by Longdo Map JS SDK).
 
 ### 1.9 Business capabilities snapshot
 - **Account & profile:** Manage verified email/phone status, trigger verification emails.
@@ -558,6 +558,37 @@
 - **Response:** Branch metadata plus `menu` array with `is_enabled`, `stock_qty`, and pricing.
 - **Cache:** Sets short CDN cache (same as menu) for edge caching.
 
+#### 3.4.4 `GET /api/branch/summary`
+- **Auth:** Protected (via `withAuth`).
+- **Query:** `ids` — comma-separated branch IDs. Missing/invalid values yield empty `branches` array.
+- **Processing:**
+  - Parses numeric IDs, dedupes, loads matching rows from `tbl_branch` through `getBranchSummaries`.
+  - Computes `branchIsOpen` per row using `isBranchOpen` (Asia/Bangkok), combining `open_hours` JSON and `is_force_closed` flag.
+  - Returns branch metadata (address, image URL, lat/lng) alongside `openHours` echo.
+- **Response:**
+  ```json
+  {
+    "code": "OK",
+    "message": "success",
+    "body": {
+      "branches": [
+        {
+          "id": 4,
+          "name": "ร้าน BAAN - สวนหลวง",
+          "address": "...",
+          "image_url": "https://...",
+          "lat": 13.74,
+          "lng": 100.53,
+          "branchIsOpen": true,
+          "openHours": { "mon": [["10:00","20:30"]] }
+        }
+      ]
+    }
+  }
+  ```
+- **Errors:** Repository failure => `500 ERROR`. Auth failures handled upstream (`401 UNAUTHORIZED`).
+- **Usage:** Checkout/cart flows hydrate branch imagery, open status, and coordinates before enabling payment.
+
 ### 3.5 Cart APIs
 
 - **Auth:** Uses `resolveAuth`; accepts Bearer access tokens or Firebase ID tokens (`Authorization` header or `x-id-token`). Missing credentials return `401 UNAUTHORIZED`.
@@ -623,13 +654,34 @@
 
 ### 3.7 Payment APIs
 
-#### 3.7.1 `POST /api/payment/index`
+#### 3.7.1 `POST /api/payment`
 - **Auth:** Protected.
-- **Purpose:** Kick off payment session using branch cart snapshot.
+- **Purpose:** Create transaction + order for checkout after revalidating branch availability and delivery location.
+- **Validations:**
+  - Method guard 405; missing auth handled by `withAuth`.
+  - Ensures `companyId`, `methodId`, `amount > 0`, `branchId`, and `orderDetails` payload exist; otherwise returns business code `BAD_REQUEST` (HTTP 200).
 - **Processing:**
-  - Validates branch open, ensures cart items belong to branch, ensures transaction exists with `pending` status.
-  - Returns payment methods plus slip upload instructions.
-- **Side effects:** May update order or transaction status based on request body.
+  1. Loads user (`getUserById`/`getUserByFirebaseUid`) and payment method; rejects unsupported types.
+  2. Fetches branch via `getBranchById`, checks company match, and evaluates `branchIsOpen` using `isBranchOpen` (Asia/Bangkok). If closed, returns `{ code: "BRANCH_CLOSED" }` (HTTP 200).
+  3. Normalizes incoming `orderDetails` (preserves `productList`, `branchId`, etc.) and merges delivery payload `{ lat, lng, distanceKm }` plus `branchLat/branchLng` from branch record.
+  4. Applies quantity/config guards (max qty per item, multi-branch restrictions via system config).
+  5. For balance payments, pre-deducts balance; creates transaction via `createTransaction` (15 min expiry) and order via `createOrder` storing merged details.
+  6. On failure, rolls back transaction status and refunds balance when necessary.
+- **Response:**
+  ```json
+  {
+    "code": "OK",
+    "message": "success",
+    "body": {
+      "method": { /* TransactionMethod */ },
+      "txn": { /* TransactionRow (timestamps in Bangkok ISO) */ },
+      "order": { /* OrderRow with delivery + branchLat/branchLng */ },
+      "paymentPayload": { "payment_id": "promptpay-123" } | null,
+      "balance": 250.75
+    }
+  }
+  ```
+- **Business errors:** `BRANCH_NOT_FOUND`, `BRANCH_MISMATCH`, `BRANCH_CLOSED`, `INVALID_METHOD`, `INSUFFICIENT_BALANCE`, `BAD_REQUEST`, `ORDER_CREATION_FAILED` (500 on fatal). All non-fatal business outcomes return HTTP 200 with respective `code`.
 
 #### 3.7.2 `POST /api/payment/slipok`
 - **Auth:** Webhook-style (public) but protected by token/secret in body.
@@ -830,7 +882,7 @@
 - **Purpose:** Branch discovery page with search bar, filters, and result cards.
 - **Data fetching:**
   - On mount and query change, calls `/api/search` with `q`, `categoryId`, `lat`, `lng`, `limit`.
-  - Handles geolocation (optional) to sort by proximity; integrates with `MapConfirm` to choose location.
+  - Handles geolocation (optional) to sort by proximity; integrates with the `LongdoMapPicker` overlay to confirm user location and compute distance.
 - **Components:** `Layout`, `SearchBar`, `BranchList`, `BranchCard`, `FloatingLanguageToggle` (if present), `FloatingCartButton`.
 - **State:** `useState` for `query`, `category`, `isLoading`; `useEffect` to debounce input; `useMemo` for derived results.
 - **Redux:** Access to auth tokens implicitly via axios interceptors; no direct selectors.
@@ -854,15 +906,15 @@
 ### 5.7 `/checkout` (`src/pages/checkout/index.tsx`)
 - **Purpose:** Confirm delivery location, review cart grouped by branch, proceed to payment.
 - **Data flow:**
-  - Pulls cart from Redux store (`cartSlice`) or from `auth.user.card` fallback.
-  - Validates branch open state via `/api/branches/{id}/menu` or dedicated branch availability endpoint.
-  - Creates transaction via `/api/transaction/create` when clicking “Proceed to payment”.
+  - Pulls persisted cart groups from `auth.user.card`, sanitises via `sanitizeCard`, and hydrates branch metadata by calling `/api/branch/summary?ids=...`.
+  - `LongdoMapPicker` captures user delivery coordinates (`{ lat, lng, distanceKm }`) relative to the chosen branch and disables Pay until confirmed.
+  - `/api/payment` is invoked with merged order details (includes delivery + branch coordinates) after rechecking branch availability.
 - **Components:**
   - `Layout` wrapper.
-  - `CartDrawer` for branch/product summary.
-  - `MapConfirm` to confirm location (Longdo Map integration) and compute distance.
-  - `FloatingCartButton` for quick access.
-- **State:** `deliveryLocation`, `selectedBranch`, `isCreatingTxn`, `errorBanner`.
+  - Inline cart summary list (branch cards) with availability banners.
+  - `LongdoMapPicker` for delivery confirmation (Longdo Map integration).
+  - `MethodPicker` for payment selection.
+- **State:** `draft` cart groups, `branchSummaries`, `confirmedDelivery`, `locationConfirmed`, `methods`, `selectedMethodId`, `submitting`.
 - **i18n:** Keys `CHECKOUT_TITLE`, `CHECKOUT_DELIVERY_REQUIRED`, `CHECKOUT_BRANCH_CLOSED`.
 
 ### 5.8 `/payment/[txnId]`
@@ -874,7 +926,7 @@
 - **Components:**
   - `Layout` wrapper.
   - `PaymentMethodPicker`, `DepositModal` (for top-up), `SlipUpload` components.
-  - `Order/Preparing` statuses plus `LocationMap` for route preview.
+  - `Order/Preparing` statuses plus `LongdoRoute` (renders branch→customer directions when txn accepted).
 - **State:** Tracks `txn`, `order`, `displayStatus`, `uploadingSlip`, `slipError`.
 - **i18n:** Keys for payment statuses, slip instructions, success/failure toasts.
 
@@ -887,8 +939,8 @@
 - Variation of branch page responding to query string `category` to prefilter menu; uses router query to set default filter.
 
 ### 5.11 `/checkout` error handling states
-- Renders `AlertModal` when branch is closed or location missing.
-- Uses `notificationsSlice` to push toasts for success (transaction created) or errors (branch mismatch, insufficient balance).
+- Inline banners indicate branch closures (based on `/api/branch/summary`) and remind users to confirm their Longdo location before paying.
+- Uses `notificationsSlice` to push toasts for success (transaction created) or errors (branch mismatch, insufficient balance, `BRANCH_CLOSED`).
 
 ### 5.12 `/payment` slip verification flows
 - Allows manual entry of slip metadata when automatic verification fails; interacts with `/api/payment/slipok` and updates UI accordingly.
@@ -1052,17 +1104,18 @@
 - **Styling:** `fixed` overlay with `bg-white` panel `rounded-l-3xl`, overlay `bg-slate-900/30`.
 - **Accessibility:** Trap focus inside drawer while open; close button with `aria-label`.
 
-### 6.6 Checkout component (`src/components/checkout/MapConfirm.tsx`)
+### 6.6 Checkout component (`src/components/checkout/LongdoMapPicker.tsx`)
 - **Props:**
-  - `value: { lat: number; lng: number } | null`.
-  - `onChange(location)`.
-  - `branchPosition?: { lat: number; lng: number }` for reference.
-- **Purpose:** Map widget to select delivery location using Longdo Map/Leaflet.
+  - `apiKey: string` Longdo Map API key (public).
+  - `branch: { lat: number; lng: number }` branch coordinates used as reference.
+  - `onConfirm(loc)` callback receiving `{ lat, lng, distanceKm }`.
+- **Purpose:** Client-side Longdo map that lets the user confirm their delivery point relative to the branch.
 - **Behavior:**
-  - Renders interactive map with draggable marker; on drag end triggers `onChange`.
-  - Shows distance between branch and selected point.
-- **Styling:** Container `rounded-2xl overflow-hidden border` with height `h-80`.
-- **Accessibility:** Provides fallback instructions for keyboard navigation (jump to address search field).
+  - Loads Longdo Map SDK (via local wrapper) and centres on branch coordinates.
+  - Polls current map centre to derive `{ lat, lng }`; displays distance using Haversine formula.
+  - “Confirm location” button invokes `onConfirm`, feeding checkout flow.
+- **Styling:** `h-64` map inside `rounded-2xl border`; details card `rounded-2xl border bg-white px-4 py-3`.
+- **Accessibility:** Provides textual coordinates/distance; button labelled via i18n.
 
 ### 6.7 Payment components (`src/components/payment/`)
 
@@ -1100,11 +1153,11 @@
   - Provides cancel button when status allows.
 - **Styling:** `grid gap-4 bg-white rounded-2xl p-6 shadow-sm`.
 
-#### LocationMap (`LocationMap.tsx`)
-- **Props:** `branch`, `delivery`, `onRetry?`.
-- **Purpose:** Map view showing branch and delivery markers.
-- **Behavior:** Renders map using Leaflet with two markers; draws polyline when coordinates available.
-- **Styling:** `rounded-2xl overflow-hidden border`, height `h-72`.
+#### LongdoRoute (`LongdoRoute.tsx`)
+- **Props:** `apiKey`, `branch`, `customer`, `show`.
+- **Purpose:** Render Longdo route search from branch to customer when order is accepted and active.
+- **Behavior:** Loads Longdo Map, binds to `Route` helper, places branch marker (if SDK `Marker` available) plus customer point, triggers `route.search()` and writes textual directions into placeholder div.
+- **Styling:** Map container `h-64 rounded-2xl border`; directions box `rounded-2xl border bg-white p-3 text-xs`.
 
 ### 6.9 Search components (`src/components/search/`)
 
@@ -1346,7 +1399,7 @@
    - `FloatingCartButton` opens `CartDrawer` showing aggregated items; user can adjust quantity or remove items.
    - Clearing branch triggers `/api/card/clear-by-branch` to update server state.
 3. **Checkout:**
-   - `/checkout` loads cart from Redux/store; ensures branch open (calls branch repository) and prompts for delivery location via `MapConfirm`.
+   - `/checkout` loads cart from Redux/store; enriches branches via `/api/branch/summary`, ensures availability, and prompts for delivery confirmation through `LongdoMapPicker` (captures `{ lat, lng, distanceKm }`).
    - Validates location present (`CUSTOMER_LOCATION_REQUIRED`) and branch open (`BRANCH_CLOSED` / `BRANCH_FORCE_CLOSED`).
    - On proceed, creates transaction via `/api/transaction/create` (type `payment`, method `qr` or `balance`).
 4. **Order creation:**
@@ -1378,10 +1431,10 @@
    - Checkout page shows alert referencing i18n key `CHECKOUT_BRANCH_CLOSED` and prompts user to adjust cart.
 
 ### 10.5 Longdo Map integration
-1. **Components:** `MapConfirm` (checkout) and `LocationMap` (order status) rely on Leaflet, styled per brand.
+1. **Components:** `LongdoMapPicker` (checkout) and `LongdoRoute` (order status) leverage Longdo Map SDK with emerald styling.
 2. **Flow:**
    - Checkout: user drags marker to desired location; component calculates distance to branch using `geo.ts`. Stores location in checkout state and attaches to order details.
-   - Order tracking: once order includes delivery coordinates, `LocationMap` renders branch + delivery markers and optional polyline to visualize route.
+  - Order tracking: once order includes delivery coordinates, `LongdoRoute` renders branch + delivery markers and a Longdo-generated route summary.
 3. **i18n:** Map instructions use keys such as `CHECKOUT_MAP_INSTRUCTION`, `ORDER_MAP_BRANCH_LABEL`, `ORDER_MAP_CUSTOMER_LABEL`.
 
 ### 10.6 Balance top-up flow
@@ -1435,9 +1488,9 @@
 | **Authentication** | 1. User can log in with email/password (valid credentials) and receives JWT tokens. 2. Login failure shows localized error. 3. Refresh token automatically renews access token without user action. | `/api/login`, `/api/signup`, `/api/refresh-token`, `/api/user/me` | `/login`, `AuthTabs`, `EmailPasswordForm`, `RequireAuth` | `tbl_user` |
 | **Account management** | 1. Profile page displays email/phone/provider with accurate verification status. 2. Updating email/phone enforces uniqueness and resets verification flags. 3. Sending verification email shows success toast. | `/api/user/me`, `/api/v1/account/update`, `/api/user/send-verify-email` | `/account`, `ProfileCard`, `VerifyUpdateCard` | `tbl_user` |
 | **Cart** | 1. Adding item from branch saves to server card with correct quantity and add-ons. 2. Duplicate adds increment quantity up to configured max. 3. Clearing branch removes only that branch group. | `/api/card/save`, `/api/card/clear-by-branch` | `BranchProductCard`, `AddToCartModal`, `CartDrawer`, `FloatingCartButton` | `tbl_user.card` (JSON) |
-| **Checkout** | 1. Checkout requires delivery location; missing location returns `CUSTOMER_LOCATION_REQUIRED`. 2. Branch closure or mismatch returns `BRANCH_CLOSED`/`CART_BRANCH_MISMATCH` preventing transaction creation. 3. Proceeding generates transaction and order references. | `/api/transaction/create`, `/api/branches/[id]/menu`, `/api/order/list` | `/checkout`, `MapConfirm`, `AlertModal` | `tbl_transaction`, `tbl_order`, `tbl_branch` |
+| **Checkout** | 1. Checkout requires confirmed Longdo location; missing confirmation surfaces `CHECKOUT_LOCATION_CONFIRM_REQUIRED`. 2. Branch closure or mismatch returns `BRANCH_CLOSED` preventing transaction creation. 3. Proceeding generates transaction and order references. | `/api/payment`, `/api/branch/summary`, `/api/order/list` | `/checkout`, `LongdoMapPicker`, alert banners | `tbl_transaction`, `tbl_order`, `tbl_branch` |
 | **Payment** | 1. Payment page shows transaction details and available methods. 2. Uploading slip triggers verification; statuses update in UI. 3. Duplicate slip gracefully handled with `DUPLICATE_SLIP`. | `/api/transaction/details`, `/api/payment/index`, `/api/payment/slipok`, `/api/qr/generate` | `/payment/[txnId]`, `SlipUpload`, `MethodPicker`, `DepositModal` | `tbl_transaction`, `tbl_company` |
-| **Order tracking** | 1. Account orders tab lists orders sorted by latest. 2. Display status merges order+transaction states via `deriveDisplayStatus`. 3. Map shows branch vs customer positions when coordinates present. | `/api/order/list`, `/api/order/details`, `/api/order/by-transaction` | `/account` (orders tab), `Preparing`, `LocationMap` | `tbl_order`, `tbl_transaction` |
+| **Order tracking** | 1. Account orders tab lists orders sorted by latest. 2. Display status merges order+transaction states via `deriveDisplayStatus`. 3. `LongdoRoute` shows branch vs customer positions when coordinates present. | `/api/order/list`, `/api/order/details`, `/api/order/by-transaction` | `/account` (orders tab), `Preparing`, `LongdoRoute` | `tbl_order`, `tbl_transaction` |
 | **Search** | 1. Search results respect query + category filter. 2. Distance sorting when lat/lng provided. 3. Category list displayed with localized names. | `/api/search` | `/search`, `SearchBar`, `BranchList`, `BranchCard` | `tbl_branch`, `tbl_branch_product`, `tbl_product`, `tbl_category` |
 | **Slip verification** | 1. Valid slip transitions transaction to `accepted` and updates order to `PREPARE`. 2. Amount mismatch surfaces `AMOUNT_MISMATCH`. 3. Receiver mismatch flagged with `RECEIVER_MISMATCH`. | `/api/payment/slipok` | `/payment/[txnId]`, admin monitors logs | `tbl_transaction`, `tbl_order`, `tbl_company` |
 | **Balance top-up** | 1. Deposit modal pre-fills branch/company from latest cart. 2. Creating deposit transaction returns QR data. 3. After slip verification, account balance increases and `txn_history` includes transaction ID. | `/api/transaction/create`, `/api/qr/generate`, `/api/payment/slipok`, `/api/transaction/list` | `Layout` (DepositModal), `/account` transactions tab | `tbl_transaction`, `tbl_user` |

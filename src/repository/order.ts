@@ -64,6 +64,22 @@ function normalizeOrderDetails(raw: any, fallbackBranchId: number): OrderDetails
                 distanceKm: Number.isFinite(distance) ? distance : null,
             };
         })(),
+        branchLat: (() => {
+            const rawLat = (raw as any).branchLat;
+            if (rawLat == null) {
+                return null;
+            }
+            const lat = Number(rawLat);
+            return Number.isFinite(lat) ? lat : null;
+        })(),
+        branchLng: (() => {
+            const rawLng = (raw as any).branchLng;
+            if (rawLng == null) {
+                return null;
+            }
+            const lng = Number(rawLng);
+            return Number.isFinite(lng) ? lng : null;
+        })(),
     };
 }
 

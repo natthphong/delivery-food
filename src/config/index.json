@@ -233,6 +233,8 @@
   "checkout.location.confirmLabel": { "th": "ยืนยันตำแหน่งของฉัน", "en": "Confirm my location" },
   "checkout.location.confirmRequired": { "th": "กรุณายืนยันตำแหน่งก่อนชำระเงิน", "en": "Please confirm your location before paying." },
   "checkout.location.branchError": { "th": "ไม่สามารถโหลดตำแหน่งสาขาได้", "en": "Failed to load branch location" },
+  "checkout.location.confirmButton": { "th": "ยืนยันตำแหน่ง", "en": "Confirm location" },
+  "checkout.branchClosed": { "th": "สาขาปิดชั่วคราว", "en": "Branch temporarily closed" },
 
   "line.pageTitle": { "th": "กำลังประมวลผลการเข้าสู่ระบบ LINE…", "en": "Processing LINE sign-in…" },
   "line.statusBoot": { "th": "กำลังเริ่มต้น…", "en": "Booting…" },
@@ -291,6 +293,8 @@
   "payment.summary.status": { "th": "สถานะ", "en": "Status" },
   "payment.summary.method": { "th": "ช่องทางชำระเงิน", "en": "Method" },
   "payment.order.title": { "th": "รายละเอียดคำสั่งซื้อ", "en": "Order details" },
+  "payment.route.openMaps": { "th": "เปิดใน Google Maps", "en": "Open in Google Maps" },
+  "payment.route.missingCustomer": { "th": "ไม่พบตำแหน่งลูกค้า", "en": "Customer location not found" },
   "order.status.pending": { "th": "รอชำระ", "en": "Pending" },
   "order.status.prepare": { "th": "กำลังเตรียม", "en": "Preparing" },
   "order.status.accepted": { "th": "ยืนยันแล้ว", "en": "Accepted" },

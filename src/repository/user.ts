@@ -2,15 +2,13 @@
 import { CartBranchGroup, UserRecord } from "@/types";
 import { getSupabase } from "@utils/supabaseServer";
 import { toBangkokIso } from "@/utils/time";
+import { sanitizeCard, stripCardExtras } from "@/utils/card";
 
 export const USER_SELECT =
     "id, firebase_uid, email, phone, provider, is_email_verified, is_phone_verified, balance, card, txn_history, order_history, created_at, updated_at";
 
 function normalizeCard(input: unknown): CartBranchGroup[] {
-    if (!Array.isArray(input)) {
-        return [];
-    }
-    return input as CartBranchGroup[];
+    return sanitizeCard(Array.isArray(input) ? input : []);
 }
 
 function normalizeNumberArray(input: unknown): number[] {
@@ -268,9 +266,11 @@ export async function getUserCard(uid: string): Promise<CartBranchGroup[]> {
 export async function saveUserCard(uid: string, card: CartBranchGroup[]): Promise<UserRecord> {
     const supabase = getSupabase();
 
+    const sanitizedCard = stripCardExtras(sanitizeCard(card));
+
     const { data, error } = await supabase
         .from("tbl_user")
-        .update({ card })
+        .update({ card: sanitizedCard })
         .eq("firebase_uid", uid)
         .select(USER_SELECT)
         .maybeSingle();
@@ -285,7 +285,7 @@ export async function saveUserCard(uid: string, card: CartBranchGroup[]): Promis
 
     const { data: inserted, error: insertError } = await supabase
         .from("tbl_user")
-        .insert({ firebase_uid: uid, card })
+        .insert({ firebase_uid: uid, card: sanitizedCard })
         .select(USER_SELECT)
         .single();
 
@@ -326,7 +326,7 @@ export async function clearCardByBranch(userId: number, branchId: number): Promi
 
     const { data: updated, error: updateError } = await supabase
         .from("tbl_user")
-        .update({ card: nextCard })
+        .update({ card: stripCardExtras(nextCard) })
         .eq("id", userId)
         .select(USER_SELECT)
         .maybeSingle();

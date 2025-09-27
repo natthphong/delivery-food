@@ -15,8 +15,12 @@ export type CartBranchGroup = {
     branchId: string;
     companyId: string;
     branchName: string;
-    branchImage: string | null;
     productList: CartItem[];
+    branchImage?: string | null;
+    branchIsOpen?: boolean | null;
+    branchLat?: number | null;
+    branchLng?: number | null;
+    openHours?: Record<string, [string, string][]> | null;
 };
 
 export type UserRecord = {

@@ -28,7 +28,7 @@ import {
     deriveDisplayStatus,
 } from "@/constants/status";
 
-const OrderLocationMap = dynamic(() => import("@/components/order/LocationMap"), { ssr: false });
+const LongdoRoute = dynamic(() => import("@/components/order/LongdoRoute"), { ssr: false });
 
 const QR_REFRESH_INTERVAL = 60_000;
 
@@ -275,17 +275,38 @@ export default function PaymentDetailPage() {
     const deliveryInfo = !depositMode
         ? orderDetailEntry?.order_details.delivery ?? order?.order_details.delivery ?? null
         : null;
-    const branchInfo = orderDetailEntry?.branch ?? null;
-    const customerHasCoords = Boolean(
+    const deliveryCoords =
         deliveryInfo &&
-            typeof deliveryInfo.lat === "number" &&
-            Number.isFinite(deliveryInfo.lat) &&
-            typeof deliveryInfo.lng === "number" &&
-            Number.isFinite(deliveryInfo.lng)
-    );
-    const googleMapsHref = customerHasCoords
-        ? `https://www.google.com/maps?q=${deliveryInfo!.lat},${deliveryInfo!.lng}`
+        typeof deliveryInfo.lat === "number" &&
+        Number.isFinite(deliveryInfo.lat) &&
+        typeof deliveryInfo.lng === "number" &&
+        Number.isFinite(deliveryInfo.lng)
+            ? { lat: Number(deliveryInfo.lat), lng: Number(deliveryInfo.lng) }
+            : null;
+    const branchCoords = !depositMode && order?.order_details
+        ? (() => {
+              const rawLat = order.order_details.branchLat;
+              const rawLng = order.order_details.branchLng;
+              if (rawLat == null || rawLng == null) {
+                  return null;
+              }
+              const lat = Number(rawLat);
+              const lng = Number(rawLng);
+              return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+          })()
         : null;
+    const googleMapsHref = deliveryCoords
+        ? `https://www.google.com/maps?q=${deliveryCoords.lat},${deliveryCoords.lng}`
+        : null;
+    const shouldShowRoute = Boolean(
+        !depositMode &&
+            order &&
+            branchCoords &&
+            deliveryCoords &&
+            order.status !== "REJECTED" &&
+            order.status !== "COMPLETED" &&
+            orderDetailEntry?.txn?.status === "accepted"
+    );
 
     return (
         <Layout>
@@ -449,11 +470,18 @@ export default function PaymentDetailPage() {
                                         );
                                     })}
                                 </ul>
-                                {branchInfo || deliveryInfo ? (
+                                {!depositMode && (deliveryInfo || branchCoords) ? (
                                     <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                                        <div className="overflow-hidden rounded-2xl">
-                                            <OrderLocationMap branch={branchInfo ?? undefined} customer={deliveryInfo ?? undefined} />
-                                        </div>
+                                        {shouldShowRoute && branchCoords && deliveryCoords ? (
+                                            <div className="overflow-hidden rounded-2xl">
+                                                <LongdoRoute
+                                                    apiKey={process.env.NEXT_PUBLIC_LONG_DO_API_KEY ?? ""}
+                                                    branch={branchCoords}
+                                                    customer={deliveryCoords}
+                                                    show={true}
+                                                />
+                                            </div>
+                                        ) : null}
                                         {googleMapsHref ? (
                                             <a
                                                 className="text-xs text-blue-600 underline"
@@ -461,11 +489,11 @@ export default function PaymentDetailPage() {
                                                 target="_blank"
                                                 rel="noreferrer"
                                             >
-                                                {locale === "th" ? "เปิดใน Google Maps" : "Open in Google Maps"}
+                                                {t(I18N_KEYS.PAYMENT_ROUTE_OPEN_MAPS)}
                                             </a>
                                         ) : (
                                             <p className="text-xs text-slate-500">
-                                                {locale === "th" ? "ไม่พบตำแหน่งลูกค้า" : "Customer location not found"}
+                                                {t(I18N_KEYS.PAYMENT_ROUTE_MISSING_CUSTOMER)}
                                             </p>
                                         )}
                                     </div>
