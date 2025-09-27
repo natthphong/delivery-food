@@ -3,6 +3,10 @@ export const I18N_KEYS = {
     BRAND_NAME: "brand.name",
     NAV_SEARCH: "nav.search",
     NAV_ACCOUNT: "nav.account",
+    NAV_ACCOUNT_TOP_UP: "nav.account.topUp",
+    NAV_ACCOUNT_DETAILS: "nav.account.details",
+    NAV_ACCOUNT_ORDERS: "nav.account.orders",
+    NAV_ACCOUNT_TRANSACTIONS: "nav.account.transactions",
 
     // Locale
     LOCALE_SWITCHER_LABEL: "locale.switcherLabel",

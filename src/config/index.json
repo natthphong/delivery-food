@@ -2,6 +2,10 @@
   "brand.name": { "th": "BaanFoodie", "en": "BaanFoodie" },
   "nav.search": { "th": "ค้นหา", "en": "Search" },
   "nav.account": { "th": "บัญชี", "en": "Account" },
+  "nav.account.topUp": { "th": "เติมเงิน", "en": "Top up" },
+  "nav.account.details": { "th": "รายละเอียดบัญชี", "en": "Account details" },
+  "nav.account.orders": { "th": "รายการสั่งอาหาร", "en": "Food orders" },
+  "nav.account.transactions": { "th": "รายการฝากถอนโอน", "en": "Deposit / Withdraw / Transfer history" },
 
   "locale.switcherLabel": { "th": "ภาษา", "en": "Language" },
   "locale.en": { "th": "อังกฤษ", "en": "English" },
