@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LongdoMap, Map as LMap } from "longdomap-react";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
@@ -26,51 +26,75 @@ const DEFAULT_CENTER = { lat: 13.7563, lng: 100.5018 };
 
 export default function LongdoMapPicker({ apiKey, branch, onConfirm }: LongdoMapPickerProps) {
     const { t } = useI18n();
-    const [map, setMap] = useState<LMap>();
+
+    const mapRef = useRef<LMap>();
     const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
 
-    const onReady = useCallback(() => {
-        try {
-            const loc = (map as any)?.location?.();
-            if (loc && typeof loc.lat === "number" && typeof loc.lon === "number") {
-                setUserLoc({ lat: loc.lat, lng: loc.lon });
-            } else {
-                setUserLoc({ lat: branch.lat, lng: branch.lng });
-            }
-        } catch {
-            setUserLoc({ lat: branch.lat, lng: branch.lng });
+    const handleMapObj = useCallback((m: LMap) => {
+        if (mapRef.current !== m) {
+            mapRef.current = m;
         }
-    }, [branch.lat, branch.lng, map]);
+    }, []);
 
     useEffect(() => {
-        if (!map) return;
-        (map as any)?.location?.({ lat: branch.lat, lon: branch.lng });
-        (map as any)?.Event?.bind?.("ready", onReady);
-        return () => (map as any)?.Event?.unbind?.("ready", onReady);
-    }, [branch.lat, branch.lng, map, onReady]);
+        const m: any = mapRef.current;
+        if (!m) return;
 
-    useEffect(() => {
-        if (!map) return;
-        const interval = window.setInterval(() => {
+        try {
+            m.location?.({ lat: branch.lat, lon: branch.lng });
+        } catch {
+            /* ignore */
+        }
+
+        const handleReady = () => {
             try {
-                const loc = (map as any)?.location?.();
+                const loc = m.location?.();
                 if (loc && typeof loc.lat === "number" && typeof loc.lon === "number") {
                     setUserLoc({ lat: loc.lat, lng: loc.lon });
+                } else {
+                    setUserLoc({ lat: branch.lat, lng: branch.lng });
                 }
             } catch {
-                // ignore polling errors
+                setUserLoc({ lat: branch.lat, lng: branch.lng });
             }
-        }, 800);
-        return () => window.clearInterval(interval);
-    }, [map]);
+        };
+
+        m.Event?.bind?.("ready", handleReady);
+        return () => m.Event?.unbind?.("ready", handleReady);
+    }, [branch.lat, branch.lng]);
+
+    useEffect(() => {
+        const m: any = mapRef.current;
+        if (!m) return;
+
+        const updateFromMap = () => {
+            try {
+                const loc = m.location?.();
+                if (loc && typeof loc.lat === "number" && typeof loc.lon === "number") {
+                    setUserLoc((prev) =>
+                        prev && prev.lat === loc.lat && prev.lng === loc.lon ? prev : { lat: loc.lat, lng: loc.lon }
+                    );
+                }
+            } catch {
+                /* ignore */
+            }
+        };
+
+        m.Event?.bind?.("drag", updateFromMap);
+        m.Event?.bind?.("zoom", updateFromMap);
+        return () => {
+            m.Event?.unbind?.("drag", updateFromMap);
+            m.Event?.unbind?.("zoom", updateFromMap);
+        };
+    }, []);
 
     const handleConfirm = useCallback(() => {
-        if (!userLoc) return;
-        const distanceKm = +haversineKm(userLoc, branch).toFixed(2);
-        onConfirm({ ...userLoc, distanceKm });
+        const current = userLoc ?? branch ?? DEFAULT_CENTER;
+        const distanceKm = +haversineKm(current, branch).toFixed(2);
+        onConfirm({ lat: current.lat, lng: current.lng, distanceKm });
     }, [branch, onConfirm, userLoc]);
 
-    const displayLocation = userLoc ?? branch ?? DEFAULT_CENTER;
+    const displayLocation = useMemo(() => userLoc ?? branch ?? DEFAULT_CENTER, [userLoc, branch]);
 
     return (
         <div className="space-y-3">
@@ -78,14 +102,16 @@ export default function LongdoMapPicker({ apiKey, branch, onConfirm }: LongdoMap
                 <h2 className="text-sm font-semibold text-slate-900">{t(I18N_KEYS.CHECKOUT_LOCATION_TITLE)}</h2>
                 <p className="text-xs text-slate-500">{t(I18N_KEYS.CHECKOUT_LOCATION_SUBTITLE)}</p>
             </div>
+
             <div className="space-y-2">
                 <div className="h-64 w-full overflow-hidden rounded-2xl border border-slate-200">
-                    <LongdoMap apiKey={apiKey} mapObj={(m: LMap) => setMap(m)} height="100%" />
+                    <LongdoMap apiKey={apiKey} mapObj={handleMapObj} height="100%" />
                 </div>
+
                 <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
                     <div className="flex flex-col">
                         <span className="font-semibold text-slate-700">
-                            {t(I18N_KEYS.CHECKOUT_LOCATION_COORDINATES_LABEL)}: {displayLocation.lat.toFixed(5)}, {" "}
+                            {t(I18N_KEYS.CHECKOUT_LOCATION_COORDINATES_LABEL)}: {displayLocation.lat.toFixed(5)},{" "}
                             {displayLocation.lng.toFixed(5)}
                         </span>
                         <span>
