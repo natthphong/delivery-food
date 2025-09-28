@@ -309,7 +309,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) 
         const fileEntry = files.qrFile || files.file || null;
         logInfo("payment slipok: received", { reqId, txnId, hasFile: !!fileEntry });
         if (!fileEntry || !fileEntry.buffer?.length) {
-            await updateTxnStatus(txnId, "rejected");
             return res.status(200).json({ code: "INVALID_SLIP", message: "Invalid slip", body: { txn: null } });
         }
 
@@ -355,7 +354,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) 
                         const expectedLast4 = last4Digits(company?.payment_id ?? null);
                         const receiverLast4 = meta.receiverLast4;
                         if (expectedLast4 && expectedLast4 !== receiverLast4) {
-                            await updateTxnStatus(txn.id, "rejected");
                             const rejected = await getTransactionById(txn.id);
                             return res.status(200).json({
                                 code: "RECEIVER_MISMATCH",
@@ -363,13 +361,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) 
                                 body: { txn: rejected ?? { ...txn, status: "rejected" } },
                             });
                         }
-                        await stampTxnSlipMeta({
-                            txnId: txn.id,
-                            transRef: meta.transRef,
-                            transDate: meta.transDate,
-                            transTimestamp: meta.transTimestamp,
-                        });
                     }
+                    await stampTxnSlipMeta({
+                        txnId: txn.id,
+                        transRef: meta.transRef,
+                        transDate: meta.transDate,
+                        transTimestamp: meta.transTimestamp,
+                    });
                 } catch (stampError: any) {
                     logError("payment slipok: stamp error", { reqId, message: stampError?.message });
                     if (stampError?.message === 'duplicate key value violates unique constraint "ux_tbl_transaction_transref_transdate_notnull"'){
@@ -378,7 +376,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SlipResponse>) 
                     return res.status(500).json({ code: "INTERNAL_ERROR", message: "error", body: { txn: null } });
                 }
 
-                await updateTxnStatus(txn.id, "rejected");
                 const rejected = await getTransactionById(txn.id);
                 return res.status(200).json({
                     code: verify.code || "INVALID_SLIP",
