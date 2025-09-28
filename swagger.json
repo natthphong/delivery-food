@@ -45,6 +45,88 @@
         "bearerFormat": "JWT"
       }
     },
+    "/api/branch/summary": {
+      "get": {
+        "tags": [
+          "branch"
+        ],
+        "summary": "Get branch summaries and availability",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Comma-separated branch IDs"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "body": {
+                          "type": "object",
+                          "properties": {
+                            "branches": {
+                              "type": "array",
+                              "items": {
+                                "$ref": "#/components/schemas/BranchSummary"
+                              }
+                            }
+                          },
+                          "required": [
+                            "branches"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "body"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "schemas": {
       "ApiEnvelope": {
         "type": "object",
@@ -415,6 +497,16 @@
           "delivery": {
             "$ref": "#/components/schemas/OrderDelivery",
             "nullable": true
+          },
+          "branchLat": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "branchLng": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
           }
         }
       },
@@ -526,6 +618,36 @@
           },
           "is_force_closed": {
             "type": "boolean"
+          }
+        }
+      },
+      "BranchSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "branchIsOpen"
+        ],
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "address": { "type": "string", "nullable": true },
+          "image_url": { "type": "string", "nullable": true },
+          "lat": { "type": "number", "format": "double", "nullable": true },
+          "lng": { "type": "number", "format": "double", "nullable": true },
+          "branchIsOpen": { "type": "boolean" },
+          "openHours": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
           }
         }
       },

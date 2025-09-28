@@ -16,10 +16,11 @@ import { setUser } from "@/store/authSlice";
 import { appendIdWithTrim } from "@/utils/history";
 import { buildCartItemKey } from "@/utils/cart";
 import { saveUser } from "@/utils/tokenStorage";
-import type { MapConfirmValue } from "@/components/checkout/MapConfirm";
+import { sanitizeCard } from "@/utils/card";
 import { logError } from "@/utils/logger";
+import { getCurrentPositionWithPermission } from "@/utils/geoloc";
 
-const MapConfirm = dynamic(() => import("@/components/checkout/MapConfirm"), { ssr: false });
+const LongdoMapPicker = dynamic(() => import("@/components/checkout/LongdoMapPicker"), { ssr: false });
 
 const CHECKOUT_DRAFT_KEY = "CHECKOUT_DRAFT";
 const TXN_HISTORY_LIMIT = 50;
@@ -34,6 +35,16 @@ type PaymentResponseBody = {
 };
 
 type PaymentResponse = ApiResponse<PaymentResponseBody>;
+
+type BranchSummary = {
+    id: number;
+    name: string;
+    image_url: string | null;
+    lat: number | null;
+    lng: number | null;
+    branchIsOpen: boolean;
+    openHours: Record<string, [string, string][]> | null;
+};
 
 function computeTotal(branches: CartBranchGroup[]): number {
     return branches.reduce((branchAcc, branch) => {
@@ -55,11 +66,16 @@ export default function CheckoutPage() {
     const [methodsLoading, setMethodsLoading] = useState(false);
     const [selectedMethodId, setSelectedMethodId] = useState<number | null>(null);
     const [submitting, setSubmitting] = useState(false);
-    const [branchLocation, setBranchLocation] = useState<{ lat: number; lng: number } | null>(null);
-    const [branchLocationLoading, setBranchLocationLoading] = useState(false);
-    const [locationValue, setLocationValue] = useState<MapConfirmValue | null>(null);
+    const [branchSummaries, setBranchSummaries] = useState<Record<number, BranchSummary>>({});
+    const [branchSummaryError, setBranchSummaryError] = useState<string | null>(null);
+    const [confirmedDelivery, setConfirmedDelivery] = useState<{
+        lat: number;
+        lng: number;
+        distanceKm: number | null;
+    } | null>(null);
     const [locationConfirmed, setLocationConfirmed] = useState(false);
-    const previousLocationRef = useRef<MapConfirmValue | null>(null);
+    const [initialCustomer, setInitialCustomer] = useState<{ lat: number; lng: number } | null>(null);
+    const locationKeyRef = useRef<string | null>(null);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -69,8 +85,9 @@ export default function CheckoutPage() {
             return;
         }
         try {
-            const parsed = JSON.parse(raw) as CartBranchGroup[];
-            setDraft(Array.isArray(parsed) ? parsed : []);
+            const parsed = JSON.parse(raw);
+            const sanitized = sanitizeCard(Array.isArray(parsed) ? parsed : []);
+            setDraft(sanitized);
         } catch {
             setDraft([]);
         }
@@ -88,6 +105,28 @@ export default function CheckoutPage() {
         const num = Number(firstGroup.branchId);
         return Number.isFinite(num) ? num : null;
     }, [firstGroup]);
+
+    const branchSummary = useMemo(() => {
+        if (!branchIdNumeric) return null;
+        return branchSummaries[branchIdNumeric] ?? null;
+    }, [branchIdNumeric, branchSummaries]);
+
+    const branchLocation = useMemo(() => {
+        if (!branchSummary || branchSummary.lat == null || branchSummary.lng == null) {
+            return null;
+        }
+        return { lat: branchSummary.lat, lng: branchSummary.lng };
+    }, [branchSummary]);
+
+    const branchIsOpen = branchSummary?.branchIsOpen;
+    const branchClosed = branchIsOpen === false;
+    const branchImage = branchSummary?.image_url ?? null;
+
+    useEffect(() => {
+        setConfirmedDelivery(null);
+        setLocationConfirmed(false);
+        locationKeyRef.current = null;
+    }, [branchIdNumeric]);
 
     useEffect(() => {
         if (!companyId || !user) {
@@ -119,66 +158,82 @@ export default function CheckoutPage() {
     }, [companyId, user, t]);
 
     useEffect(() => {
-        if (!branchIdNumeric) {
-            setBranchLocation(null);
+        if (draft.length === 0) {
+            setBranchSummaries({});
+            setBranchSummaryError(null);
             return;
         }
-        setBranchLocationLoading(true);
-        axios
-            .get<ApiResponse<{ branch: { lat: number | null; lng: number | null } | null }>>(
-                `/api/branches/${branchIdNumeric}/menu`,
-                {
-                    params: { page: 1, size: 1 },
-                }
+        const ids = Array.from(
+            new Set(
+                draft
+                    .map((group) => {
+                        const num = Number(group.branchId);
+                        return Number.isFinite(num) ? num : null;
+                    })
+                    .filter((value): value is number => value != null)
             )
+        );
+        if (ids.length === 0) {
+            setBranchSummaries({});
+            setBranchSummaryError(null);
+            return;
+        }
+        axios
+            .get<ApiResponse<{ branches: BranchSummary[] }>>("/api/branch/summary", {
+                params: { ids: ids.join(",") },
+            })
             .then((response) => {
-                const branch = (response.data.body as any)?.branch;
-                if (branch && Number.isFinite(branch.lat) && Number.isFinite(branch.lng)) {
-                    setBranchLocation({ lat: Number(branch.lat), lng: Number(branch.lng) });
+                if (response.data.code === "OK" && Array.isArray(response.data.body?.branches)) {
+                    const nextMap: Record<number, BranchSummary> = {};
+                    for (const item of response.data.body.branches) {
+                        nextMap[item.id] = item;
+                    }
+                    setBranchSummaries(nextMap);
+                    setBranchSummaryError(null);
                 } else {
-                    setBranchLocation(null);
+                    setBranchSummaries({});
+                    setBranchSummaryError(t(I18N_KEYS.CHECKOUT_LOCATION_BRANCH_ERROR));
                 }
             })
             .catch((error) => {
-                notify(error?.response?.data?.message || t(I18N_KEYS.CHECKOUT_LOCATION_BRANCH_ERROR), "error");
-                setBranchLocation(null);
-            })
-            .finally(() => {
-                setBranchLocationLoading(false);
+                setBranchSummaries({});
+                const message = error?.response?.data?.message || t(I18N_KEYS.CHECKOUT_LOCATION_BRANCH_ERROR);
+                setBranchSummaryError(message);
+                notify(message, "error");
             });
-    }, [branchIdNumeric, t]);
+        }, [draft, t]);
 
     useEffect(() => {
-        setLocationValue(null);
-        setLocationConfirmed(false);
-        previousLocationRef.current = null;
-    }, [branchIdNumeric]);
+        let cancelled = false;
+        (async () => {
+            const coords = await getCurrentPositionWithPermission();
+            if (!cancelled && coords) {
+                setInitialCustomer(coords);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const totalAmount = useMemo(() => computeTotal(draft), [draft]);
-
-    const handleLocationChange = useCallback(
-        (next: MapConfirmValue) => {
-            const prev = previousLocationRef.current;
-            const hasChanged =
-                !prev || prev.lat !== next.lat || prev.lng !== next.lng || prev.distanceKm !== next.distanceKm;
-            previousLocationRef.current = next;
-            setLocationValue(next);
-            if (hasChanged) {
-                setLocationConfirmed(false);
-            }
-        },
-        []
-    );
 
     const handleClearDraft = () => {
         if (typeof window !== "undefined") {
             window.localStorage.removeItem(CHECKOUT_DRAFT_KEY);
         }
         setDraft([]);
-        setLocationValue(null);
         setLocationConfirmed(false);
-        previousLocationRef.current = null;
+        setConfirmedDelivery(null);
+        locationKeyRef.current = null;
     };
+
+    const handleLocationConfirm = useCallback((loc: { lat: number; lng: number; distanceKm: number }) => {
+        const key = `${loc.lat.toFixed(6)}|${loc.lng.toFixed(6)}`;
+        locationKeyRef.current = key;
+        setConfirmedDelivery({ lat: loc.lat, lng: loc.lng, distanceKm: loc.distanceKm });
+        setLocationConfirmed(true);
+    }, []);
 
     const handleSubmit = async () => {
         if (!user || !firstGroup || !companyId) {
@@ -194,7 +249,7 @@ export default function CheckoutPage() {
             return;
         }
 
-        if (!locationValue || !locationConfirmed) {
+        if (!confirmedDelivery || !locationConfirmed) {
             notify(t(I18N_KEYS.CHECKOUT_LOCATION_CONFIRM_REQUIRED), "warning");
             return;
         }
@@ -211,10 +266,15 @@ export default function CheckoutPage() {
                 productAddOns: item.productAddOns.map((addon) => ({ name: addon.name, price: addon.price })),
             })),
             delivery: {
-                lat: locationValue.lat,
-                lng: locationValue.lng,
-                distanceKm: locationValue.distanceKm,
+                lat: Number(confirmedDelivery.lat),
+                lng: Number(confirmedDelivery.lng),
+                distanceKm:
+                    confirmedDelivery.distanceKm == null
+                        ? null
+                        : Number(confirmedDelivery.distanceKm),
             },
+            branchLat: branchSummary?.lat ?? null,
+            branchLng: branchSummary?.lng ?? null,
         };
 
         const payload = {
@@ -314,7 +374,29 @@ export default function CheckoutPage() {
                 ) : (
                     <div className="space-y-6">
                         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                            <h2 className="text-sm font-semibold text-slate-900">{firstGroup.branchName}</h2>
+                            <div className="flex items-start gap-3">
+                                {branchImage ? (
+                                    <img
+                                        src={branchImage}
+                                        alt={firstGroup.branchName}
+                                        className="h-12 w-12 rounded-xl object-cover"
+                                    />
+                                ) : (
+                                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-xs font-semibold text-emerald-700">
+                                        {firstGroup.branchName.slice(0, 2).toUpperCase()}
+                                    </div>
+                                )}
+                                <div className="flex flex-col gap-1">
+                                    <h2 className="text-sm font-semibold text-slate-900">{firstGroup.branchName}</h2>
+                                    {branchIsOpen != null ? (
+                                        <span
+                                            className={`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${branchClosed ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}
+                                        >
+                                            {branchClosed ? t(I18N_KEYS.BRANCH_CLOSED) : t(I18N_KEYS.BRANCH_OPEN)}
+                                        </span>
+                                    ) : null}
+                                </div>
+                            </div>
                             <ul className="mt-4 space-y-4">
                                 {firstGroup.productList.map((item) => {
                                     const addOnTotal = item.productAddOns.reduce((sum, addon) => sum + addon.price, 0);
@@ -360,14 +442,36 @@ export default function CheckoutPage() {
                             />
                         </section>
 
-                        <MapConfirm
-                            branchLocation={branchLocation}
-                            loading={branchLocationLoading}
-                            value={locationValue}
-                            onChange={handleLocationChange}
-                            confirmed={locationConfirmed}
-                            onConfirmChange={setLocationConfirmed}
-                        />
+                        {branchSummaryError ? (
+                            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+                                {branchSummaryError}
+                            </div>
+                        ) : null}
+
+                        {branchLocation ? (
+                            <LongdoMapPicker
+                                apiKey={process.env.NEXT_PUBLIC_LONG_DO_API_KEY ?? ""}
+                                branch={branchLocation}
+                                initialCustomer={initialCustomer}
+                                onConfirm={handleLocationConfirm}
+                            />
+                        ) : (
+                            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+                                {t(I18N_KEYS.CHECKOUT_LOCATION_BRANCH_ERROR)}
+                            </div>
+                        )}
+
+                        {branchClosed ? (
+                            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-medium text-amber-800">
+                                {t(I18N_KEYS.CHECKOUT_BRANCH_CLOSED)}
+                            </div>
+                        ) : null}
+
+                        {!locationConfirmed ? (
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                                {t(I18N_KEYS.CHECKOUT_LOCATION_CONFIRM_REQUIRED)}
+                            </div>
+                        ) : null}
 
                         <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
                             <button
@@ -383,8 +487,9 @@ export default function CheckoutPage() {
                                 disabled={
                                     submitting ||
                                     !selectedMethodId ||
-                                    !locationValue ||
-                                    !locationConfirmed
+                                    !confirmedDelivery ||
+                                    !locationConfirmed ||
+                                    branchClosed
                                 }
                                 className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                             >
