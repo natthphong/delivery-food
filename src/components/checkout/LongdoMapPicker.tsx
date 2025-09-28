@@ -5,7 +5,18 @@ import { LongdoMap, Map as LMap } from "longdomap-react";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 
-function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+type Coords = { lat: number; lng: number };
+
+type LongdoMapPickerProps = {
+    apiKey: string;
+    branch: Coords;
+    initialCustomer?: Coords | null;
+    onConfirm: (loc: { lat: number; lng: number; distanceKm: number }) => void;
+};
+
+const DEFAULT_CENTER: Coords = { lat: 13.7563, lng: 100.5018 };
+
+function haversineKm(a: Coords, b: Coords) {
     const toRad = (deg: number) => (deg * Math.PI) / 180;
     const R = 6371;
     const dLat = toRad(b.lat - a.lat);
@@ -16,85 +27,79 @@ function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: num
     return R * 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
 }
 
-type LongdoMapPickerProps = {
-    apiKey: string;
-    branch: { lat: number; lng: number };
-    onConfirm: (loc: { lat: number; lng: number; distanceKm: number }) => void;
-};
-
-const DEFAULT_CENTER = { lat: 13.7563, lng: 100.5018 };
-
-export default function LongdoMapPicker({ apiKey, branch, onConfirm }: LongdoMapPickerProps) {
+export default function LongdoMapPicker({ apiKey, branch, initialCustomer, onConfirm }: LongdoMapPickerProps) {
     const { t } = useI18n();
-
     const mapRef = useRef<LMap>();
-    const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
+    const [center, setCenter] = useState<Coords>(initialCustomer ?? DEFAULT_CENTER);
 
-    const handleMapObj = useCallback((m: LMap) => {
-        if (mapRef.current !== m) {
-            mapRef.current = m;
+    const handleMapObj = useCallback((mapInstance: LMap) => {
+        if (mapRef.current !== mapInstance) {
+            mapRef.current = mapInstance;
         }
     }, []);
 
     useEffect(() => {
-        const m: any = mapRef.current;
-        if (!m) return;
-
-        try {
-            m.location?.({ lat: branch.lat, lon: branch.lng });
-        } catch {
-            /* ignore */
-        }
+        const map: any = mapRef.current;
+        if (!map) return;
+        const desired = initialCustomer ?? DEFAULT_CENTER;
 
         const handleReady = () => {
             try {
-                const loc = m.location?.();
-                if (loc && typeof loc.lat === "number" && typeof loc.lon === "number") {
-                    setUserLoc({ lat: loc.lat, lng: loc.lon });
-                } else {
-                    setUserLoc({ lat: branch.lat, lng: branch.lng });
-                }
+                map.location?.({ lon: desired.lng, lat: desired.lat });
+                setCenter(desired);
             } catch {
-                setUserLoc({ lat: branch.lat, lng: branch.lng });
+                // ignore
             }
         };
 
-        m.Event?.bind?.("ready", handleReady);
-        return () => m.Event?.unbind?.("ready", handleReady);
-    }, [branch.lat, branch.lng]);
+        map.Event?.bind?.("ready", handleReady);
+        return () => {
+            map.Event?.unbind?.("ready", handleReady);
+        };
+    }, [initialCustomer]);
 
     useEffect(() => {
-        const m: any = mapRef.current;
-        if (!m) return;
+        const map: any = mapRef.current;
+        if (!map) return;
 
         const updateFromMap = () => {
             try {
-                const loc = m.location?.();
+                const loc = map.location?.();
                 if (loc && typeof loc.lat === "number" && typeof loc.lon === "number") {
-                    setUserLoc((prev) =>
-                        prev && prev.lat === loc.lat && prev.lng === loc.lon ? prev : { lat: loc.lat, lng: loc.lon }
+                    setCenter((prev) =>
+                        prev.lat === loc.lat && prev.lng === loc.lon ? prev : { lat: loc.lat, lng: loc.lon }
                     );
                 }
             } catch {
-                /* ignore */
+                // ignore
             }
         };
 
-        m.Event?.bind?.("drag", updateFromMap);
-        m.Event?.bind?.("zoom", updateFromMap);
+        map.Event?.bind?.("drag", updateFromMap);
+        map.Event?.bind?.("zoom", updateFromMap);
         return () => {
-            m.Event?.unbind?.("drag", updateFromMap);
-            m.Event?.unbind?.("zoom", updateFromMap);
+            map.Event?.unbind?.("drag", updateFromMap);
+            map.Event?.unbind?.("zoom", updateFromMap);
         };
     }, []);
 
-    const handleConfirm = useCallback(() => {
-        const current = userLoc ?? branch ?? DEFAULT_CENTER;
-        const distanceKm = +haversineKm(current, branch).toFixed(2);
-        onConfirm({ lat: current.lat, lng: current.lng, distanceKm });
-    }, [branch, onConfirm, userLoc]);
+    useEffect(() => {
+        if (!initialCustomer) return;
+        setCenter(initialCustomer);
+        const map: any = mapRef.current;
+        if (!map) return;
+        try {
+            map.location?.({ lon: initialCustomer.lng, lat: initialCustomer.lat });
+        } catch {
+            // ignore recenter errors
+        }
+    }, [initialCustomer]);
 
-    const displayLocation = useMemo(() => userLoc ?? branch ?? DEFAULT_CENTER, [userLoc, branch]);
+    const distanceKm = useMemo(() => +haversineKm(center, branch).toFixed(2), [center, branch]);
+
+    const handleConfirm = useCallback(() => {
+        onConfirm({ lat: center.lat, lng: center.lng, distanceKm });
+    }, [center.lat, center.lng, distanceKm, onConfirm]);
 
     return (
         <div className="space-y-3">
@@ -111,11 +116,10 @@ export default function LongdoMapPicker({ apiKey, branch, onConfirm }: LongdoMap
                 <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
                     <div className="flex flex-col">
                         <span className="font-semibold text-slate-700">
-                            {t(I18N_KEYS.CHECKOUT_LOCATION_COORDINATES_LABEL)}: {displayLocation.lat.toFixed(5)},{" "}
-                            {displayLocation.lng.toFixed(5)}
+                            {t(I18N_KEYS.CHECKOUT_LOCATION_COORDINATES_LABEL)}: {center.lat.toFixed(5)}, {center.lng.toFixed(5)}
                         </span>
                         <span>
-                            {t(I18N_KEYS.CHECKOUT_LOCATION_DISTANCE_LABEL)}: {+haversineKm(displayLocation, branch).toFixed(2)} km
+                            {t(I18N_KEYS.CHECKOUT_LOCATION_DISTANCE_LABEL)}: {distanceKm} km
                         </span>
                     </div>
                     <button

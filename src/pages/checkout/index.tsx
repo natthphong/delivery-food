@@ -18,6 +18,7 @@ import { buildCartItemKey } from "@/utils/cart";
 import { saveUser } from "@/utils/tokenStorage";
 import { sanitizeCard } from "@/utils/card";
 import { logError } from "@/utils/logger";
+import { getCurrentPositionWithPermission } from "@/utils/geoloc";
 
 const LongdoMapPicker = dynamic(() => import("@/components/checkout/LongdoMapPicker"), { ssr: false });
 
@@ -73,6 +74,7 @@ export default function CheckoutPage() {
         distanceKm: number | null;
     } | null>(null);
     const [locationConfirmed, setLocationConfirmed] = useState(false);
+    const [initialCustomer, setInitialCustomer] = useState<{ lat: number; lng: number } | null>(null);
     const locationKeyRef = useRef<string | null>(null);
 
     useEffect(() => {
@@ -199,7 +201,20 @@ export default function CheckoutPage() {
                 setBranchSummaryError(message);
                 notify(message, "error");
             });
-    }, [draft, t]);
+        }, [draft, t]);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            const coords = await getCurrentPositionWithPermission();
+            if (!cancelled && coords) {
+                setInitialCustomer(coords);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const totalAmount = useMemo(() => computeTotal(draft), [draft]);
 
@@ -437,6 +452,7 @@ export default function CheckoutPage() {
                             <LongdoMapPicker
                                 apiKey={process.env.NEXT_PUBLIC_LONG_DO_API_KEY ?? ""}
                                 branch={branchLocation}
+                                initialCustomer={initialCustomer}
                                 onConfirm={handleLocationConfirm}
                             />
                         ) : (
