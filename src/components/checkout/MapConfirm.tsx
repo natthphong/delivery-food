@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Map as LeafletMap } from "leaflet";
 import L from "leaflet";
-import { MapContainer, TileLayer, Marker, CircleMarker, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, CircleMarker, useMap, useMapEvents } from "react-leaflet";
 import type { LatLngLiteral } from "leaflet";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
@@ -23,6 +22,30 @@ export type MapConfirmProps = {
 };
 
 const DEFAULT_CENTER: LatLngLiteral = { lat: 13.7563, lng: 100.5018 };
+
+type RecenterOnPositionProps = {
+    position: LatLngLiteral;
+};
+
+function RecenterOnPosition({ position }: RecenterOnPositionProps) {
+    const map = useMap();
+    const previousPositionRef = useRef<LatLngLiteral | null>(null);
+
+    useEffect(() => {
+        const previous = previousPositionRef.current;
+        if (
+            !previous ||
+            previous.lat !== position.lat ||
+            previous.lng !== position.lng
+        ) {
+            map.panTo(position);
+            map.invalidateSize();
+            previousPositionRef.current = position;
+        }
+    }, [map, position]);
+
+    return null;
+}
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
     const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -88,7 +111,6 @@ export function MapConfirm({
     const [position, setPosition] = useState<LatLngLiteral>(value ? { lat: value.lat, lng: value.lng } : DEFAULT_CENTER);
     const [detecting, setDetecting] = useState(false);
     const valueRef = useRef<MapConfirmValue | null>(value);
-    const mapRef = useRef<LeafletMap | null>(null);
 
     const markerIcon = useMemo(
         () =>
@@ -160,11 +182,6 @@ export function MapConfirm({
         }
     }, [distanceKm, onChange, position.lat, position.lng]);
 
-    useEffect(() => {
-        if (!mapRef.current) return;
-        mapRef.current.setView(position, mapRef.current.getZoom());
-    }, [position]);
-
     const handlePositionChange = useCallback(
         (next: LatLngLiteral) => {
             setPosition({ lat: next.lat, lng: next.lng });
@@ -197,9 +214,12 @@ export function MapConfirm({
                     style={{ height: 300, width: "100%" }}
                     className="h-[300px] w-full"
                     whenCreated={(map) => {
-                        mapRef.current = map;
+                        requestAnimationFrame(() => {
+                            map.invalidateSize();
+                        });
                     }}
                 >
+                    <RecenterOnPosition position={position} />
                     <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" />
                     {branchLocation ? (
                         <CircleMarker
