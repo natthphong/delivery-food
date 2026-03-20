@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Modal from "@/components/common/Modal";
-import axios, { type ApiResponse } from "@/utils/apiClient";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import { notify } from "@/utils/notify";
-import type { TransactionMethod, TransactionRow } from "@/types/transaction";
-import { humanMethodType } from "@/constants/statusMaps";
+import type { TransactionMethod } from "@/types/transaction";
+import { fetchPaymentMethods } from "@/services/catalog";
+import { createDeposit } from "@/services/payment";
 
 type DepositModalProps = {
     open: boolean;
@@ -14,9 +14,6 @@ type DepositModalProps = {
     defaultBranchId: number;
     defaultCompanyId: number;
 };
-
-type MethodResponse = ApiResponse<{ methods: TransactionMethod[] }>;
-type CreateResponse = ApiResponse<{ txn: TransactionRow | null }>;
 
 function parsePositiveAmount(value: string): number | null {
     if (!value.trim()) return null;
@@ -29,7 +26,7 @@ function parsePositiveAmount(value: string): number | null {
 
 export default function DepositModal({ open, onClose, defaultBranchId, defaultCompanyId }: DepositModalProps) {
     const router = useRouter();
-    const { t, locale } = useI18n();
+    const { t } = useI18n();
     const [amount, setAmount] = useState("");
     const [methods, setMethods] = useState<TransactionMethod[]>([]);
     const [loadingMethods, setLoadingMethods] = useState(false);
@@ -52,14 +49,9 @@ export default function DepositModal({ open, onClose, defaultBranchId, defaultCo
         }
 
         setLoadingMethods(true);
-        axios
-            .get<MethodResponse>("/api/transaction/method", { params: { companyId: defaultCompanyId } })
-            .then((response) => {
-                if (response.data.code !== "OK") {
-                    throw new Error(response.data.message || "method_error");
-                }
-                const list = Array.isArray(response.data.body?.methods) ? response.data.body.methods : [];
-                const qrMethods = list.filter((item) => item.type === "qr");
+        fetchPaymentMethods(defaultCompanyId)
+            .then((list) => {
+                const qrMethods = list.filter((item) => item.methodType === "qr");
                 setMethods(qrMethods);
                 if (qrMethods.length === 0) {
                     setMethodsError(t(I18N_KEYS.DEPOSIT_METHOD_EMPTY));
@@ -68,7 +60,7 @@ export default function DepositModal({ open, onClose, defaultBranchId, defaultCo
                 }
             })
             .catch((error) => {
-                const message = error?.response?.data?.message || t(I18N_KEYS.DEPOSIT_METHOD_ERROR);
+                const message = error?.response?.data?.message || error?.message || t(I18N_KEYS.DEPOSIT_METHOD_ERROR);
                 setMethodsError(message);
                 setMethods([]);
             })
@@ -101,21 +93,15 @@ export default function DepositModal({ open, onClose, defaultBranchId, defaultCo
                             return;
                         }
                         setSubmitting(true);
-                        axios
-                            .post<CreateResponse>("/api/transaction/create", {
-                                companyId: defaultCompanyId,
-                                txnType: "deposit",
-                                methodId: selectedMethod,
-                                amount: normalized,
-                            })
-                            .then((response) => {
-                                if (response.data.code !== "OK" || !response.data.body?.txn) {
-                                    throw new Error(response.data.message || "create_error");
-                                }
-                                const txn = response.data.body.txn;
+                        createDeposit({
+                            companyId: defaultCompanyId,
+                            paymentMethodId: selectedMethod,
+                            amount: normalized,
+                        })
+                            .then((transaction) => {
                                 onClose();
                                 router.push({
-                                    pathname: `/payment/${txn.id}`,
+                                    pathname: `/payment/${transaction.id}`,
                                     query: {
                                         mode: "deposit",
                                         amount: normalized.toFixed(2),
@@ -124,7 +110,7 @@ export default function DepositModal({ open, onClose, defaultBranchId, defaultCo
                                 });
                             })
                             .catch((error) => {
-                                const message = error?.response?.data?.message || t(I18N_KEYS.PAYMENT_SUBMIT_ERROR);
+                                const message = error?.response?.data?.message || error?.message || t(I18N_KEYS.PAYMENT_SUBMIT_ERROR);
                                 notify(message, "error");
                             })
                             .finally(() => {
@@ -173,7 +159,6 @@ export default function DepositModal({ open, onClose, defaultBranchId, defaultCo
                         <ul className="space-y-2">
                             {methods.map((method) => {
                                 const checked = selectedMethod === method.id;
-                                const label = humanMethodType(method.type as any, locale);
                                 return (
                                     <li key={method.id}>
                                         <button
@@ -187,7 +172,7 @@ export default function DepositModal({ open, onClose, defaultBranchId, defaultCo
                                             aria-pressed={checked}
                                         >
                                             <p className="text-sm font-semibold">{method.name}</p>
-                                            <p className="text-xs text-slate-500">{label}</p>
+                                            <p className="text-xs text-slate-500">{method.methodType.toUpperCase()}</p>
                                         </button>
                                     </li>
                                 );

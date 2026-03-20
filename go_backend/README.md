@@ -1,43 +1,66 @@
-# MicroserviceDataPanel Backend
+# Delivery Food Go Backend
 
-Engine-oriented Go backend for microservice graph mapping and lineage.
+This service owns the application API, business logic, PostgreSQL queries, and transactional workflows for the delivery app frontend in the repository root.
 
-## Engines
-- `GraphEngine` (`internal/panel/engine.go`): node/edge CRUD, movement, auto-layout, graph lists
-- `NodeSchemaEngine`: schema field CRUD and `ImportSchemaFromJSON`
-- `MappingEngine`: mapping CRUD and list by edge
-- `LineageEngine`: `SearchField`, `ComputeLineage`, `HighlightLineage`
-- `WorkspaceEngine`: aggregated workspace payload plus sticky-note persistence
-- `MigrationEngine`: startup migration + auto seed
+## Packages
 
-## Run
+- `cmd/server`: starts the HTTP server
+- `cmd/migrate`: executes SQL migrations from `../sql`
+- `internal/config`: environment loading
+- `internal/db`: pgx pool and migration helpers
+- `internal/auth`: JWT and Firebase-related auth helpers
+- `internal/middleware`: auth middleware
+- `internal/handler`: request parsing and response writing
+- `internal/service`: business workflows
+- `internal/repository`: SQL and transaction helpers
+- `internal/model`: JSON-facing domain models
+- `internal/dto`: request DTOs
+- `internal/httpapi`: shared response envelope helpers
+
+## Environment
+
+Copy the example file:
+
 ```bash
 cp .env.example .env
-go run .
 ```
 
-By default startup migration is enabled.
-Set `MIGRATE_AUTO=false` only when you need to suppress automatic migration/seed behavior.
+Key variables:
 
-## Startup Migration + Seed
-Startup will:
-1. Applies all `backend/sql/*.sql` migration files except seed files
-2. Checks `projects` count
-3. Seeds `Core Banking Platform` demo data if empty
+- `APP_PORT`
+- `APP_FRONTEND_ORIGIN`
+- `DATABASE_URL` or `APP_DB_*`
+- `APP_JWT_SECRET`
+- `APP_ACCESS_TOKEN_TTL_MINUTES`
+- `APP_REFRESH_TOKEN_TTL_HOURS`
+- `APP_AUTO_MIGRATE`
+- `APP_MIGRATION_DIR`
+- `FIREBASE_API_KEY`
+- `SLIPOK_MODE`
+- `SLIPOK_VERIFY_URL`
+- `SLIPOK_TOKEN`
 
-## Key Endpoints
-- `GET /api/v1/workspace/flows/:flowId`
-- `POST /api/v1/graph/flows/:flowId/auto-layout`
-- `POST /api/v1/workspace/flows/:flowId/notes`
-- `PATCH /api/v1/workspace/notes/:id`
-- `POST /api/v1/graph/nodes`
-- `PATCH /api/v1/graph/nodes/:id/move`
-- `POST /api/v1/schema/nodes/:nodeId/import-json`
-- `POST /api/v1/mappings`
-- `GET /api/v1/lineage/highlight?flowId=...&field=accountId`
+## Run
 
-## Tests
 ```bash
-GOCACHE=/tmp/go-build-cache GOTMPDIR=/tmp/go-tmp go test ./internal/panel
-go test .
+go run ./cmd/migrate
+go run ./cmd/server
 ```
+
+Defaults:
+
+- API: `http://localhost:8080`
+- expected frontend origin: `http://localhost:3000`
+
+## Test
+
+```bash
+go test ./...
+```
+
+## Contract Notes
+
+- All endpoints return the shared JSON envelope: `code`, `message`, `body`
+- Authenticated routes use bearer access tokens
+- Refresh rotation is handled by `/v1/auth/refresh`
+- SQL schema is defined only by the versioned files in `../sql`

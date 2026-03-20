@@ -16,7 +16,7 @@ const Navbar: React.FC = () => {
     const [open, setOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement | null>(null);
 
-    const balanceValue = typeof user?.balance === "number" ? user.balance : 0;
+    const balanceValue = typeof user?.walletBalance === "number" ? user.walletBalance : 0;
     const formattedBalance = formatTHB(balanceValue);
 
     useEffect(() => {
@@ -39,11 +39,6 @@ const Navbar: React.FC = () => {
             document.removeEventListener("keydown", handleEsc);
         };
     }, []);
-
-    const handleTopUp = () => {
-        setOpen(false);
-        router.push({ pathname: "/account", query: { tab: "transactions", openTopup: "1" } });
-    };
 
     const handleNavigate = (href: string) => {
         setOpen(false);

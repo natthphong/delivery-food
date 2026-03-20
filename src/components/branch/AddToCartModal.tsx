@@ -36,7 +36,7 @@ const AddToCartModal: React.FC<Props> = ({
         return null;
     }
 
-    const availabilityKey = product.in_stock
+    const availabilityKey = product.inStock
         ? I18N_KEYS.BRANCH_IN_STOCK_TEXT
         : I18N_KEYS.BRANCH_CURRENTLY_UNAVAILABLE_TEXT;
 
@@ -45,8 +45,8 @@ const AddToCartModal: React.FC<Props> = ({
             <div className="flex flex-col gap-4 md:flex-row">
                 <div className="md:w-1/2">
                     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
-                        {product.image_url ? (
-                            <img src={product.image_url} alt={product.name} className="h-56 w-full object-cover" />
+                        {product.imageUrl ? (
+                            <img src={product.imageUrl} alt={product.name} className="h-56 w-full object-cover" />
                         ) : (
                             <div className="flex h-56 items-center justify-center text-sm text-slate-400">
                                 {t(I18N_KEYS.COMMON_NO_IMAGE)}
@@ -56,11 +56,11 @@ const AddToCartModal: React.FC<Props> = ({
                 </div>
                 <div className="flex-1 space-y-4">
                     <div>
-                        <p className="text-lg font-semibold text-slate-900">{formatTHB(product.price_effective ?? product.price)}</p>
+                        <p className="text-lg font-semibold text-slate-900">{formatTHB(product.price)}</p>
                         <p className="text-sm text-slate-500">{t(availabilityKey)}</p>
-                        {product.stock_qty != null && (
+                        {product.stockQty != null && (
                             <p className="text-xs text-slate-500">
-                                {t(I18N_KEYS.BRANCH_STOCK_PREFIX)}: {product.stock_qty}
+                                {t(I18N_KEYS.BRANCH_STOCK_PREFIX)}: {product.stockQty}
                             </p>
                         )}
                     </div>
@@ -76,9 +76,9 @@ const AddToCartModal: React.FC<Props> = ({
 
                     <div>
                         <h3 className="text-sm font-semibold text-slate-700">{t(I18N_KEYS.BRANCH_ADDONS_TITLE)}</h3>
-                        {product.addons && product.addons.length > 0 ? (
+                        {product.addOns && product.addOns.length > 0 ? (
                             <div className="mt-2 space-y-2">
-                                {product.addons.map((addon) => (
+                                {product.addOns.map((addon) => (
                                     <label
                                         key={addon.id}
                                         className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700"
@@ -111,7 +111,7 @@ const AddToCartModal: React.FC<Props> = ({
                         <button
                             type="button"
                             onClick={onConfirm}
-                            disabled={saving || !product.in_stock}
+                            disabled={saving || !product.inStock}
                             className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             {saving ? t(I18N_KEYS.BRANCH_SAVING) : t(I18N_KEYS.BRANCH_ADD_TO_CART)}

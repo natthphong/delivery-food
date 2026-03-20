@@ -1,5 +1,5 @@
 const { execSync } = require("node:child_process");
-const { rmSync, existsSync, mkdirSync, symlinkSync } = require("node:fs");
+const { rmSync, existsSync, mkdirSync, symlinkSync, readdirSync, statSync } = require("node:fs");
 const path = require("node:path");
 
 const outDir = path.resolve(__dirname, "../.test-dist");
@@ -7,6 +7,27 @@ const tscPath = path.resolve(__dirname, "../node_modules/.bin/tsc");
 
 function run(command, options = {}) {
     execSync(command, { stdio: "inherit", ...options });
+}
+
+function collectTestFiles(dir) {
+    if (!existsSync(dir)) {
+        return [];
+    }
+
+    const entries = readdirSync(dir)
+        .map((name) => path.join(dir, name))
+        .sort((a, b) => a.localeCompare(b));
+
+    return entries.flatMap((entry) => {
+        const stats = statSync(entry);
+        if (stats.isDirectory()) {
+            return collectTestFiles(entry);
+        }
+        if (entry.endsWith(".test.js")) {
+            return [entry];
+        }
+        return [];
+    });
 }
 
 try {
@@ -46,7 +67,10 @@ try {
         }
     }
 
-    run(`node --test ${path.join(outDir, "tests")}`);
+    const nodeTestFiles = collectTestFiles(path.join(outDir, "tests"));
+    if (nodeTestFiles.length > 0) {
+        run(`node --test ${nodeTestFiles.map((file) => `"${file}"`).join(" ")}`);
+    }
 
     const jestPath = path.resolve(__dirname, "../node_modules/.bin/jest");
     run(`${jestPath} --config ${path.resolve(__dirname, "../jest.config.js")} --runInBand`);

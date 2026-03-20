@@ -1,55 +1,67 @@
+import type { BranchSummary, CartAddOn, UserRecord } from "@/types";
+
 export type TxnStatus = "pending" | "accepted" | "rejected";
 export type TxnType = "deposit" | "payment";
 export type TxnMethodType = "qr" | "balance";
+export type OrderStatus = "PENDING" | "PREPARE" | "DELIVERY" | "COMPLETED" | "REJECTED";
 
 export type TransactionMethod = {
     id: number;
     code: string;
     name: string;
-    type: TxnMethodType;
-    details: any | null;
+    methodType: TxnMethodType;
+    sortOrder: number;
+    promptPayId?: string | null;
 };
 
-export type TransactionRow = {
+export type TransactionSummary = {
     id: number;
-    company_id: number;
-    user_id: number | null;
-    txn_type: TxnType;
-    txn_method_id: number | null;
-    reversal: boolean;
-    amount: number;
-    adjust_amount: number;
-    status: TxnStatus;
-    trans_ref: string | null;
-    trans_date: string | null;
-    trans_timestamp: string | null;
-    expired_at: string | null;
-    created_at: string;
-    updated_at: string;
-};
-
-export type OrderStatus = "PENDING" | "PREPARE" | "DELIVERY" | "COMPLETED" | "REJECTED";
-
-export type OrderDetails = {
     userId: number;
-    branchId: string;
-    branchName: string;
-    productList: Array<{
-        qty: number;
-        price: number;
-        productId: string;
-        productName: string;
-        productAddOns: Array<{ name: string; price: number }>;
-    }>;
-    delivery?: { lat: number; lng: number; distanceKm: number | null } | null;
+    companyId: number;
+    paymentMethodId: number;
+    txnType: TxnType;
+    amount: number;
+    status: TxnStatus;
+    expiresAt: string | null;
+    slipReference: string | null;
+    slipDate: string | null;
+    slipTimestamp: string | null;
+    createdAt: string;
+    updatedAt: string;
+    method: TransactionMethod | null;
+    orderId: number | null;
+    isExpired: boolean;
 };
 
-export type OrderRow = {
+export type OrderItem = {
     id: number;
-    branch_id: number;
-    txn_id: number | null;
-    order_details: OrderDetails;
+    productId: number | null;
+    productName: string;
+    quantity: number;
+    unitPrice: number;
+    addOns: CartAddOn[];
+    lineTotal: number;
+};
+
+export type Order = {
+    id: number;
+    userId: number;
+    branchId: number;
+    transactionId: number;
     status: OrderStatus;
-    created_at: string;
-    updated_at: string;
+    deliveryLat: number | null;
+    deliveryLng: number | null;
+    deliveryDistanceKm: number | null;
+    createdAt: string;
+    updatedAt: string;
+    items: OrderItem[];
+    branch: BranchSummary | null;
+    transaction: TransactionSummary | null;
+    totalAmount: number;
+};
+
+export type TransactionDetail = {
+    transaction: TransactionSummary;
+    order: Order | null;
+    user?: UserRecord | null;
 };

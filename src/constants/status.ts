@@ -1,4 +1,4 @@
-import type { OrderRow, OrderStatus, TxnStatus as CoreTxnStatus } from "@/types/transaction";
+import type { Order, OrderStatus, TxnStatus as CoreTxnStatus } from "@/types/transaction";
 import { isExpiredUTC } from "@/utils/time";
 
 export type DisplayStatus =
@@ -29,17 +29,17 @@ export const TXN_STATUS_I18N: Record<TxnStatus | "expired", { en: string; th: st
 
 type TxnInput = {
     status: CoreTxnStatus;
-    expired_at?: string | null;
+    expiresAt?: string | null;
 } | null;
 
 export function deriveDisplayStatus(
-    order: Pick<OrderRow, "status"> | { status: OrderStatus | DisplayStatus },
+    order: Pick<Order, "status"> | { status: OrderStatus | DisplayStatus },
     txn?: TxnInput
 ): DisplayStatus {
     if (txn?.status === "rejected") {
         return "REJECTED";
     }
-    if (txn?.status === "pending" && isExpiredUTC(txn.expired_at)) {
+    if (txn?.status === "pending" && isExpiredUTC(txn.expiresAt)) {
         return "EXPIRED";
     }
     const status = order.status as DisplayStatus;

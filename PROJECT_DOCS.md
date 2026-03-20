@@ -1,5 +1,8 @@
 # BaanFoodie — Comprehensive Architecture and Behavior Manual
 
+> Legacy note: this document reflects the earlier Next.js API-route architecture and is kept only for historical context.
+> Use `AGENTS.md` and the files under `docs/` for the current repository structure and behavior.
+
 > Generated for the delivery-food monorepo. Aligns with `AGENT_PATTERN.md`, `AGENT_SETUP.md`, and the BAAN prompt generation pattern. All times are expressed in Asia/Bangkok (UTC+7) unless explicitly noted.
 
 ---

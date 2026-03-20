@@ -1,13 +1,13 @@
 import { useState } from "react";
-import axios, { type ApiResponse } from "@/utils/apiClient";
-import type { TransactionRow } from "@/types/transaction";
+import type { TransactionDetail } from "@/types/transaction";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import { notify } from "@/utils/notify";
+import { submitTransactionSlip } from "@/services/payment";
 
 type SlipUploadProps = {
     txnId: number;
-    onSuccess: (txn: TransactionRow) => void;
+    onSuccess: (detail: TransactionDetail) => void;
 };
 
 export function SlipUpload({ txnId, onSuccess }: SlipUploadProps) {
@@ -27,14 +27,9 @@ export function SlipUpload({ txnId, onSuccess }: SlipUploadProps) {
 
         try {
             setSubmitting(true);
-            const response = await axios.post<ApiResponse<{ txn: TransactionRow }>>("/api/payment/slipok", formData, {
-                headers: { "Content-Type": "multipart/form-data" },
-            });
-            if (response.data.code !== "OK" || !response.data.body?.txn) {
-                throw new Error(response.data.message || "INVALID_RESPONSE");
-            }
+            const detail = await submitTransactionSlip(txnId, file);
             notify(t(I18N_KEYS.PAYMENT_SLIP_SUCCESS), "success");
-            onSuccess(response.data.body.txn);
+            onSuccess(detail);
         } catch (error: any) {
             const message = error?.response?.data?.message || error?.message || t(I18N_KEYS.PAYMENT_SLIP_ERROR);
             notify(message, "error");

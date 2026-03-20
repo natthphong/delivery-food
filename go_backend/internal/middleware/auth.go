@@ -1,26 +1,41 @@
 package middleware
 
 import (
+	"context"
+	"net/http"
 	"strings"
 
-	"github.com/gofiber/fiber/v2"
-	"gitlab.com/home-server7795544/home-server/iam/iam-backend/internal/authjwt"
+	"github.com/natthaohong/delivery-food/go_backend/internal/apperror"
+	backendauth "github.com/natthaohong/delivery-food/go_backend/internal/auth"
+	"github.com/natthaohong/delivery-food/go_backend/internal/httpapi"
 )
 
-func AuthRequired(secret string) fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		auth := c.Get("Authorization")
-		if auth == "" {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"code": "UNAUTHORIZED", "message": "missing token"})
+type contextKey string
+
+const claimsContextKey contextKey = "auth_claims"
+
+func RequireAuth(tokenManager *backendauth.TokenManager, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		header := strings.TrimSpace(r.Header.Get("Authorization"))
+		if !strings.HasPrefix(strings.ToLower(header), "bearer ") {
+			httpapi.WriteError(w, apperror.Unauthorized("missing bearer token"))
+			return
 		}
-		token := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer"))
-		claims, err := authjwt.Parse(secret, token)
+		token := strings.TrimSpace(header[7:])
+		if token == "" {
+			httpapi.WriteError(w, apperror.Unauthorized("missing bearer token"))
+			return
+		}
+		claims, err := tokenManager.ParseAccessToken(token)
 		if err != nil {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"code": "UNAUTHORIZED", "message": "invalid token"})
+			httpapi.WriteError(w, apperror.Unauthorized("invalid access token"))
+			return
 		}
-		c.Locals("userId", claims.UserID)
-		c.Locals("email", claims.Email)
-		c.Locals("fullName", claims.FullName)
-		return c.Next()
+		next(w, r.WithContext(context.WithValue(r.Context(), claimsContextKey, claims)))
 	}
+}
+
+func ClaimsFromContext(ctx context.Context) (*backendauth.AccessClaims, bool) {
+	claims, ok := ctx.Value(claimsContextKey).(*backendauth.AccessClaims)
+	return claims, ok
 }

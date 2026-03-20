@@ -3,7 +3,7 @@ import type { CartAddOn, CartBranchGroup, CartItem } from "@/types";
 export function totalItemCount(card: CartBranchGroup[] | null | undefined): number {
     if (!Array.isArray(card)) return 0;
     return card.reduce((acc, group) => {
-        const branchQty = (group.productList || []).reduce((sum, item) => sum + (item.qty ?? 0), 0);
+        const branchQty = (group.items || []).reduce((sum, item) => sum + (item.quantity ?? 0), 0);
         return acc + branchQty;
     }, 0);
 }
@@ -11,7 +11,7 @@ export function totalItemCount(card: CartBranchGroup[] | null | undefined): numb
 export function totalQty(card: CartBranchGroup[] | null | undefined): number {
     if (!Array.isArray(card)) return 0;
     return card.reduce((acc, group) => {
-        const branchQty = (group.productList || []).reduce((sum, item) => sum + (item.qty ?? 0), 0);
+        const branchQty = (group.items || []).reduce((sum, item) => sum + (item.quantity ?? 0), 0);
         return acc + branchQty;
     }, 0);
 }
@@ -27,5 +27,5 @@ export function canonicalizeAddOns(addOns: CartAddOn[]): string {
 }
 
 export function buildCartItemKey(branchId: string, item: CartItem): string {
-    return `${branchId}|${item.productId}|${canonicalizeAddOns(item.productAddOns)}`;
+    return `${branchId}|${item.productId}|${canonicalizeAddOns(item.addOns)}`;
 }

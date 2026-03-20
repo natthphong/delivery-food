@@ -1,7 +1,6 @@
 // src/store/authSlice.ts
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import type { UserRecord } from "@/types";
-import { EMPTY_ARRAY } from "./constants";
 
 type State = { accessToken: string | null; refreshToken: string | null; user: UserRecord | null };
 const initialState: State = { accessToken: null, refreshToken: null, user: null };
@@ -15,15 +14,7 @@ const slice = createSlice({
             state.refreshToken = action.payload.refreshToken;
         },
         setUser(state, action: PayloadAction<UserRecord | null>) {
-            if (!action.payload) {
-                state.user = null;
-                return;
-            }
-            const payload = action.payload;
-            state.user = {
-                ...payload,
-                card: Array.isArray(payload.card) ? payload.card : EMPTY_ARRAY,
-            };
+            state.user = action.payload;
         },
         logout(state) {
             state.accessToken = null;

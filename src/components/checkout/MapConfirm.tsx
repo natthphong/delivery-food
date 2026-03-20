@@ -108,6 +108,7 @@ export function MapConfirm({
     onConfirmChange,
 }: MapConfirmProps) {
     const { t } = useI18n();
+    const mapRef = useRef<L.Map | null>(null);
     const [position, setPosition] = useState<LatLngLiteral>(value ? { lat: value.lat, lng: value.lng } : DEFAULT_CENTER);
     const [detecting, setDetecting] = useState(false);
     const valueRef = useRef<MapConfirmValue | null>(value);
@@ -213,9 +214,10 @@ export function MapConfirm({
                     zoom={15}
                     style={{ height: 300, width: "100%" }}
                     className="h-[300px] w-full"
-                    whenCreated={(map) => {
+                    ref={mapRef}
+                    whenReady={() => {
                         requestAnimationFrame(() => {
-                            map.invalidateSize();
+                            mapRef.current?.invalidateSize();
                         });
                     }}
                 >

@@ -1,6 +1,6 @@
 import { useSelector, shallowEqual } from "react-redux";
 import type { RootState } from "@store/index";
-import { selectCartCount, selectUserCardItems } from "@/store/selectors";
+import { selectCartCount, selectCartItems } from "@/store/selectors";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 
@@ -11,7 +11,7 @@ type FloatingCartButtonProps = {
 export default function FloatingCartButton({ onClick }: FloatingCartButtonProps) {
     const { t } = useI18n();
     const hasUser = useSelector((state: RootState) => !!state.auth.user);
-    const items = useSelector(selectUserCardItems, shallowEqual);
+    const items = useSelector(selectCartItems, shallowEqual);
     const count = useSelector(selectCartCount);
 
     if (!hasUser) return null;
