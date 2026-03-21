@@ -22,7 +22,21 @@ func NewOperationsHandler(service *service.OperationsService) *OperationsHandler
 
 func (h *OperationsHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	claims, _ := middleware.ClaimsFromContext(r.Context())
-	result, err := h.service.Dashboard(r.Context(), claims)
+	branchID, err := parseQueryInt64(r.URL.Query().Get("branchId"))
+	if err != nil {
+		httpapi.WriteError(w, err)
+		return
+	}
+	days := 14
+	if rawDays := strings.TrimSpace(r.URL.Query().Get("days")); rawDays != "" {
+		parsedDays, parseErr := strconv.Atoi(rawDays)
+		if parseErr != nil || parsedDays <= 0 {
+			httpapi.WriteError(w, apperror.BadRequest("days must be a positive integer"))
+			return
+		}
+		days = parsedDays
+	}
+	result, err := h.service.Dashboard(r.Context(), claims, branchID, days)
 	if err != nil {
 		httpapi.WriteError(w, err)
 		return

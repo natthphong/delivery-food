@@ -32,15 +32,15 @@ func NewOperationsService(store *repository.Store, notifier *NotificationService
 	return &OperationsService{store: store, notifier: notifier}
 }
 
-func (s *OperationsService) Dashboard(ctx context.Context, claims *backendauth.AccessClaims) (model.AdminDashboard, error) {
+func (s *OperationsService) Dashboard(ctx context.Context, claims *backendauth.AccessClaims, branchID *int64, days int) (model.AdminDashboard, error) {
 	if !hasPermission(claims, "dashboard.read") {
 		return model.AdminDashboard{}, apperror.Forbidden("dashboard access is not allowed")
 	}
-	branchIDs, err := scopedBranchIDs(claims, nil)
+	branchIDs, err := scopedBranchIDs(claims, pointerBranchSlice(branchID))
 	if err != nil {
 		return model.AdminDashboard{}, err
 	}
-	item, err := s.store.GetAdminDashboard(ctx, branchIDs)
+	item, err := s.store.GetAdminDashboard(ctx, branchIDs, branchID, days)
 	if err != nil {
 		return model.AdminDashboard{}, apperror.Internal("failed to load dashboard", err)
 	}

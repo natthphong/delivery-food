@@ -80,9 +80,10 @@ func TestNotificationServiceNotifyOrderPlacedForLineLinkedUser(t *testing.T) {
 		AuthProvider: "line",
 		AuthSubject:  "line-user-123",
 	}, model.Order{
-		ID:     55,
-		Status: "PENDING",
-		Branch: &model.BranchSummary{Name: branchName},
+		ID:            55,
+		ReferenceCode: "OD260321000055",
+		Status:        "PENDING",
+		Branch:        &model.BranchSummary{Name: branchName},
 	})
 	if err != nil {
 		t.Fatalf("NotifyOrderPlaced() error = %v", err)
@@ -93,8 +94,8 @@ func TestNotificationServiceNotifyOrderPlacedForLineLinkedUser(t *testing.T) {
 	if len(line.to) != 1 || line.to[0] != "line-user-123" {
 		t.Fatalf("line targets = %v, want line-user-123", line.to)
 	}
-	if !strings.Contains(line.text[0], "คำสั่งซื้อ #55") {
-		t.Fatalf("line text = %q, want order id", line.text[0])
+	if !strings.Contains(line.text[0], "OD260321000055") {
+		t.Fatalf("line text = %q, want order reference", line.text[0])
 	}
 }
 
@@ -115,6 +116,7 @@ func TestNotificationServiceNotifyOrderReadyIncludesItemSummary(t *testing.T) {
 		AuthSubject:  "line-ready-user",
 	}, model.Order{
 		ID:              88,
+		ReferenceCode:   "OD260321000088",
 		Status:          "READY",
 		FulfillmentMode: "pickup",
 		Branch:          &model.BranchSummary{Name: branchName},
@@ -134,6 +136,9 @@ func TestNotificationServiceNotifyOrderReadyIncludesItemSummary(t *testing.T) {
 	}
 	if len(line.text) != 1 {
 		t.Fatalf("expected 1 line push, got %d", len(line.text))
+	}
+	if !strings.Contains(line.text[0], "OD260321000088") {
+		t.Fatalf("line text = %q, want order reference", line.text[0])
 	}
 	if !strings.Contains(line.text[0], "1x Thai Milk Tea") {
 		t.Fatalf("line text = %q, want second item summary", line.text[0])

@@ -86,8 +86,13 @@ func (s *Store) CreateTransaction(ctx context.Context, tx DBTX, params CreateTra
 	} else {
 		paymentActionJSON = []byte(`{}`)
 	}
-	err := tx.QueryRow(ctx, `
+	referenceCode, err := s.AllocateBusinessReference(ctx, tx, "TX", time.Now())
+	if err != nil {
+		return model.Transaction{}, err
+	}
+	err = tx.QueryRow(ctx, `
 		INSERT INTO transactions (
+			reference_code,
 			user_id,
 			company_id,
 			payment_method_id,
@@ -102,9 +107,10 @@ func (s *Store) CreateTransaction(ctx context.Context, tx DBTX, params CreateTra
 			paid_at,
 			failed_reason
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14)
 		RETURNING
 			id,
+			reference_code,
 			user_id,
 			company_id,
 			payment_method_id,
@@ -123,8 +129,9 @@ func (s *Store) CreateTransaction(ctx context.Context, tx DBTX, params CreateTra
 			failed_reason,
 			created_at,
 			updated_at
-	`, params.UserID, params.CompanyID, params.PaymentMethodID, params.TxnType, params.Amount, params.Status, expiresAt, providerID, providerReference, providerStatus, string(paymentActionJSON), paidAt, failedReason).Scan(
+	`, referenceCode, params.UserID, params.CompanyID, params.PaymentMethodID, params.TxnType, params.Amount, params.Status, expiresAt, providerID, providerReference, providerStatus, string(paymentActionJSON), paidAt, failedReason).Scan(
 		&item.ID,
+		&item.ReferenceCode,
 		&item.UserID,
 		&item.CompanyID,
 		&item.PaymentMethodID,
@@ -181,8 +188,13 @@ func (s *Store) CreateOrder(ctx context.Context, tx DBTX, params CreateOrderPara
 	if params.CustomerNote != nil {
 		customerNote = sql.NullString{String: *params.CustomerNote, Valid: strings.TrimSpace(*params.CustomerNote) != ""}
 	}
-	err := tx.QueryRow(ctx, `
+	referenceCode, err := s.AllocateBusinessReference(ctx, tx, "OD", time.Now())
+	if err != nil {
+		return model.Order{}, err
+	}
+	err = tx.QueryRow(ctx, `
 		INSERT INTO orders (
+			reference_code,
 			user_id,
 			branch_id,
 			transaction_id,
@@ -194,10 +206,11 @@ func (s *Store) CreateOrder(ctx context.Context, tx DBTX, params CreateOrderPara
 			delivery_lng,
 			delivery_distance_km
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING id, user_id, branch_id, transaction_id, status, fulfillment_mode, delivery_fee::double precision, customer_note, delivery_lat, delivery_lng, delivery_distance_km, created_at, updated_at
-	`, params.UserID, params.BranchID, params.TransactionID, params.Status, params.FulfillmentMode, params.DeliveryFee, customerNote, deliveryLat, deliveryLng, deliveryDistanceKM).Scan(
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id, reference_code, user_id, branch_id, transaction_id, status, fulfillment_mode, delivery_fee::double precision, customer_note, delivery_lat, delivery_lng, delivery_distance_km, created_at, updated_at
+	`, referenceCode, params.UserID, params.BranchID, params.TransactionID, params.Status, params.FulfillmentMode, params.DeliveryFee, customerNote, deliveryLat, deliveryLng, deliveryDistanceKM).Scan(
 		&order.ID,
+		&order.ReferenceCode,
 		&order.UserID,
 		&order.BranchID,
 		&order.TransactionID,
@@ -388,6 +401,7 @@ func (s *Store) GetTransactionSummary(ctx context.Context, userID, transactionID
 	err := s.Pool.QueryRow(ctx, `
 		SELECT
 			t.id,
+			t.reference_code,
 			t.user_id,
 			t.company_id,
 			t.payment_method_id,
@@ -426,6 +440,7 @@ func (s *Store) GetTransactionSummary(ctx context.Context, userID, transactionID
 			WHERE t.user_id = $1 AND t.id = $2
 		`, userID, transactionID).Scan(
 		&summary.ID,
+		&summary.ReferenceCode,
 		&summary.UserID,
 		&summary.CompanyID,
 		&summary.PaymentMethodID,
@@ -502,6 +517,7 @@ func (s *Store) ListTransactions(ctx context.Context, userID int64, limit int) (
 	rows, err := s.Pool.Query(ctx, `
 		SELECT
 			t.id,
+			t.reference_code,
 			t.user_id,
 			t.company_id,
 			t.payment_method_id,
@@ -561,6 +577,7 @@ func (s *Store) ListOrders(ctx context.Context, userID int64, limit int) ([]mode
 	rows, err := s.Pool.Query(ctx, `
 		SELECT
 			o.id,
+			o.reference_code,
 			o.user_id,
 			o.branch_id,
 			o.transaction_id,
@@ -588,6 +605,7 @@ func (s *Store) ListOrders(ctx context.Context, userID int64, limit int) ([]mode
 			b.rider_delivery_fee::double precision,
 			b.operational_note,
 			t.id,
+			t.reference_code,
 			t.user_id,
 			t.company_id,
 			t.payment_method_id,
@@ -672,6 +690,7 @@ func (s *Store) GetOrderByTransaction(ctx context.Context, userID, transactionID
 	rows, err := s.Pool.Query(ctx, `
 		SELECT
 			o.id,
+			o.reference_code,
 			o.user_id,
 			o.branch_id,
 			o.transaction_id,
@@ -699,6 +718,7 @@ func (s *Store) GetOrderByTransaction(ctx context.Context, userID, transactionID
 			b.rider_delivery_fee::double precision,
 			b.operational_note,
 			t.id,
+			t.reference_code,
 			t.user_id,
 			t.company_id,
 			t.payment_method_id,
@@ -881,6 +901,7 @@ func scanTransactionSummary(scanner interface {
 	)
 	err := scanner.Scan(
 		&item.ID,
+		&item.ReferenceCode,
 		&item.UserID,
 		&item.CompanyID,
 		&item.PaymentMethodID,
@@ -1003,6 +1024,7 @@ func scanOrderHeader(scanner interface {
 	order.Transaction = &model.TransactionSummary{Method: &model.PaymentMethod{}}
 	err := scanner.Scan(
 		&order.ID,
+		&order.ReferenceCode,
 		&order.UserID,
 		&order.BranchID,
 		&order.TransactionID,
@@ -1030,6 +1052,7 @@ func scanOrderHeader(scanner interface {
 		&order.Branch.RiderDeliveryFee,
 		&branchOperationalNote,
 		&order.Transaction.ID,
+		&order.Transaction.ReferenceCode,
 		&order.Transaction.UserID,
 		&order.Transaction.CompanyID,
 		&order.Transaction.PaymentMethodID,

@@ -48,6 +48,7 @@ func (s *Store) GetAdminOrderByID(ctx context.Context, orderID int64) (model.Adm
 	row := s.Pool.QueryRow(ctx, `
 		SELECT
 			o.id,
+			o.reference_code,
 			o.user_id,
 			o.branch_id,
 			o.transaction_id,
@@ -61,6 +62,7 @@ func (s *Store) GetAdminOrderByID(ctx context.Context, orderID int64) (model.Adm
 			u.phone,
 			b.name,
 			b.image_url,
+			t.reference_code,
 			t.amount::double precision,
 			t.status,
 			pm.name,
@@ -95,8 +97,20 @@ func (s *Store) GetAdminOrderDetail(ctx context.Context, orderID int64) (model.A
 	return item, nil
 }
 
-func (s *Store) GetAdminDashboard(ctx context.Context, branchIDs []int64) (model.AdminDashboard, error) {
-	var item model.AdminDashboard
+func (s *Store) GetAdminDashboard(ctx context.Context, branchIDs []int64, appliedBranchID *int64, days int) (model.AdminDashboard, error) {
+	if days <= 0 {
+		days = 14
+	}
+	item := model.AdminDashboard{
+		AppliedBranchID:  appliedBranchID,
+		Days:             days,
+		SalesSeries:      make([]model.AdminDashboardSalesPoint, 0),
+		BranchSales:      make([]model.AdminDashboardBranchSales, 0),
+		RecentComplaints: make([]model.CustomerComplaint, 0),
+		RecentOTRequests: make([]model.OTRequest, 0),
+		StaffCounts:      make([]model.AdminDashboardStaffCountPoint, 0),
+		WorkSchedule:     make([]model.AdminDashboardScheduleRow, 0),
+	}
 	err := s.Pool.QueryRow(ctx, `
 		SELECT
 			(SELECT COUNT(*)::int FROM employees e WHERE e.status = 'active' AND (COALESCE(array_length($1::bigint[], 1), 0) = 0 OR EXISTS (
@@ -105,10 +119,20 @@ func (s *Store) GetAdminDashboard(ctx context.Context, branchIDs []int64) (model
 			(SELECT COUNT(*)::int FROM attendance_sessions a WHERE a.clock_out_at IS NULL AND (COALESCE(array_length($1::bigint[], 1), 0) = 0 OR a.branch_id = ANY($1))),
 			(SELECT COUNT(*)::int FROM ot_requests r WHERE r.status = 'pending' AND (COALESCE(array_length($1::bigint[], 1), 0) = 0 OR r.branch_id = ANY($1))),
 			(SELECT COUNT(*)::int FROM branch_products bp WHERE bp.is_enabled = TRUE AND bp.stock_qty IS NOT NULL AND bp.reorder_level IS NOT NULL AND bp.stock_qty <= bp.reorder_level AND (COALESCE(array_length($1::bigint[], 1), 0) = 0 OR bp.branch_id = ANY($1))),
-			(SELECT COUNT(*)::int FROM orders o WHERE o.status IN ('PENDING', 'PREPARE', 'DELIVERY') AND (COALESCE(array_length($1::bigint[], 1), 0) = 0 OR o.branch_id = ANY($1))),
+			(SELECT COUNT(*)::int FROM orders o WHERE o.status IN ('PENDING', 'PREPARE', 'READY', 'DELIVERY') AND (COALESCE(array_length($1::bigint[], 1), 0) = 0 OR o.branch_id = ANY($1))),
 			(SELECT COUNT(*)::int FROM delivery_jobs dj WHERE dj.status = 'waiting_for_rider' AND (COALESCE(array_length($1::bigint[], 1), 0) = 0 OR dj.branch_id = ANY($1))),
-			(SELECT COUNT(*)::int FROM transactions t LEFT JOIN orders o ON o.transaction_id = t.id WHERE t.status = 'pending' AND (o.id IS NULL OR COALESCE(array_length($1::bigint[], 1), 0) = 0 OR o.branch_id = ANY($1)))
-	`, branchIDs).Scan(
+			(SELECT COUNT(*)::int FROM transactions t LEFT JOIN orders o ON o.transaction_id = t.id WHERE t.status = 'pending' AND (o.id IS NULL OR COALESCE(array_length($1::bigint[], 1), 0) = 0 OR o.branch_id = ANY($1))),
+			(SELECT COUNT(*)::int FROM customer_complaints c WHERE c.status <> 'resolved' AND (COALESCE(array_length($1::bigint[], 1), 0) = 0 OR c.branch_id = ANY($1))),
+			COALESCE((
+				SELECT SUM(t.amount)::double precision
+				FROM transactions t
+				JOIN orders o ON o.transaction_id = t.id
+				WHERE t.txn_type = 'payment'
+					AND t.status = 'accepted'
+					AND ((COALESCE(t.paid_at, t.created_at) AT TIME ZONE 'Asia/Bangkok')::date) >= ((NOW() AT TIME ZONE 'Asia/Bangkok')::date - ($2::int - 1))
+					AND (COALESCE(array_length($1::bigint[], 1), 0) = 0 OR o.branch_id = ANY($1))
+			), 0)
+	`, branchIDs, days).Scan(
 		&item.EmployeesActive,
 		&item.AttendanceOpen,
 		&item.PendingOTRequests,
@@ -116,8 +140,343 @@ func (s *Store) GetAdminDashboard(ctx context.Context, branchIDs []int64) (model
 		&item.PendingOrders,
 		&item.WaitingRiderJobs,
 		&item.PendingPayments,
+		&item.OpenComplaints,
+		&item.SalesTotal,
 	)
-	return item, err
+	if err != nil {
+		return model.AdminDashboard{}, err
+	}
+
+	salesSeries, err := s.listDashboardSalesSeries(ctx, branchIDs, days)
+	if err != nil {
+		return model.AdminDashboard{}, err
+	}
+	item.SalesSeries = salesSeries
+
+	branchSales, err := s.listDashboardBranchSales(ctx, branchIDs, days)
+	if err != nil {
+		return model.AdminDashboard{}, err
+	}
+	item.BranchSales = branchSales
+
+	complaints, err := s.listDashboardComplaints(ctx, branchIDs, 6)
+	if err != nil {
+		return model.AdminDashboard{}, err
+	}
+	item.RecentComplaints = complaints
+
+	otRequests, err := s.ListOTRequests(ctx, OTRequestListFilter{
+		BranchIDs: branchIDs,
+		Limit:     6,
+	})
+	if err != nil {
+		return model.AdminDashboard{}, err
+	}
+	item.RecentOTRequests = otRequests
+
+	staffCounts, err := s.listDashboardStaffCounts(ctx, branchIDs, days)
+	if err != nil {
+		return model.AdminDashboard{}, err
+	}
+	item.StaffCounts = staffCounts
+
+	workSchedule, err := s.listDashboardWorkSchedule(ctx, branchIDs, time.Now().In(businessReferenceLocation))
+	if err != nil {
+		return model.AdminDashboard{}, err
+	}
+	item.WorkSchedule = workSchedule
+	return item, nil
+}
+
+func (s *Store) listDashboardSalesSeries(ctx context.Context, branchIDs []int64, days int) ([]model.AdminDashboardSalesPoint, error) {
+	rows, err := s.Pool.Query(ctx, `
+		WITH day_range AS (
+			SELECT generate_series(
+				((NOW() AT TIME ZONE 'Asia/Bangkok')::date - ($2::int - 1)),
+				((NOW() AT TIME ZONE 'Asia/Bangkok')::date),
+				'1 day'::interval
+			)::date AS sales_date
+		),
+		sales AS (
+			SELECT
+				((COALESCE(t.paid_at, t.created_at) AT TIME ZONE 'Asia/Bangkok')::date) AS sales_date,
+				SUM(t.amount)::double precision AS total_sales,
+				COUNT(DISTINCT o.id)::int AS order_count
+			FROM transactions t
+			JOIN orders o ON o.transaction_id = t.id
+			WHERE t.txn_type = 'payment'
+				AND t.status = 'accepted'
+				AND ((COALESCE(t.paid_at, t.created_at) AT TIME ZONE 'Asia/Bangkok')::date) >= ((NOW() AT TIME ZONE 'Asia/Bangkok')::date - ($2::int - 1))
+				AND (COALESCE(array_length($1::bigint[], 1), 0) = 0 OR o.branch_id = ANY($1))
+			GROUP BY 1
+		)
+		SELECT
+			TO_CHAR(dr.sales_date, 'YYYY-MM-DD'),
+			COALESCE(s.total_sales, 0)::double precision,
+			COALESCE(s.order_count, 0)::int
+		FROM day_range dr
+		LEFT JOIN sales s ON s.sales_date = dr.sales_date
+		ORDER BY dr.sales_date
+	`, branchIDs, days)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	points := make([]model.AdminDashboardSalesPoint, 0, days)
+	for rows.Next() {
+		var item model.AdminDashboardSalesPoint
+		if err := rows.Scan(&item.Date, &item.TotalSales, &item.OrderCount); err != nil {
+			return nil, err
+		}
+		points = append(points, item)
+	}
+	return points, rows.Err()
+}
+
+func (s *Store) listDashboardBranchSales(ctx context.Context, branchIDs []int64, days int) ([]model.AdminDashboardBranchSales, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT
+			b.id,
+			b.name,
+			COALESCE(SUM(t.amount), 0)::double precision AS total_sales,
+			COUNT(DISTINCT CASE WHEN t.id IS NOT NULL THEN o.id END)::int AS order_count,
+			COALESCE((
+				SELECT COUNT(*)::int
+				FROM customer_complaints c
+				WHERE c.branch_id = b.id
+					AND c.status <> 'resolved'
+			), 0) AS complaint_count
+		FROM branches b
+		LEFT JOIN orders o
+			ON o.branch_id = b.id
+		LEFT JOIN transactions t
+			ON t.id = o.transaction_id
+			AND t.txn_type = 'payment'
+			AND t.status = 'accepted'
+			AND ((COALESCE(t.paid_at, t.created_at) AT TIME ZONE 'Asia/Bangkok')::date) >= ((NOW() AT TIME ZONE 'Asia/Bangkok')::date - ($2::int - 1))
+		WHERE (COALESCE(array_length($1::bigint[], 1), 0) = 0 OR b.id = ANY($1))
+		GROUP BY b.id, b.name
+		ORDER BY total_sales DESC, b.name
+	`, branchIDs, days)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.AdminDashboardBranchSales, 0)
+	for rows.Next() {
+		var item model.AdminDashboardBranchSales
+		if err := rows.Scan(&item.BranchID, &item.BranchName, &item.TotalSales, &item.OrderCount, &item.ComplaintCount); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) listDashboardComplaints(ctx context.Context, branchIDs []int64, limit int) ([]model.CustomerComplaint, error) {
+	if limit <= 0 {
+		limit = 6
+	}
+	rows, err := s.Pool.Query(ctx, `
+		SELECT
+			c.id,
+			c.user_id,
+			c.order_id,
+			o.reference_code,
+			c.branch_id,
+			b.name,
+			c.category,
+			c.status,
+			c.title,
+			c.message,
+			c.resolved_note,
+			c.resolved_at,
+			c.created_at,
+			c.updated_at
+		FROM customer_complaints c
+		JOIN branches b ON b.id = c.branch_id
+		LEFT JOIN orders o ON o.id = c.order_id
+		WHERE COALESCE(array_length($1::bigint[], 1), 0) = 0 OR c.branch_id = ANY($1)
+		ORDER BY c.created_at DESC, c.id DESC
+		LIMIT $2
+	`, branchIDs, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.CustomerComplaint, 0, limit)
+	for rows.Next() {
+		var (
+			userID       sql.NullInt64
+			orderID      sql.NullInt64
+			orderRef     sql.NullString
+			resolvedNote sql.NullString
+			resolvedAt   sql.NullTime
+			item         model.CustomerComplaint
+		)
+		if err := rows.Scan(
+			&item.ID,
+			&userID,
+			&orderID,
+			&orderRef,
+			&item.BranchID,
+			&item.BranchName,
+			&item.Category,
+			&item.Status,
+			&item.Title,
+			&item.Message,
+			&resolvedNote,
+			&resolvedAt,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		item.UserID = nullInt64(userID)
+		item.OrderID = nullInt64(orderID)
+		item.OrderReferenceCode = nullString(orderRef)
+		item.ResolvedNote = nullString(resolvedNote)
+		item.ResolvedAt = nullTime(resolvedAt)
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) listDashboardStaffCounts(ctx context.Context, branchIDs []int64, days int) ([]model.AdminDashboardStaffCountPoint, error) {
+	rows, err := s.Pool.Query(ctx, `
+		WITH day_range AS (
+			SELECT generate_series(
+				((NOW() AT TIME ZONE 'Asia/Bangkok')::date - ($2::int - 1)),
+				((NOW() AT TIME ZONE 'Asia/Bangkok')::date),
+				'1 day'::interval
+			)::date AS work_date
+		),
+		counts AS (
+			SELECT
+				((a.clock_in_at AT TIME ZONE 'Asia/Bangkok')::date) AS work_date,
+				COUNT(DISTINCT a.employee_id)::int AS employee_count
+			FROM attendance_sessions a
+			WHERE ((a.clock_in_at AT TIME ZONE 'Asia/Bangkok')::date) >= ((NOW() AT TIME ZONE 'Asia/Bangkok')::date - ($2::int - 1))
+				AND (COALESCE(array_length($1::bigint[], 1), 0) = 0 OR a.branch_id = ANY($1))
+			GROUP BY 1
+		)
+		SELECT
+			TO_CHAR(dr.work_date, 'YYYY-MM-DD'),
+			COALESCE(c.employee_count, 0)::int
+		FROM day_range dr
+		LEFT JOIN counts c ON c.work_date = dr.work_date
+		ORDER BY dr.work_date
+	`, branchIDs, days)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.AdminDashboardStaffCountPoint, 0, days)
+	for rows.Next() {
+		var item model.AdminDashboardStaffCountPoint
+		if err := rows.Scan(&item.Date, &item.EmployeeCount); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) listDashboardWorkSchedule(ctx context.Context, branchIDs []int64, targetDate time.Time) ([]model.AdminDashboardScheduleRow, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT
+			TO_CHAR($2::date, 'YYYY-MM-DD') AS work_date,
+			b.id,
+			b.name,
+			e.id,
+			e.full_name,
+			COALESCE(ARRAY_AGG(DISTINCT era.role_code) FILTER (WHERE era.role_code IS NOT NULL), ARRAY[]::TEXT[]),
+			TO_CHAR(bo.open_time, 'HH24:MI'),
+			TO_CHAR(bo.close_time, 'HH24:MI'),
+			attendance.status,
+			attendance.clock_in_at,
+			attendance.clock_out_at
+		FROM employees e
+		JOIN employee_branch_assignments eba
+			ON eba.employee_id = e.id
+			AND eba.is_primary = TRUE
+		JOIN branches b ON b.id = eba.branch_id
+		LEFT JOIN employee_role_assignments era ON era.employee_id = e.id
+		LEFT JOIN branch_operating_hours bo
+			ON bo.branch_id = b.id
+			AND bo.day_of_week = EXTRACT(DOW FROM $2::date)::int
+		LEFT JOIN LATERAL (
+			SELECT
+				a.status,
+				a.clock_in_at,
+				a.clock_out_at
+			FROM attendance_sessions a
+			WHERE a.employee_id = e.id
+				AND a.branch_id = b.id
+				AND ((a.clock_in_at AT TIME ZONE 'Asia/Bangkok')::date) = $2::date
+			ORDER BY a.clock_in_at DESC, a.id DESC
+			LIMIT 1
+		) AS attendance ON TRUE
+		WHERE e.status = 'active'
+			AND (COALESCE(array_length($1::bigint[], 1), 0) = 0 OR b.id = ANY($1))
+		GROUP BY
+			TO_CHAR($2::date, 'YYYY-MM-DD'),
+			b.id,
+			b.name,
+			e.id,
+			e.full_name,
+			bo.open_time,
+			bo.close_time,
+			attendance.status,
+			attendance.clock_in_at,
+			attendance.clock_out_at
+		ORDER BY b.name, e.full_name
+		LIMIT 24
+	`, branchIDs, targetDate.Format("2006-01-02"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.AdminDashboardScheduleRow, 0)
+	for rows.Next() {
+		var (
+			roleCodes        []string
+			plannedStart     sql.NullString
+			plannedEnd       sql.NullString
+			attendanceStatus sql.NullString
+			clockInAt        sql.NullTime
+			clockOutAt       sql.NullTime
+			item             model.AdminDashboardScheduleRow
+		)
+		if err := rows.Scan(
+			&item.WorkDate,
+			&item.BranchID,
+			&item.BranchName,
+			&item.EmployeeID,
+			&item.EmployeeName,
+			&roleCodes,
+			&plannedStart,
+			&plannedEnd,
+			&attendanceStatus,
+			&clockInAt,
+			&clockOutAt,
+		); err != nil {
+			return nil, err
+		}
+		item.RoleCodes = roleCodes
+		item.PlannedStart = nullString(plannedStart)
+		item.PlannedEnd = nullString(plannedEnd)
+		item.AttendanceStatus = nullString(attendanceStatus)
+		item.ClockInAt = nullTime(clockInAt)
+		item.ClockOutAt = nullTime(clockOutAt)
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func (s *Store) ListAdminOrders(ctx context.Context, filter AdminOrderListFilter) ([]model.AdminOrder, error) {
@@ -129,6 +488,7 @@ func (s *Store) ListAdminOrders(ctx context.Context, filter AdminOrderListFilter
 	rows, err := s.Pool.Query(ctx, `
 		SELECT
 			o.id,
+			o.reference_code,
 			o.user_id,
 			o.branch_id,
 			o.transaction_id,
@@ -142,6 +502,7 @@ func (s *Store) ListAdminOrders(ctx context.Context, filter AdminOrderListFilter
 			u.phone,
 			b.name,
 			b.image_url,
+			t.reference_code,
 			t.amount::double precision,
 			t.status,
 			pm.name,
@@ -206,6 +567,7 @@ func scanAdminOrderSummary(scanner interface {
 	item.AllowedStatuses = make([]string, 0)
 	if err := scanner.Scan(
 		&item.ID,
+		&item.ReferenceCode,
 		&item.UserID,
 		&item.BranchID,
 		&item.TransactionID,
@@ -219,6 +581,7 @@ func scanAdminOrderSummary(scanner interface {
 		&customerPhone,
 		&branchName,
 		&branchImage,
+		&item.Transaction.ReferenceCode,
 		&item.Transaction.Amount,
 		&item.Transaction.Status,
 		&paymentMethodName,
@@ -241,11 +604,12 @@ func scanAdminOrderSummary(scanner interface {
 	item.Transaction.OrderID = &item.ID
 	if deliveryJobID.Valid {
 		item.DeliveryJob = &model.DeliveryJob{
-			ID:                deliveryJobID.Int64,
-			OrderID:           item.ID,
-			BranchID:          item.BranchID,
-			Status:            deliveryJobStatus.String,
-			AssignedRiderName: nullString(riderName),
+			ID:                 deliveryJobID.Int64,
+			OrderID:            item.ID,
+			OrderReferenceCode: &item.ReferenceCode,
+			BranchID:           item.BranchID,
+			Status:             deliveryJobStatus.String,
+			AssignedRiderName:  nullString(riderName),
 		}
 		branchLabel := item.Branch.Name
 		item.DeliveryJob.BranchName = &branchLabel
@@ -465,11 +829,13 @@ func (s *Store) ListAdminPayments(ctx context.Context, filter PaymentRecordListF
 	rows, err := s.Pool.Query(ctx, `
 		SELECT
 			t.id,
+			t.reference_code,
 			t.user_id,
 			u.display_name,
 			o.branch_id,
 			b.name,
 			o.id,
+			o.reference_code,
 			pm.name,
 			pp.code,
 			t.status,
@@ -501,6 +867,7 @@ func (s *Store) ListAdminPayments(ctx context.Context, filter PaymentRecordListF
 			branchID       sql.NullInt64
 			branchName     sql.NullString
 			orderID        sql.NullInt64
+			orderRef       sql.NullString
 			methodName     sql.NullString
 			providerCode   sql.NullString
 			providerStatus sql.NullString
@@ -509,11 +876,13 @@ func (s *Store) ListAdminPayments(ctx context.Context, filter PaymentRecordListF
 		)
 		if err := rows.Scan(
 			&item.ID,
+			&item.ReferenceCode,
 			&item.UserID,
 			&customerName,
 			&branchID,
 			&branchName,
 			&orderID,
+			&orderRef,
 			&methodName,
 			&providerCode,
 			&item.Status,
@@ -529,6 +898,7 @@ func (s *Store) ListAdminPayments(ctx context.Context, filter PaymentRecordListF
 		item.BranchID = nullInt64(branchID)
 		item.BranchName = nullString(branchName)
 		item.OrderID = nullInt64(orderID)
+		item.OrderReferenceCode = nullString(orderRef)
 		item.PaymentMethodName = nullString(methodName)
 		item.ProviderCode = nullString(providerCode)
 		item.ProviderStatus = nullString(providerStatus)

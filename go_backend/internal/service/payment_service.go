@@ -143,6 +143,10 @@ func (s *PaymentService) Checkout(ctx context.Context, userID int64, request dto
 	if err != nil {
 		return CheckoutResult{}, apperror.Internal("failed to load user", err)
 	}
+	cartSnapshot, err := s.store.GetCart(ctx, userID)
+	if err != nil {
+		return CheckoutResult{}, apperror.Internal("failed to snapshot cart before checkout", err)
+	}
 
 	transactionStatus := "pending"
 	orderStatus := "PENDING"
@@ -264,20 +268,26 @@ func (s *PaymentService) Checkout(ctx context.Context, userID int64, request dto
 		return CheckoutResult{}, apperror.Internal("failed to commit checkout", err)
 	}
 
-	result, err := s.GetTransactionDetail(ctx, userID, transaction.ID)
-	if err != nil {
-		return CheckoutResult{}, err
-	}
-	cart, err := s.store.GetCart(ctx, userID)
-	if err != nil {
-		return CheckoutResult{}, apperror.Internal("failed to refresh cart", err)
-	}
-
 	checkout := CheckoutResult{
-		Method:      method,
-		Transaction: result.Transaction,
-		Order:       result.Order,
-		Cart:        cart,
+		Method: method,
+	}
+	if result, detailErr := s.GetTransactionDetail(ctx, userID, transaction.ID); detailErr == nil {
+		checkout.Transaction = result.Transaction
+		checkout.Order = result.Order
+	} else {
+		fallbackTransaction := normalizeTransactionSummary(model.TransactionSummary{
+			Transaction: transaction,
+			Method:      &method,
+			OrderID:     &order.ID,
+		})
+		checkout.Transaction = fallbackTransaction
+		fallbackOrder := buildCheckoutFallbackOrder(order, branch, lockedItems, fallbackTransaction)
+		checkout.Order = &fallbackOrder
+	}
+	if refreshedCart, cartErr := s.store.GetCart(ctx, userID); cartErr == nil {
+		checkout.Cart = refreshedCart
+	} else {
+		checkout.Cart = filterConsumedCartItems(cartSnapshot, selectedItemIDs)
 	}
 	if method.MethodType == "balance" {
 		freshUser, err := s.store.GetUserByID(ctx, userID)
@@ -456,7 +466,7 @@ func (s *PaymentService) RetryPayment(ctx context.Context, userID int64, transac
 			Amount:      detail.Transaction.Amount,
 			Currency:    "THB",
 			BranchName:  branch.Name,
-			Description: fmt.Sprintf("Retry order #%d at %s", detail.Order.ID, branch.Name),
+			Description: fmt.Sprintf("Retry %s at %s", orderReferenceLabel(*detail.Order), branch.Name),
 		})
 		if err != nil {
 			return TransactionDetailResult{}, err
@@ -987,6 +997,78 @@ func buildManualPaymentAction(method model.PaymentMethod, amount float64, expire
 		action["provider"] = *method.ProviderCode
 	}
 	return action
+}
+
+func buildCheckoutFallbackOrder(
+	order model.Order,
+	branch model.BranchSummary,
+	cartItems []model.CartItem,
+	transaction model.TransactionSummary,
+) model.Order {
+	items := make([]model.OrderItem, 0, len(cartItems))
+	totalAmount := order.DeliveryFee
+	for _, cartItem := range cartItems {
+		orderItem := model.OrderItem{
+			ID:          cartItem.ID,
+			ProductID:   &cartItem.ProductID,
+			ProductName: cartItem.ProductName,
+			Quantity:    cartItem.Quantity,
+			UnitPrice:   cartItem.UnitPrice,
+			AddOns:      append([]model.CartAddOn(nil), cartItem.AddOns...),
+			LineTotal:   cartItem.LineTotal,
+		}
+		totalAmount += orderItem.LineTotal
+		items = append(items, orderItem)
+	}
+	order.Items = items
+	order.Branch = &branch
+	order.Transaction = &transaction
+	order.TotalAmount = totalAmount
+	return order
+}
+
+func filterConsumedCartItems(cart model.Cart, consumedItemIDs []int64) model.Cart {
+	if len(consumedItemIDs) == 0 {
+		return cart
+	}
+	consumed := make(map[int64]struct{}, len(consumedItemIDs))
+	for _, itemID := range consumedItemIDs {
+		consumed[itemID] = struct{}{}
+	}
+	filtered := model.Cart{
+		Groups:       make([]model.CartBranchGroup, 0, len(cart.Groups)),
+		LastSyncedAt: time.Now(),
+	}
+	for _, group := range cart.Groups {
+		nextGroup := model.CartBranchGroup{
+			BranchID:    group.BranchID,
+			CompanyID:   group.CompanyID,
+			BranchName:  group.BranchName,
+			BranchImage: group.BranchImage,
+			Items:       make([]model.CartItem, 0, len(group.Items)),
+		}
+		for _, item := range group.Items {
+			if _, ok := consumed[item.ID]; ok {
+				continue
+			}
+			nextGroup.Items = append(nextGroup.Items, item)
+			nextGroup.SubTotal += item.LineTotal
+			filtered.TotalAmount += item.LineTotal
+			filtered.TotalItems++
+			filtered.TotalQuantity += item.Quantity
+		}
+		if len(nextGroup.Items) > 0 {
+			filtered.Groups = append(filtered.Groups, nextGroup)
+		}
+	}
+	return filtered
+}
+
+func orderReferenceLabel(order model.Order) string {
+	if strings.TrimSpace(order.ReferenceCode) != "" {
+		return order.ReferenceCode
+	}
+	return fmt.Sprintf("order #%d", order.ID)
 }
 
 func normalizeTransactionSummary(summary model.TransactionSummary) model.TransactionSummary {

@@ -210,6 +210,7 @@ type PaymentWebhookEvent struct {
 type DeliveryJob struct {
 	ID                      int64      `json:"id"`
 	OrderID                 int64      `json:"orderId"`
+	OrderReferenceCode      *string    `json:"orderReferenceCode,omitempty"`
 	BranchID                int64      `json:"branchId"`
 	BranchName              *string    `json:"branchName,omitempty"`
 	Status                  string     `json:"status"`
@@ -225,13 +226,23 @@ type DeliveryJob struct {
 }
 
 type AdminDashboard struct {
-	EmployeesActive   int `json:"employeesActive"`
-	AttendanceOpen    int `json:"attendanceOpen"`
-	PendingOTRequests int `json:"pendingOtRequests"`
-	LowStockItems     int `json:"lowStockItems"`
-	PendingOrders     int `json:"pendingOrders"`
-	WaitingRiderJobs  int `json:"waitingRiderJobs"`
-	PendingPayments   int `json:"pendingPayments"`
+	EmployeesActive   int                             `json:"employeesActive"`
+	AttendanceOpen    int                             `json:"attendanceOpen"`
+	PendingOTRequests int                             `json:"pendingOtRequests"`
+	LowStockItems     int                             `json:"lowStockItems"`
+	PendingOrders     int                             `json:"pendingOrders"`
+	WaitingRiderJobs  int                             `json:"waitingRiderJobs"`
+	PendingPayments   int                             `json:"pendingPayments"`
+	OpenComplaints    int                             `json:"openComplaints"`
+	SalesTotal        float64                         `json:"salesTotal"`
+	AppliedBranchID   *int64                          `json:"appliedBranchId,omitempty"`
+	Days              int                             `json:"days"`
+	SalesSeries       []AdminDashboardSalesPoint      `json:"salesSeries"`
+	BranchSales       []AdminDashboardBranchSales     `json:"branchSales"`
+	RecentComplaints  []CustomerComplaint             `json:"recentComplaints"`
+	RecentOTRequests  []OTRequest                     `json:"recentOtRequests"`
+	StaffCounts       []AdminDashboardStaffCountPoint `json:"staffCounts"`
+	WorkSchedule      []AdminDashboardScheduleRow     `json:"workSchedule"`
 }
 
 type AdminOrder struct {
@@ -243,18 +254,70 @@ type AdminOrder struct {
 }
 
 type AdminPaymentRecord struct {
-	ID                int64      `json:"id"`
-	UserID            int64      `json:"userId"`
-	CustomerName      *string    `json:"customerName,omitempty"`
-	BranchID          *int64     `json:"branchId,omitempty"`
-	BranchName        *string    `json:"branchName,omitempty"`
-	OrderID           *int64     `json:"orderId,omitempty"`
-	PaymentMethodName *string    `json:"paymentMethodName,omitempty"`
-	ProviderCode      *string    `json:"providerCode,omitempty"`
-	Status            string     `json:"status"`
-	ProviderStatus    *string    `json:"providerStatus,omitempty"`
-	Amount            float64    `json:"amount"`
-	CreatedAt         time.Time  `json:"createdAt"`
-	UpdatedAt         time.Time  `json:"updatedAt"`
-	PaidAt            *time.Time `json:"paidAt,omitempty"`
+	ID                 int64      `json:"id"`
+	ReferenceCode      string     `json:"referenceCode"`
+	UserID             int64      `json:"userId"`
+	CustomerName       *string    `json:"customerName,omitempty"`
+	BranchID           *int64     `json:"branchId,omitempty"`
+	BranchName         *string    `json:"branchName,omitempty"`
+	OrderID            *int64     `json:"orderId,omitempty"`
+	OrderReferenceCode *string    `json:"orderReferenceCode,omitempty"`
+	PaymentMethodName  *string    `json:"paymentMethodName,omitempty"`
+	ProviderCode       *string    `json:"providerCode,omitempty"`
+	Status             string     `json:"status"`
+	ProviderStatus     *string    `json:"providerStatus,omitempty"`
+	Amount             float64    `json:"amount"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
+	PaidAt             *time.Time `json:"paidAt,omitempty"`
+}
+
+type CustomerComplaint struct {
+	ID                 int64      `json:"id"`
+	UserID             *int64     `json:"userId,omitempty"`
+	OrderID            *int64     `json:"orderId,omitempty"`
+	OrderReferenceCode *string    `json:"orderReferenceCode,omitempty"`
+	BranchID           int64      `json:"branchId"`
+	BranchName         string     `json:"branchName"`
+	Category           string     `json:"category"`
+	Status             string     `json:"status"`
+	Title              string     `json:"title"`
+	Message            string     `json:"message"`
+	ResolvedNote       *string    `json:"resolvedNote,omitempty"`
+	ResolvedAt         *time.Time `json:"resolvedAt,omitempty"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
+}
+
+type AdminDashboardSalesPoint struct {
+	Date       string  `json:"date"`
+	TotalSales float64 `json:"totalSales"`
+	OrderCount int     `json:"orderCount"`
+}
+
+type AdminDashboardBranchSales struct {
+	BranchID       int64   `json:"branchId"`
+	BranchName     string  `json:"branchName"`
+	TotalSales     float64 `json:"totalSales"`
+	OrderCount     int     `json:"orderCount"`
+	ComplaintCount int     `json:"complaintCount"`
+}
+
+type AdminDashboardStaffCountPoint struct {
+	Date          string `json:"date"`
+	EmployeeCount int    `json:"employeeCount"`
+}
+
+type AdminDashboardScheduleRow struct {
+	WorkDate         string     `json:"workDate"`
+	BranchID         int64      `json:"branchId"`
+	BranchName       string     `json:"branchName"`
+	EmployeeID       int64      `json:"employeeId"`
+	EmployeeName     string     `json:"employeeName"`
+	RoleCodes        []string   `json:"roleCodes"`
+	PlannedStart     *string    `json:"plannedStart,omitempty"`
+	PlannedEnd       *string    `json:"plannedEnd,omitempty"`
+	AttendanceStatus *string    `json:"attendanceStatus,omitempty"`
+	ClockInAt        *time.Time `json:"clockInAt,omitempty"`
+	ClockOutAt       *time.Time `json:"clockOutAt,omitempty"`
 }

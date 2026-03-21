@@ -199,12 +199,13 @@ func (s *NotificationService) NotifyOrderPlaced(ctx context.Context, user model.
 	if order.Branch != nil && strings.TrimSpace(order.Branch.Name) != "" {
 		branchName = order.Branch.Name
 	}
+	orderLabel := orderNotificationLabel(order)
 	if user.Email != nil && strings.TrimSpace(*user.Email) != "" {
 		if err := s.mailer.Send(ctx, EmailMessage{
 			To:      []string{strings.TrimSpace(*user.Email)},
-			Subject: fmt.Sprintf("Order #%d received", order.ID),
-			Text:    fmt.Sprintf("Your order #%d for %s has been received. Current status: %s.", order.ID, branchName, order.Status),
-			HTML:    fmt.Sprintf(`<p>Your order <strong>#%d</strong> for %s has been received.</p><p>Status: %s</p>`, order.ID, branchName, order.Status),
+			Subject: fmt.Sprintf("%s received", orderLabel),
+			Text:    fmt.Sprintf("Your %s for %s has been received. Current status: %s.", orderLabel, branchName, order.Status),
+			HTML:    fmt.Sprintf(`<p>Your <strong>%s</strong> for %s has been received.</p><p>Status: %s</p>`, orderLabel, branchName, order.Status),
 		}); err != nil {
 			return err
 		}
@@ -212,14 +213,14 @@ func (s *NotificationService) NotifyOrderPlaced(ctx context.Context, user model.
 	if strings.TrimSpace(s.emailNotifyTo) != "" {
 		if err := s.mailer.Send(ctx, EmailMessage{
 			To:      []string{strings.TrimSpace(s.emailNotifyTo)},
-			Subject: fmt.Sprintf("New order #%d", order.ID),
-			Text:    fmt.Sprintf("New order #%d was placed for branch %s.", order.ID, branchName),
-			HTML:    fmt.Sprintf(`<p>New order <strong>#%d</strong> was placed for branch %s.</p>`, order.ID, branchName),
+			Subject: fmt.Sprintf("New %s", orderLabel),
+			Text:    fmt.Sprintf("New %s was placed for branch %s.", orderLabel, branchName),
+			HTML:    fmt.Sprintf(`<p>New <strong>%s</strong> was placed for branch %s.</p>`, orderLabel, branchName),
 		}); err != nil {
 			return err
 		}
 	}
-	return s.pushLine(ctx, user, fmt.Sprintf("รับคำสั่งซื้อ #%d แล้ว สาขา %s สถานะปัจจุบัน: %s", order.ID, branchName, order.Status))
+	return s.pushLine(ctx, user, fmt.Sprintf("รับคำสั่งซื้อ %s แล้ว สาขา %s สถานะปัจจุบัน: %s", orderLabel, branchName, order.Status))
 }
 
 func (s *NotificationService) NotifyOrderReady(ctx context.Context, user model.User, order model.Order) error {
@@ -235,13 +236,14 @@ func (s *NotificationService) NotifyOrderReady(ctx context.Context, user model.U
 		fulfillmentLabel = "delivery handoff"
 	}
 	itemSummary := summarizeOrderItems(order)
-	message := fmt.Sprintf("คำสั่งซื้อ #%d พร้อมแล้วที่ %s\n%s", order.ID, branchName, itemSummary)
+	orderLabel := orderNotificationLabel(order)
+	message := fmt.Sprintf("%s พร้อมแล้วที่ %s\n%s", orderLabel, branchName, itemSummary)
 	if user.Email != nil && strings.TrimSpace(*user.Email) != "" {
 		if err := s.mailer.Send(ctx, EmailMessage{
 			To:      []string{strings.TrimSpace(*user.Email)},
-			Subject: fmt.Sprintf("Order #%d is ready", order.ID),
-			Text:    fmt.Sprintf("Order #%d from %s is ready for %s.\n%s", order.ID, branchName, fulfillmentLabel, itemSummary),
-			HTML:    fmt.Sprintf(`<p>Order <strong>#%d</strong> from %s is ready for %s.</p><p>%s</p>`, order.ID, branchName, fulfillmentLabel, itemSummary),
+			Subject: fmt.Sprintf("%s is ready", orderLabel),
+			Text:    fmt.Sprintf("%s from %s is ready for %s.\n%s", orderLabel, branchName, fulfillmentLabel, itemSummary),
+			HTML:    fmt.Sprintf(`<p><strong>%s</strong> from %s is ready for %s.</p><p>%s</p>`, orderLabel, branchName, fulfillmentLabel, itemSummary),
 		}); err != nil {
 			return err
 		}
@@ -257,13 +259,14 @@ func (s *NotificationService) NotifyRiderAssigned(ctx context.Context, user mode
 	if order.DeliveryJob != nil && order.DeliveryJob.AssignedRiderName != nil && strings.TrimSpace(*order.DeliveryJob.AssignedRiderName) != "" {
 		riderName = strings.TrimSpace(*order.DeliveryJob.AssignedRiderName)
 	}
-	message := fmt.Sprintf("คำสั่งซื้อ #%d มีไรเดอร์รับงานแล้ว: %s", order.ID, riderName)
+	orderLabel := orderNotificationLabel(order)
+	message := fmt.Sprintf("%s มีไรเดอร์รับงานแล้ว: %s", orderLabel, riderName)
 	if user.Email != nil && strings.TrimSpace(*user.Email) != "" {
 		if err := s.mailer.Send(ctx, EmailMessage{
 			To:      []string{strings.TrimSpace(*user.Email)},
-			Subject: fmt.Sprintf("Rider assigned for order #%d", order.ID),
-			Text:    fmt.Sprintf("A rider has been assigned to order #%d.", order.ID),
-			HTML:    fmt.Sprintf(`<p>A rider has been assigned to order <strong>#%d</strong>.</p>`, order.ID),
+			Subject: fmt.Sprintf("Rider assigned for %s", orderLabel),
+			Text:    fmt.Sprintf("A rider has been assigned to %s.", orderLabel),
+			HTML:    fmt.Sprintf(`<p>A rider has been assigned to <strong>%s</strong>.</p>`, orderLabel),
 		}); err != nil {
 			return err
 		}
@@ -275,13 +278,14 @@ func (s *NotificationService) NotifyRiderOnTheWay(ctx context.Context, user mode
 	if s == nil {
 		return nil
 	}
-	message := fmt.Sprintf("คำสั่งซื้อ #%d อยู่ระหว่างจัดส่งแล้ว", order.ID)
+	orderLabel := orderNotificationLabel(order)
+	message := fmt.Sprintf("%s อยู่ระหว่างจัดส่งแล้ว", orderLabel)
 	if user.Email != nil && strings.TrimSpace(*user.Email) != "" {
 		if err := s.mailer.Send(ctx, EmailMessage{
 			To:      []string{strings.TrimSpace(*user.Email)},
-			Subject: fmt.Sprintf("Order #%d is on the way", order.ID),
-			Text:    fmt.Sprintf("Order #%d is on the way.", order.ID),
-			HTML:    fmt.Sprintf(`<p>Order <strong>#%d</strong> is on the way.</p>`, order.ID),
+			Subject: fmt.Sprintf("%s is on the way", orderLabel),
+			Text:    fmt.Sprintf("%s is on the way.", orderLabel),
+			HTML:    fmt.Sprintf(`<p><strong>%s</strong> is on the way.</p>`, orderLabel),
 		}); err != nil {
 			return err
 		}
@@ -318,4 +322,11 @@ func notificationMinInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func orderNotificationLabel(order model.Order) string {
+	if strings.TrimSpace(order.ReferenceCode) != "" {
+		return order.ReferenceCode
+	}
+	return fmt.Sprintf("Order #%d", order.ID)
 }
