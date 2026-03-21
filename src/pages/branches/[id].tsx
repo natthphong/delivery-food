@@ -37,6 +37,9 @@ function normalizeMenuItem(item: any): Product {
             price: addOn.price,
         })),
         isRecommended: item.isRecommended,
+        isTemporarilyClosed: item.isTemporarilyClosed,
+        availabilityNote: item.availabilityNote,
+        reorderLevel: item.reorderLevel,
     };
 }
 
@@ -126,6 +129,9 @@ const BranchPage: NextPage = () => {
         if (branch.isForceClosed) {
             return { label: t(I18N_KEYS.BRANCH_CLOSED_MANUAL), className: "border-rose-200 bg-rose-50 text-rose-700" };
         }
+        if (!branch.acceptingOrders) {
+            return { label: "Orders paused", className: "border-amber-200 bg-amber-50 text-amber-700" };
+        }
         if (branch.isOpen) {
             return { label: t(I18N_KEYS.BRANCH_OPEN), className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
         }
@@ -171,6 +177,11 @@ const BranchPage: NextPage = () => {
                         address={branch.addressLine}
                         imageUrl={branch.imageUrl}
                         status={statusBadge}
+                        description={branch.description}
+                        operationalNote={branch.operationalNote}
+                        supportsPickup={branch.supportsPickup}
+                        supportsRiderDelivery={branch.supportsRiderDelivery}
+                        riderDeliveryFee={branch.riderDeliveryFee}
                     />
                 ) : null}
 
@@ -194,9 +205,16 @@ const BranchPage: NextPage = () => {
                     <div className="flex items-center justify-between gap-3">
                         <div>
                             <h2 className="text-lg font-semibold text-slate-900">{t(I18N_KEYS.BRANCH_MENU_TITLE)}</h2>
-                            <p className="text-sm text-slate-500">Designed for one-thumb browsing and larger tap targets.</p>
+                            <p className="text-sm text-slate-500">
+                                Designed for one-thumb browsing, larger tap targets, and branch-aware availability.
+                            </p>
                         </div>
                     </div>
+                    {branch?.acceptingOrders === false ? (
+                        <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                            This branch is visible, but ordering is temporarily paused. Checkout will stay disabled until the branch reopens.
+                        </div>
+                    ) : null}
                     <BranchMenuGrid products={products} onPick={(product) => {
                         setSelectedProduct(product);
                         setSelectedAddOns(

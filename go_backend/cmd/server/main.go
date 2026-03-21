@@ -38,11 +38,13 @@ func main() {
 	verifier := backendauth.NewFirebaseLookupVerifier(cfg.FirebaseAPIKey, cfg.HTTPClientTimeout)
 
 	services := backendserver.Services{
-		Auth:    service.NewAuthService(store, verifier, tokenManager, cfg.AccessTokenTTL, cfg.RefreshTokenTTL),
-		App:     service.NewAppService(store),
-		Catalog: service.NewCatalogService(store),
-		Cart:    service.NewCartService(store),
-		Payment: service.NewPaymentService(store, cfg),
+		Auth:      service.NewAuthService(store, verifier, tokenManager, cfg.AccessTokenTTL, cfg.RefreshTokenTTL),
+		AdminAuth: service.NewAdminAuthService(store, cfg, tokenManager, cfg.AccessTokenTTL, cfg.RefreshTokenTTL),
+		Operations: service.NewOperationsService(store),
+		App:       service.NewAppService(store),
+		Catalog:   service.NewCatalogService(store),
+		Cart:      service.NewCartService(store),
+		Payment:   service.NewPaymentService(store, cfg),
 	}
 
 	httpServer := &http.Server{

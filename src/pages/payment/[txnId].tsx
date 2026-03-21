@@ -61,7 +61,14 @@ export default function PaymentDetailPage() {
     }, [dispatch, t, txnId]);
 
     useEffect(() => {
-        const promptPayId = detail?.transaction.method?.promptPayId;
+        const action = detail?.transaction.paymentAction;
+        if (typeof action?.qrImageUrl === "string" && action.qrImageUrl) {
+            setQrDataUrl(action.qrImageUrl);
+            return;
+        }
+        const promptPayId = typeof action?.promptPayId === "string"
+            ? action.promptPayId
+            : detail?.transaction.method?.promptPayId;
         const amount = detail?.transaction.amount;
         if (!promptPayId || !amount || detail?.transaction.status !== "pending" || detail.transaction.method?.methodType !== "qr") {
             setQrDataUrl(null);
@@ -75,8 +82,11 @@ export default function PaymentDetailPage() {
 
     const transaction = detail?.transaction ?? null;
     const order = detail?.order ?? null;
-    const isQrPending = transaction?.status === "pending" && transaction.method?.methodType === "qr";
+    const isQrPending = transaction?.status === "pending" && (transaction.method?.methodType === "qr" || transaction.paymentAction?.type === "gateway_qr");
     const isPreparing = order?.status === "PREPARE";
+    const paymentActionType = typeof transaction?.paymentAction?.type === "string" ? transaction.paymentAction.type : null;
+    const hasSlipUpload = transaction?.method?.methodType === "qr" && paymentActionType !== "gateway_qr" && transaction?.status === "pending";
+    const authorizeUri = typeof transaction?.paymentAction?.authorizeUri === "string" ? transaction.paymentAction.authorizeUri : null;
 
     return (
         <Layout>
@@ -111,7 +121,9 @@ export default function PaymentDetailPage() {
                             {isQrPending ? (
                                 <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                                     <h2 className="text-base font-semibold text-slate-900">{t(I18N_KEYS.PAYMENT_QR_SECTION)}</h2>
-                                    <p className="mt-1 text-sm text-slate-500">{t(I18N_KEYS.PAYMENT_QR_CREATED)}</p>
+                                    <p className="mt-1 text-sm text-slate-500">
+                                        {paymentActionType === "gateway_qr" ? "Complete the provider-backed checkout or scan the gateway QR to continue." : t(I18N_KEYS.PAYMENT_QR_CREATED)}
+                                    </p>
                                     <div className="mt-4 rounded-[2rem] bg-slate-50 p-5">
                                         {qrDataUrl ? (
                                             <img src={qrDataUrl} alt="PromptPay QR" className="mx-auto w-full max-w-sm rounded-3xl bg-white p-4 shadow-sm" />
@@ -126,10 +138,20 @@ export default function PaymentDetailPage() {
                                             {t(I18N_KEYS.DETAIL_EXPIRES_AT)}: {formatDate(transaction.expiresAt, locale)}
                                         </p>
                                     ) : null}
+                                    {authorizeUri ? (
+                                        <a
+                                            href={authorizeUri}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="mt-4 inline-flex rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
+                                        >
+                                            Open provider checkout
+                                        </a>
+                                    ) : null}
                                 </section>
                             ) : null}
 
-                            {transaction.method?.methodType === "qr" && transaction.status === "pending" ? (
+                            {hasSlipUpload ? (
                                 <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                                     <h2 className="text-base font-semibold text-slate-900">{t(I18N_KEYS.PAYMENT_SLIP_LABEL)}</h2>
                                     <p className="mt-1 text-sm text-slate-500">{t(I18N_KEYS.PAYMENT_SLIP_HINT)}</p>
@@ -152,7 +174,9 @@ export default function PaymentDetailPage() {
                                     <div className="flex items-center justify-between gap-3">
                                         <div>
                                             <h2 className="text-base font-semibold text-slate-900">Order #{order.id}</h2>
-                                            <p className="text-sm text-slate-500">{order.branch?.name ?? "Delivery order"}</p>
+                                            <p className="text-sm text-slate-500">
+                                                {order.branch?.name ?? "Delivery order"} · {order.fulfillmentMode.replace("_", " ")}
+                                            </p>
                                         </div>
                                         {isPreparing ? <Preparing /> : <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{order.status}</span>}
                                     </div>
@@ -172,6 +196,12 @@ export default function PaymentDetailPage() {
                                             </li>
                                         ))}
                                     </ul>
+                                    <div className="mt-4 grid gap-2 text-sm text-slate-500">
+                                        <p>Delivery fee: {formatTHB(order.deliveryFee || 0)}</p>
+                                        <p>Customer note: {order.customerNote || "-"}</p>
+                                        <p>Rider job: {order.deliveryJob?.status || "not assigned"}</p>
+                                        {order.deliveryJob?.assignedRiderName ? <p>Assigned rider: {order.deliveryJob.assignedRiderName}</p> : null}
+                                    </div>
                                 </section>
                             ) : null}
                         </div>
@@ -198,7 +228,20 @@ export default function PaymentDetailPage() {
                                             {transaction.status.toUpperCase()}
                                         </span>
                                     </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-slate-500">Provider status</span>
+                                        <span>{transaction.providerStatus || "-"}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-slate-500">Paid at</span>
+                                        <span>{formatDate(transaction.paidAt || null, locale)}</span>
+                                    </div>
                                 </div>
+                                {transaction.failedReason ? (
+                                    <div className="mt-4 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                                        {transaction.failedReason}
+                                    </div>
+                                ) : null}
                             </section>
 
                             {order?.branch && (order.deliveryLat != null || order.deliveryLng != null) ? (

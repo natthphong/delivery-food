@@ -41,10 +41,10 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     }, [cart.groups]);
 
     return (
-        <div className="min-h-screen bg-slate-50">
+        <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.08),_transparent_25%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)]">
             <Navbar />
             <NotificationCenter />
-            <main className="px-4 py-8 sm:px-6 lg:px-8">{children}</main>
+            <main className="px-4 pb-28 pt-6 sm:px-6 lg:px-8 lg:pb-10">{children}</main>
             <FloatingLanguageToggle />
             <FloatingCartButton onClick={() => setCartOpen(true)} />
             <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} />

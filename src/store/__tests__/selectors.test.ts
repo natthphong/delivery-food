@@ -3,6 +3,7 @@ import type { RootState } from "@/store";
 
 const state = {
     auth: { accessToken: null, refreshToken: null, user: null },
+    adminAuth: { accessToken: null, refreshToken: null, session: null },
     notifications: { items: [] },
     config: { values: {} },
     cart: {

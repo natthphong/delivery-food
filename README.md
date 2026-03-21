@@ -1,33 +1,58 @@
-# Delivery Food
+# Delivery Food Platform
 
-Mobile-first food ordering application with a Next.js frontend, a dedicated Go backend, and versioned PostgreSQL migrations.
+Split-architecture food ordering platform with:
 
-## What Changed
+- Next.js customer + admin frontend
+- Go backend API
+- PostgreSQL migrations in `sql/`
 
-The repository is now split clearly by responsibility:
+Start with [`AGENTS.md`](./AGENTS.md). It is the repository source of truth.
 
-- Next.js handles presentation, route orchestration, and client state
-- Go handles API routing, validation, business logic, database access, and transactions
-- SQL migrations in `sql/` define schema, baseline configuration, and preset data
+## What This Repo Includes
 
-Start with [`AGENTS.md`](./AGENTS.md) for the developer source of truth.
+### Customer app
 
-## Repository Layout
+- mobile-first branch discovery
+- menu browsing with stock-aware availability
+- cart and checkout
+- pickup and rider delivery
+- wallet, manual QR/slip, and Omise PromptPay payment flows
+- account, order history, and transaction history
+
+### Admin / operations
+
+- owner bootstrap login with `ADMIN_USERNAME` / `ADMIN_PASSWORD`
+- employee management
+- attendance clocking and corrections
+- OT request/review
+- payroll settings, periods, and generated entries
+- branch open/close and menu availability controls
+- stock adjustments
+- order queue management
+- rider queue management
+- payment/provider/webhook visibility
+
+## Architecture
 
 - `src/`: Next.js frontend
 - `go_backend/`: Go API service
-- `sql/`: versioned schema, seed, and indexing migrations
-- `docs/`: project, architecture, schema, API, testing, and responsive UI docs
+- `sql/`: versioned SQL migrations
+- `docs/`: architecture, schema, API, testing, responsive UI, and operations docs
 
-## Local Development
+Responsibility split:
 
-### 1. Frontend env
+- Next.js owns route orchestration, UI, local state, and API consumption
+- Go owns auth, permissions, business rules, transactional writes, payment orchestration, and SQL
+
+## Environment Setup
+
+### Frontend
 
 ```bash
 cp .env.example .env
 ```
 
-Required frontend vars:
+Important vars:
 
 - `NEXT_PUBLIC_API_BASE_URL`
 - `NEXT_PUBLIC_FIREBASE_API_KEY`
@@ -35,26 +60,42 @@ Required frontend vars:
 - `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
 - `NEXT_PUBLIC_LINE_LIFF_ID`
 
-### 2. Backend env
+### Backend
 
 ```bash
 cp go_backend/.env.example go_backend/.env
 ```
 
-Required backend vars:
+Important vars:
 
 - `APP_JWT_SECRET`
-- database connection values or `DATABASE_URL`
-- `FIREBASE_API_KEY` for Firebase token exchange
-- `SLIPOK_*` values if using remote slip verification
+- `DATABASE_URL` or `APP_DB_*`
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD`
+- `FIREBASE_API_KEY`
+- `OMISE_SECRET_KEY`
+- `OMISE_PUBLIC_KEY`
+- `SLIPOK_*` when using remote slip verification
 
-### 3. Run migrations
+## Migrations
+
+Run:
 
 ```bash
 npm run backend:migrate
 ```
 
-### 4. Start both services
+Current migration set:
+
+- `V0__baseline.sql`
+- `V1__core_schema.sql`
+- `V2__preset_data.sql`
+- `V3__indexes_and_constraints.sql`
+- `V4__operations_schema.sql`
+- `V5__operations_preset_data.sql`
+- `V6__operations_indexes.sql`
+
+## Local Development
 
 Frontend:
 
@@ -68,23 +109,23 @@ Backend:
 npm run dev:backend
 ```
 
-Default local URLs:
+Defaults:
 
 - frontend: `http://localhost:3000`
 - backend: `http://localhost:8080`
 
 ## Verification
 
-Frontend build:
-
-```bash
-npm run build
-```
-
 Frontend tests:
 
 ```bash
 npm test
+```
+
+Frontend production build:
+
+```bash
+npm run build
 ```
 
 Backend tests:
@@ -99,20 +140,8 @@ Full verification:
 npm run verify
 ```
 
-## Main Flows
-
-- login with Firebase or LINE
-- discover nearby branches by keyword/category/location
-- browse branch menu and featured dishes
-- add items with add-ons to a normalized cart
-- checkout with delivery location confirmation
-- pay by wallet or QR/slip
-- view payment details, orders, and account history
-- top up wallet balance through deposit transactions
-
 ## Documentation
 
-- [`AGENTS.md`](./AGENTS.md)
 - [`docs/PROJECT_STRUCTURE.md`](./docs/PROJECT_STRUCTURE.md)
 - [`docs/FEATURES.md`](./docs/FEATURES.md)
 - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
@@ -121,3 +150,8 @@ npm run verify
 - [`docs/TESTING.md`](./docs/TESTING.md)
 - [`docs/MIGRATION_GUIDE.md`](./docs/MIGRATION_GUIDE.md)
 - [`docs/RESPONSIVE_UI_GUIDE.md`](./docs/RESPONSIVE_UI_GUIDE.md)
+- [`docs/ADMIN_MODE.md`](./docs/ADMIN_MODE.md)
+- [`docs/EMPLOYEE_PAYROLL.md`](./docs/EMPLOYEE_PAYROLL.md)
+- [`docs/PAYMENT_GATEWAYS.md`](./docs/PAYMENT_GATEWAYS.md)
+- [`docs/RIDER_DELIVERY.md`](./docs/RIDER_DELIVERY.md)
+- [`docs/ROLE_PERMISSION_MATRIX.md`](./docs/ROLE_PERMISSION_MATRIX.md)

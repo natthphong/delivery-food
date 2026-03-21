@@ -13,6 +13,7 @@ const Navbar: React.FC = () => {
     const { t } = useI18n();
     const router = useRouter();
     const user = useSelector((state: RootState) => state.auth.user);
+    const adminSession = useSelector((state: RootState) => state.adminAuth.session);
     const [open, setOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -46,11 +47,27 @@ const Navbar: React.FC = () => {
     };
 
     return (
-        <nav className="border-b bg-white">
-            <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
-                <Link href="/" className="text-lg font-semibold text-emerald-600">
-                    {t(I18N_KEYS.BRAND_NAME)}
-                </Link>
+        <nav className="sticky top-0 z-40 border-b border-white/70 bg-white/90 backdrop-blur">
+            <div className="mx-auto flex min-h-16 max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+                <div className="flex items-center gap-3">
+                    <Link href="/" className="text-lg font-semibold text-emerald-700">
+                        {t(I18N_KEYS.BRAND_NAME)}
+                    </Link>
+                    <div className="hidden items-center gap-2 md:flex">
+                        <Link href="/" className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                            Discover
+                        </Link>
+                        <Link href="/account?tab=orders" className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
+                            Orders
+                        </Link>
+                        <Link
+                            href={adminSession ? "/admin" : "/admin/login"}
+                            className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white"
+                        >
+                            Admin mode
+                        </Link>
+                    </div>
+                </div>
 
                 <div className="flex items-center gap-3 text-sm text-slate-700">
                     {user && (

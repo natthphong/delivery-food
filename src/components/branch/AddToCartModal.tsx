@@ -39,6 +39,7 @@ const AddToCartModal: React.FC<Props> = ({
     const availabilityKey = product.inStock
         ? I18N_KEYS.BRANCH_IN_STOCK_TEXT
         : I18N_KEYS.BRANCH_CURRENTLY_UNAVAILABLE_TEXT;
+    const unavailable = !product.inStock || product.isTemporarilyClosed;
 
     return (
         <Modal open={open} onClose={onCancel} title={product.name} size="lg" footer={null}>
@@ -57,12 +58,15 @@ const AddToCartModal: React.FC<Props> = ({
                 <div className="flex-1 space-y-4">
                     <div>
                         <p className="text-lg font-semibold text-slate-900">{formatTHB(product.price)}</p>
-                        <p className="text-sm text-slate-500">{t(availabilityKey)}</p>
+                        <p className="text-sm text-slate-500">
+                            {product.isTemporarilyClosed ? "Temporarily unavailable" : t(availabilityKey)}
+                        </p>
                         {product.stockQty != null && (
                             <p className="text-xs text-slate-500">
                                 {t(I18N_KEYS.BRANCH_STOCK_PREFIX)}: {product.stockQty}
                             </p>
                         )}
+                        {product.availabilityNote ? <p className="mt-2 text-xs text-amber-700">{product.availabilityNote}</p> : null}
                     </div>
 
                     {product.description && <p className="text-sm text-slate-600">{product.description}</p>}
@@ -111,7 +115,7 @@ const AddToCartModal: React.FC<Props> = ({
                         <button
                             type="button"
                             onClick={onConfirm}
-                            disabled={saving || !product.inStock}
+                            disabled={saving || unavailable}
                             className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             {saving ? t(I18N_KEYS.BRANCH_SAVING) : t(I18N_KEYS.BRANCH_ADD_TO_CART)}

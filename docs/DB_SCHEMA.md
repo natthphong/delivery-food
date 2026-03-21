@@ -6,17 +6,18 @@
 - `V1__core_schema.sql`
 - `V2__preset_data.sql`
 - `V3__indexes_and_constraints.sql`
+- `V4__operations_schema.sql`
+- `V5__operations_preset_data.sql`
+- `V6__operations_indexes.sql`
 
 ## Domain Groups
 
-### Identity
+### Customer identity and sessions
 
 - `users`
 - `refresh_tokens`
 
-`users` stores auth identity, verification flags, and wallet balance. `refresh_tokens` stores hashed refresh sessions with rotation support.
-
-### Catalog
+### Catalog and branches
 
 - `companies`
 - `categories`
@@ -27,80 +28,121 @@
 - `branch_operating_hours`
 - `branch_products`
 
-This split allows product definitions to stay company-level while branch availability, stock, recommendation flags, and price overrides remain branch-specific.
+Branch records now also carry:
 
-### Payments and Configuration
+- `accepting_orders`
+- `supports_pickup`
+- `supports_rider_delivery`
+- `rider_delivery_fee`
+- `operational_note`
 
-- `payment_methods`
-- `company_payment_methods`
-- `system_configs`
+Branch product records now also carry:
 
-These tables drive which payment methods the frontend can show and which operational limits the backend enforces.
+- `is_temporarily_closed`
+- `availability_note`
+- `reorder_level`
 
-### Cart
+### Cart and ordering
 
 - `carts`
 - `cart_items`
 - `cart_item_add_ons`
-
-Each user has one cart. Each line is uniquely identified by cart, branch, product, and add-on signature.
-
-### Transactions and Orders
-
 - `transactions`
 - `orders`
 - `order_items`
 - `order_item_add_ons`
+- `delivery_jobs`
 
-Transactions represent payment state. Orders represent fulfillment state. Checkout copies cart lines into immutable order rows.
+Order records now also carry:
+
+- `fulfillment_mode`
+- `delivery_fee`
+- `customer_note`
+
+Transaction records now also carry:
+
+- `provider_id`
+- `provider_reference`
+- `provider_status`
+- `payment_action`
+- `paid_at`
+- `failed_reason`
+
+### Payments and providers
+
+- `payment_methods`
+- `company_payment_methods`
+- `payment_providers`
+- `payment_webhook_events`
+- `system_configs`
+
+### Roles, staff, and operations
+
+- `roles`
+- `permissions`
+- `role_permissions`
+- `employees`
+- `employee_role_assignments`
+- `employee_branch_assignments`
+- `staff_accounts`
+- `admin_refresh_tokens`
+- `attendance_sessions`
+- `ot_requests`
+- `payroll_settings`
+- `payroll_periods`
+- `payroll_entries`
+- `branch_stock_movements`
 
 ## Relationship Summary
 
 - `users 1:n refresh_tokens`
-- `companies 1:n categories`
-- `companies 1:n products`
-- `companies 1:n branches`
-- `products n:n categories` through `product_categories`
-- `products 1:n product_add_ons`
-- `branches 1:n branch_operating_hours`
+- `users 0..1:1 employees`
+- `employees 1:1 staff_accounts`
+- `employees n:n roles` through `employee_role_assignments`
+- `employees n:n branches` through `employee_branch_assignments`
+- `roles n:n permissions` through `role_permissions`
+- `employees 1:n attendance_sessions`
+- `employees 1:n ot_requests`
+- `payroll_periods 1:n payroll_entries`
 - `branches 1:n branch_products`
-- `users 1:1 carts`
-- `carts 1:n cart_items`
-- `cart_items 1:n cart_item_add_ons`
-- `users 1:n transactions`
-- `transactions 1:1 orders`
-- `orders 1:n order_items`
-- `order_items 1:n order_item_add_ons`
+- `branches 1:n delivery_jobs`
+- `orders 0..1:1 delivery_jobs`
+- `payment_providers 1:n payment_methods`
+- `payment_providers 1:n payment_webhook_events`
 
-## Constraints
+## Key Constraints
 
-Examples of enforced integrity:
-
-- non-negative wallet balances
-- unique auth identity by `(auth_provider, auth_subject)`
-- unique case-insensitive emails
-- unique phones
-- unique cart variant lines by add-on signature
-- transaction status constrained to `pending | accepted | rejected`
-- order status constrained to `PENDING | PREPARE | DELIVERY | COMPLETED | REJECTED`
-- non-negative stock and price values
+- role, permission, and provider codes are unique
+- employee codes and usernames are unique
+- one primary branch assignment per employee
+- one open attendance session per employee
+- compensation type requires the relevant wage/salary field
+- payroll amounts and minutes are non-negative
+- rider delivery fee is non-negative
+- reorder level is non-negative when present
+- transaction and order statuses are constrained
 
 ## Preset Data
 
-Preset migration `V2__preset_data.sql` inserts:
+Preset migrations provide:
 
-- system configuration limits
-- wallet and QR payment methods
-- one demo company
-- demo categories/products/add-ons
-- three demo branches with hours and inventory
+- demo catalog + branches
+- operational configs
+- role and permission matrix
+- payroll default settings
+- Omise payment provider
+- Omise PromptPay payment method
 
 ## Indexes
 
-Hot-path indexes cover:
+Important hot-path indexes now cover:
 
-- cart lookups
-- transaction and order history
-- product search with trigram search
-- branch-product sorting and featured filters
-- enabled company payment methods
+- employee role and branch scope lookups
+- active staff accounts
+- open attendance lookups
+- OT review queues
+- payroll period and payroll entry reads
+- branch stock history
+- provider transaction lookups
+- webhook event deduplication
+- rider delivery queues

@@ -20,10 +20,14 @@ type Config struct {
 	RefreshTokenTTL   time.Duration
 	AutoMigrate       bool
 	MigrationDir      string
+	AdminUsername     string
+	AdminPassword     string
 	FirebaseAPIKey    string
 	SlipOKMode        string
 	SlipOKVerifyURL   string
 	SlipOKToken       string
+	OmiseSecretKey    string
+	OmisePublicKey    string
 	HTTPClientTimeout time.Duration
 }
 
@@ -38,10 +42,14 @@ func Load() (Config, error) {
 		JWTSecret:         getEnv("APP_JWT_SECRET", getEnv("JWT_SECRET", "")),
 		AutoMigrate:       getBoolEnv("APP_AUTO_MIGRATE", true),
 		MigrationDir:      getEnv("APP_MIGRATION_DIR", "../sql"),
+		AdminUsername:     getEnv("ADMIN_USERNAME", ""),
+		AdminPassword:     getEnv("ADMIN_PASSWORD", ""),
 		FirebaseAPIKey:    getEnv("FIREBASE_API_KEY", getEnv("NEXT_PUBLIC_FIREBASE_API_KEY", "")),
 		SlipOKMode:        strings.ToUpper(getEnv("SLIPOK_MODE", "LOCAL")),
 		SlipOKVerifyURL:   getEnv("SLIPOK_VERIFY_URL", getEnv("NEXT_PUBLIC_SLIP_OK_VERIFY_URL", "")),
 		SlipOKToken:       getEnv("SLIPOK_TOKEN", getEnv("NEXT_PUBLIC_SLIP_OK_TOKEN", "")),
+		OmiseSecretKey:    getEnv("OMISE_SECRET_KEY", ""),
+		OmisePublicKey:    getEnv("OMISE_PUBLIC_KEY", ""),
 		HTTPClientTimeout: 20 * time.Second,
 	}
 

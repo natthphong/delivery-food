@@ -15,6 +15,8 @@ export async function checkout(payload: {
     branchId: number;
     paymentMethodId: number;
     selectedItemIds: number[];
+    fulfillmentMode: "pickup" | "rider_delivery";
+    customerNote?: string;
     deliveryLat: number;
     deliveryLng: number;
     deliveryDistanceKm: number;

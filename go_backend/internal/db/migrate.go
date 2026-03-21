@@ -57,21 +57,11 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, migrationDir string)
 			return fmt.Errorf("read migration %s: %w", version, err)
 		}
 
-		tx, err := pool.Begin(ctx)
-		if err != nil {
-			return fmt.Errorf("begin migration %s: %w", version, err)
-		}
-
-		if _, err := tx.Exec(ctx, string(contents)); err != nil {
-			_ = tx.Rollback(ctx)
+		if _, err := pool.Exec(ctx, string(contents)); err != nil {
 			return fmt.Errorf("execute migration %s: %w", version, err)
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ($1)`, version); err != nil {
-			_ = tx.Rollback(ctx)
+		if _, err := pool.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ($1)`, version); err != nil {
 			return fmt.Errorf("record migration %s: %w", version, err)
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return fmt.Errorf("commit migration %s: %w", version, err)
 		}
 	}
 

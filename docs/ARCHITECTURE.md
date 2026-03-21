@@ -1,43 +1,67 @@
 # Architecture
 
-## Goal
+## Split Model
 
-The repository was refactored so that Next.js is frontend-first and Go is backend-first.
+The repository preserves a strict split:
+
+- Next.js = frontend-first
+- Go = backend-first
+- PostgreSQL schema = versioned SQL in `sql/`
 
 ## Frontend / Backend Boundary
 
-### Frontend Responsibilities
+### Frontend owns
 
 - route composition
-- user interaction
-- local UI state
-- persisted auth/cart/config hydration
-- calling the Go API through `src/services`
-- rendering mobile-first ordering flows
+- page state
+- presentation logic
+- local persistence
+- role-aware navigation
+- API consumption through `src/services`
 
-### Backend Responsibilities
+### Backend owns
 
-- API route ownership
-- request validation
-- auth verification and token lifecycle
+- auth/session issuance
+- permission enforcement
 - business rules
-- transactions
-- SQL access and query shaping
-- returning frontend-ready JSON models
+- transactional writes
+- payment orchestration
+- payroll computation
+- attendance rules
+- stock validation
+- rider job status changes
+- SQL query design
 
-## Data Flow
+## Frontend Structure
 
-1. User authenticates from the frontend.
-2. Frontend exchanges credentials with the Go API.
-3. Go issues access and refresh tokens.
-4. Frontend stores tokens and calls `/v1/bootstrap`.
-5. Frontend renders from normalized user/config/cart data.
-6. Cart and checkout changes are submitted to Go services.
-7. Go repositories read/write PostgreSQL and return updated state.
+Pattern:
 
-## API Shape
+- page -> component -> service
 
-All endpoints return:
+Meaning:
+
+- pages orchestrate data and route state
+- components stay reusable and UI-focused
+- services are the only place that know endpoint paths
+
+Two auth clients exist:
+
+- customer API client
+- admin API client
+
+They intentionally use separate stored tokens and separate refresh flows.
+
+## Backend Request Flow
+
+1. router registers public, customer, admin, and webhook routes
+2. middleware authenticates bearer tokens and injects claims
+3. handlers decode DTOs and write the shared envelope
+4. services enforce workflow and permissions
+5. repositories execute SQL and transaction boundaries
+
+## API Envelope
+
+Every HTTP response uses:
 
 ```json
 {
@@ -47,33 +71,51 @@ All endpoints return:
 }
 ```
 
-The frontend unwraps this envelope in `src/services/api.ts`.
+## Permission Model
 
-## Query Optimization Highlights
+The admin session carries:
 
-- branch search uses lateral joins to return branch hours, match counts, distance, and product samples in one query
-- branch menu loads paged products first, then batches add-ons by product IDs
-- cart reads group cart items by branch instead of repeatedly fetching related entities
-- checkout loads the selected cart items in one query, validates branch consistency once, and commits transaction/order/cart cleanup in one DB transaction
-- transactions and orders are loaded with associated method/order data from repository-level joins instead of frontend fan-out requests
+- actor type
+- roles
+- permissions
+- branch scope
+- optional employee/staff IDs
 
-## State Model Changes
+Frontend navigation uses this for visibility. Backend services re-check permissions before every sensitive action.
 
-Old shape:
+## Payment Architecture
 
-- cart, order history, and transaction history embedded or mirrored in frontend-heavy flows
-- Next.js API routes mixed transport and business logic
+Payment logic is backend-owned through a provider abstraction.
 
-New shape:
+Core pieces:
 
-- normalized cart tables in PostgreSQL
-- normalized order and transaction tables
-- frontend Redux slices mirror API payloads, not legacy database shapes
+- `PaymentService`
+- `PaymentGateway` interface
+- `OmiseGateway`
+- payment provider tables
+- webhook event persistence
 
-## Why This Split
+Frontend receives normalized:
 
-- easier to reason about responsibilities
-- better testability
-- fewer frontend/backend coupling leaks
-- safer transactional checkout and payment logic
-- clearer path to production deployment and scaling
+- payment methods
+- transaction statuses
+- payment actions
+- provider metadata already safe for UI usage
+
+## Query and Transaction Strategy
+
+Important patterns already implemented:
+
+- branch search uses joined/lateral SQL to avoid frontend fan-out
+- branch menu batches add-ons after paged product reads
+- cart is grouped by branch server-side
+- checkout validates sellable state and commits transaction/order/cart changes in one DB transaction
+- payroll generation computes from attendance + OT + pay model in backend
+- rider job changes sync order status in the same transaction
+
+## Why This Shape
+
+- clearer separation of concerns
+- safer operational workflows
+- easier to extend payments and roles
+- better foundation for production deployment

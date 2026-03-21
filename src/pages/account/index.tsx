@@ -240,7 +240,10 @@ export default function AccountPage() {
                                         </div>
                                         <div className="text-right">
                                             <p className="text-sm font-semibold text-slate-900">{formatTHB(transaction.amount)}</p>
-                                            <p className="mt-1 text-xs text-slate-500">{transaction.status.toUpperCase()}</p>
+                                            <p className="mt-1 text-xs text-slate-500">
+                                                {transaction.status.toUpperCase()}
+                                                {transaction.providerStatus ? ` · ${transaction.providerStatus}` : ""}
+                                            </p>
                                         </div>
                                     </button>
                                 ))
@@ -268,7 +271,9 @@ export default function AccountPage() {
                                                 <p className="text-sm font-semibold text-slate-900">
                                                     Order #{order.id} · {order.branch?.name ?? "Branch"}
                                                 </p>
-                                                <p className="mt-1 text-xs text-slate-500">{formatDate(order.createdAt)}</p>
+                                                <p className="mt-1 text-xs text-slate-500">
+                                                    {formatDate(order.createdAt)} · {order.fulfillmentMode.replace("_", " ")}
+                                                </p>
                                             </div>
                                             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{order.status}</span>
                                         </div>
@@ -278,6 +283,10 @@ export default function AccountPage() {
                                                     {item.quantity}x {item.productName}
                                                 </span>
                                             ))}
+                                        </div>
+                                        <div className="mt-3 grid gap-1 text-xs text-slate-500 sm:grid-cols-2">
+                                            <p>Delivery fee: {formatTHB(order.deliveryFee || 0)}</p>
+                                            <p>Rider job: {order.deliveryJob?.status || "not assigned"}</p>
                                         </div>
                                     </button>
                                 ))

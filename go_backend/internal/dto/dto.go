@@ -45,6 +45,8 @@ type CheckoutRequest struct {
 	BranchID         int64   `json:"branchId"`
 	PaymentMethodID  int64   `json:"paymentMethodId"`
 	SelectedItemIDs  []int64 `json:"selectedItemIds"`
+	FulfillmentMode  string  `json:"fulfillmentMode"`
+	CustomerNote     string  `json:"customerNote"`
 	DeliveryLat      float64 `json:"deliveryLat"`
 	DeliveryLng      float64 `json:"deliveryLng"`
 	DeliveryDistance float64 `json:"deliveryDistanceKm"`

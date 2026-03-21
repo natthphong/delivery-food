@@ -1,62 +1,65 @@
 # Responsive UI Guide
 
-## Design Direction
+## Visual Direction
 
-The application is optimized for food ordering on phones first, then tablets, then desktop.
+- white surfaces
+- soft green / emerald accents
+- slate neutrals
+- rounded app-like cards
+- clear, high-contrast CTA hierarchy
 
-## Current Interaction Patterns
+## Customer App Rules
 
-- floating cart button for quick mobile access
-- cart drawer as a mobile bottom sheet and desktop side panel
-- strong price visibility on cards, cart lines, checkout, and payment detail
-- checkout summary sticks on larger screens
-- tap-sized controls for quantity changes, add-to-cart, and payment selection
-- clear empty, loading, and error states in main ordering flows
+Priority:
 
-## Mobile Rules
+1. mobile
+2. tablet
+3. desktop
 
-- prioritize one-handed actions near the lower viewport
-- keep quantity controls large and direct
-- avoid burying the main CTA below long content
-- keep branch/menu cards readable without hover assumptions
+Guidelines:
 
-## Tablet Rules
+- keep ordering actions reachable near the lower viewport
+- keep prices visible at all times
+- keep the cart obvious and accessible
+- use sticky summaries/CTAs where they speed checkout
+- show branch closed / ordering paused / item unavailable states clearly
+- make quantity and payment interactions thumb-friendly
 
-- do not simply stretch mobile layouts edge to edge
-- use split layouts for content + summary where it improves scanability
-- preserve clear hierarchy between branch content and checkout/payment summaries
+Key customer screens:
 
-## Component-Level Guidance
+- branch discovery should feel like an ordering app, not a marketing page
+- branch detail should surface fulfillment support and operational notes early
+- checkout should keep fulfillment, payment, and final total tightly grouped
+- payment detail should show the next action above the fold
 
-### Search and Branch Discovery
+## Admin App Rules
 
-- branch cards should surface name, distance, and sample dishes quickly
-- search controls must remain usable without precise cursor input
+Priority:
 
-### Menu Browsing
+1. web
+2. tablet
+3. mobile usable
 
-- product cards should show image, title, stock state, and price immediately
-- add-on selection should stay obvious and not hide cost changes
+Guidelines:
 
-### Cart
+- favor split-pane layouts on tablet/desktop for list + detail workflows
+- keep filters and forms readable without horizontal scroll
+- preserve mobile access by stacking sections cleanly
+- use status pills and compact summary cards for scanability
 
-- keep branch grouping visible
-- make removal and quantity adjustment accessible without page navigation
-- preserve a strong checkout CTA at the bottom of the drawer
+## Component Standards
 
-### Checkout
+- pages orchestrate
+- components stay reusable
+- services own endpoint interaction
+- avoid giant all-in-one screens without reusable sections
 
-- summarize selected items and subtotal clearly
-- make payment method selection obvious and thumb-friendly
-- keep map confirmation readable and not visually cramped on mobile
+## States To Always Design
 
-### Payment Detail
+- loading
+- empty
+- error
+- disabled / unavailable
+- permission-limited
 
-- transaction state, amount, and next action should be visible above the fold
-- slip upload must remain easy on touch devices
-
-## When Extending the UI
-
-- prefer reusable UI components in `src/components`
-- keep page files orchestration-focused
-- add responsive behavior intentionally, not as a side effect of generic flexbox stretching
+These matter on both customer and admin surfaces.

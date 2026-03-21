@@ -12,9 +12,9 @@ Every response uses:
 }
 ```
 
-Error responses keep the same envelope with `body: null`.
+Errors keep the same envelope shape with an error `code`, message, and `body: null`.
 
-## Auth
+## Customer Auth
 
 ### `POST /v1/auth/login`
 
@@ -37,23 +37,15 @@ Request:
 { "refreshToken": "..." }
 ```
 
-Response body:
-
-- `accessToken`
-- `refreshToken`
-- `user`
-
 ### `GET /v1/auth/me`
-
-Bearer auth required. Returns the current user.
-
-## App Bootstrap and Account
-
-### `GET /v1/bootstrap`
 
 Bearer auth required.
 
-Response body:
+## Customer App
+
+### `GET /v1/bootstrap`
+
+Returns:
 
 - `user`
 - `config`
@@ -61,9 +53,7 @@ Response body:
 
 ### `PATCH /v1/account/profile`
 
-Bearer auth required.
-
-Patch fields:
+Patchable fields:
 
 - `displayName`
 - `email`
@@ -73,11 +63,7 @@ Patch fields:
 
 ### `GET /v1/account/transactions`
 
-Bearer auth required. Returns recent transactions.
-
 ### `GET /v1/account/orders`
-
-Bearer auth required. Returns recent orders.
 
 ## Catalog
 
@@ -90,7 +76,7 @@ Query params:
 - `lat`
 - `lng`
 
-Response body:
+Returns:
 
 - `branches`
 - `categories`
@@ -103,7 +89,7 @@ Query params:
 - `page`
 - `size`
 
-Response body:
+Returns:
 
 - `branch`
 - `menu`
@@ -113,17 +99,19 @@ Response body:
 
 ### `GET /v1/catalog/branches/{id}/featured`
 
-Returns recommended items for a branch.
-
 ### `GET /v1/payment-methods?companyId={id}`
 
-Returns enabled payment methods for the company.
+Returns normalized payment methods including:
+
+- `methodType`
+- `providerCode`
+- `providerMethodCode`
+- `checkoutFlow`
+- `metadata`
 
 ## Cart
 
 ### `GET /v1/cart`
-
-Bearer auth required. Returns grouped cart state.
 
 ### `POST /v1/cart/items`
 
@@ -136,23 +124,15 @@ Bearer auth required. Returns grouped cart state.
 }
 ```
 
-Returns the full updated cart.
-
 ### `PATCH /v1/cart/items/{id}`
 
 ```json
 { "quantity": 3 }
 ```
 
-Returns the full updated cart. Quantity `<= 0` removes the item.
-
 ### `DELETE /v1/cart/items/{id}`
 
-Returns the full updated cart.
-
 ### `DELETE /v1/cart/branches/{branchId}`
-
-Clears all cart items for one branch and returns the full updated cart.
 
 ## Checkout and Payments
 
@@ -161,8 +141,10 @@ Clears all cart items for one branch and returns the full updated cart.
 ```json
 {
   "branchId": 1,
-  "paymentMethodId": 2,
+  "paymentMethodId": 3,
   "selectedItemIds": [10, 11],
+  "fulfillmentMode": "rider_delivery",
+  "customerNote": "Call on arrival",
   "deliveryLat": 13.7464,
   "deliveryLng": 100.5349,
   "deliveryDistanceKm": 2.4
@@ -175,7 +157,7 @@ Response body:
 - `transaction`
 - `order`
 - `cart`
-- `user` when wallet balance changes
+- `user` when balance changed
 
 ### `POST /v1/deposits`
 
@@ -186,8 +168,6 @@ Response body:
   "amount": 300
 }
 ```
-
-Returns the created pending deposit transaction.
 
 ### `GET /v1/transactions/{id}`
 
@@ -201,10 +181,96 @@ Returns:
 
 Multipart upload with `file`.
 
-Used to verify a payment or deposit slip and update the transaction.
+### `POST /v1/payments/webhooks/omise`
+
+Webhook endpoint for Omise events.
+
+## Admin Auth
+
+### `POST /v1/admin/auth/login`
+
+```json
+{
+  "username": "owner",
+  "password": "secret"
+}
+```
+
+Response:
+
+- `accessToken`
+- `refreshToken`
+- `session`
+
+### `POST /v1/admin/auth/refresh`
+
+### `GET /v1/admin/auth/session`
+
+Returns normalized admin session:
+
+- `sessionType`
+- `actorType`
+- `actorLabel`
+- `roles`
+- `permissions`
+- `branchIds`
+
+## Admin Operations
+
+### Dashboard
+
+- `GET /v1/admin/dashboard`
+
+### Employees
+
+- `GET /v1/admin/employees`
+- `POST /v1/admin/employees`
+- `PATCH /v1/admin/employees/{id}`
+
+### Attendance
+
+- `GET /v1/admin/attendance`
+- `POST /v1/admin/attendance/clock-in`
+- `POST /v1/admin/attendance/clock-out`
+- `PATCH /v1/admin/attendance/{id}`
+
+### OT / Payroll
+
+- `GET /v1/admin/ot-requests`
+- `POST /v1/admin/ot-requests`
+- `PATCH /v1/admin/ot-requests/{id}`
+- `GET /v1/admin/payroll/settings`
+- `PATCH /v1/admin/payroll/settings`
+- `GET /v1/admin/payroll/periods`
+- `POST /v1/admin/payroll/periods`
+- `GET /v1/admin/payroll/periods/{id}`
+- `POST /v1/admin/payroll/periods/{id}/generate`
+
+### Branches / Stock
+
+- `GET /v1/admin/branches`
+- `PATCH /v1/admin/branches/{id}`
+- `GET /v1/admin/branches/{id}/products`
+- `PATCH /v1/admin/branches/{id}/products/{productId}`
+- `POST /v1/admin/branches/{id}/stock`
+
+### Orders / Riders / Payments
+
+- `GET /v1/admin/orders`
+- `PATCH /v1/admin/orders/{id}/status`
+- `GET /v1/admin/rider/jobs`
+- `POST /v1/admin/rider/jobs/{id}/claim`
+- `PATCH /v1/admin/rider/jobs/{id}/status`
+- `GET /v1/admin/payments`
+- `GET /v1/admin/payments/providers`
+- `GET /v1/admin/payments/webhooks`
 
 ## Health
 
 ### `GET /healthz`
 
-Returns `{ "status": "ok" }`.
+Returns:
+
+```json
+{ "status": "ok" }
+```

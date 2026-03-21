@@ -40,16 +40,17 @@ const BranchCard: React.FC<BranchCardProps> = ({ branch, onView }) => {
         }
         return branch.isOpen;
     }, [branch]);
+    const canOrder = isOpenComputed && branch.acceptingOrders;
 
     const badge = useMemo(() => {
         if (branch.isForceClosed) {
             return { label: t(I18N_KEYS.BRANCH_CLOSED_MANUAL), className: "border-rose-200 bg-rose-50 text-rose-700" };
         }
-        if (!branch.isOpen || !isOpenComputed) {
+        if (!branch.isOpen || !isOpenComputed || !branch.acceptingOrders) {
             return { label: t(I18N_KEYS.BRANCH_CLOSED), className: "border-slate-200 bg-slate-100 text-slate-600" };
         }
         return { label: t(I18N_KEYS.BRANCH_OPEN), className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
-    }, [branch.isForceClosed, branch.isOpen, isOpenComputed, t]);
+    }, [branch.acceptingOrders, branch.isForceClosed, branch.isOpen, isOpenComputed, t]);
 
     const distance = useMemo(() => {
         if (typeof branch.distanceKm !== "number") return null;
@@ -85,6 +86,15 @@ const BranchCard: React.FC<BranchCardProps> = ({ branch, onView }) => {
                             {t(I18N_KEYS.SEARCH_DISTANCE_PREFIX)}: {distance}
                         </p>
                     )}
+                    <div className="flex flex-wrap gap-2 text-xs font-medium text-slate-600">
+                        {branch.supportsPickup ? <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">Pickup</span> : null}
+                        {branch.supportsRiderDelivery ? (
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
+                                Rider delivery {branch.riderDeliveryFee ? formatTHB(branch.riderDeliveryFee) : ""}
+                            </span>
+                        ) : null}
+                    </div>
+                    {branch.operationalNote ? <p className="text-xs text-amber-700">{branch.operationalNote}</p> : null}
                     {samples.length > 0 && (
                         <div className="flex flex-wrap gap-2 text-sm text-slate-600">
                             {samples.map((item) => {
@@ -104,10 +114,10 @@ const BranchCard: React.FC<BranchCardProps> = ({ branch, onView }) => {
                     <div className="mt-auto">
                         <button
                             type="button"
-                            onClick={() => isOpenComputed && onView(branch.id)}
-                            disabled={!isOpenComputed}
-                            aria-disabled={!isOpenComputed}
-                            title={!isOpenComputed ? t(I18N_KEYS.BRANCH_CLOSED) : undefined}
+                            onClick={() => canOrder && onView(branch.id)}
+                            disabled={!canOrder}
+                            aria-disabled={!canOrder}
+                            title={!canOrder ? t(I18N_KEYS.BRANCH_CLOSED) : undefined}
                             className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition
                          hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100 active:scale-[0.99]
                          disabled:opacity-60 disabled:cursor-not-allowed"

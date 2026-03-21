@@ -50,6 +50,20 @@ func (h *PaymentHandler) Deposit(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteOK(w, result)
 }
 
+func (h *PaymentHandler) WebhookOmise(w http.ResponseWriter, r *http.Request) {
+	payload, err := io.ReadAll(r.Body)
+	if err != nil {
+		httpapi.WriteError(w, apperror.BadRequest("unable to read webhook payload"))
+		return
+	}
+	result, err := h.service.HandleOmiseWebhook(r.Context(), r.Header, payload)
+	if err != nil {
+		httpapi.WriteError(w, err)
+		return
+	}
+	httpapi.WriteOK(w, result)
+}
+
 func (h *PaymentHandler) TransactionRoutes(w http.ResponseWriter, r *http.Request) {
 	claims, _ := middleware.ClaimsFromContext(r.Context())
 	path := strings.TrimPrefix(r.URL.Path, "/v1/transactions/")

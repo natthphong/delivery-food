@@ -14,10 +14,27 @@ type TokenManager struct {
 }
 
 type AccessClaims struct {
-	UserID       int64  `json:"userId"`
-	AuthProvider string `json:"authProvider"`
-	AuthSubject  string `json:"authSubject"`
+	SessionType   string   `json:"sessionType"`
+	ActorType     string   `json:"actorType,omitempty"`
+	UserID        int64    `json:"userId,omitempty"`
+	StaffAccountID *int64  `json:"staffAccountId,omitempty"`
+	EmployeeID    *int64   `json:"employeeId,omitempty"`
+	AuthProvider  string   `json:"authProvider,omitempty"`
+	AuthSubject   string   `json:"authSubject,omitempty"`
+	Roles         []string `json:"roles,omitempty"`
+	Permissions   []string `json:"permissions,omitempty"`
+	BranchIDs     []int64  `json:"branchIds,omitempty"`
 	jwt.RegisteredClaims
+}
+
+type AdminTokenInput struct {
+	ActorType      string
+	ActorSubject   string
+	StaffAccountID *int64
+	EmployeeID     *int64
+	Roles          []string
+	Permissions    []string
+	BranchIDs      []int64
 }
 
 func NewTokenManager(secret string) *TokenManager {
@@ -27,6 +44,8 @@ func NewTokenManager(secret string) *TokenManager {
 func (m *TokenManager) SignAccessToken(userID int64, authProvider, authSubject string, ttl time.Duration) (string, error) {
 	now := time.Now()
 	claims := AccessClaims{
+		SessionType:  "customer",
+		ActorType:    "customer_user",
 		UserID:       userID,
 		AuthProvider: authProvider,
 		AuthSubject:  authSubject,
@@ -34,6 +53,30 @@ func (m *TokenManager) SignAccessToken(userID int64, authProvider, authSubject s
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			Subject:   authSubject,
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(m.secret)
+}
+
+func (m *TokenManager) SignAdminAccessToken(input AdminTokenInput, ttl time.Duration) (string, error) {
+	now := time.Now()
+	subject := input.ActorSubject
+	if subject == "" {
+		subject = input.ActorType
+	}
+	claims := AccessClaims{
+		SessionType:    "admin",
+		ActorType:      input.ActorType,
+		StaffAccountID: input.StaffAccountID,
+		EmployeeID:     input.EmployeeID,
+		Roles:          input.Roles,
+		Permissions:    input.Permissions,
+		BranchIDs:      input.BranchIDs,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			Subject:   subject,
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

@@ -12,15 +12,22 @@ import (
 )
 
 type SellableProduct struct {
-	BranchID    int64
-	CompanyID   int64
-	BranchName  string
-	BranchImage *string
-	ProductID   int64
-	ProductName string
-	ProductImage *string
-	UnitPrice   float64
-	StockQty    *int
+	BranchID               int64
+	CompanyID              int64
+	BranchName             string
+	BranchImage            *string
+	AcceptingOrders        bool
+	SupportsPickup         bool
+	SupportsRiderDelivery  bool
+	RiderDeliveryFee       float64
+	OperationalNote        *string
+	ProductID              int64
+	ProductName            string
+	ProductImage           *string
+	UnitPrice              float64
+	StockQty               *int
+	IsTemporarilyClosed    bool
+	AvailabilityNote       *string
 }
 
 type CartVariantRecord struct {
@@ -42,10 +49,12 @@ func (s *Store) GetOrCreateCartID(ctx context.Context, tx DBTX, userID int64) (i
 
 func (s *Store) GetSellableProduct(ctx context.Context, branchID, productID int64) (SellableProduct, error) {
 	var (
-		branchImage sql.NullString
-		productImage sql.NullString
-		stockQty    sql.NullInt32
-		product     SellableProduct
+		branchImage      sql.NullString
+		productImage     sql.NullString
+		stockQty         sql.NullInt32
+		operationalNote  sql.NullString
+		availabilityNote sql.NullString
+		product          SellableProduct
 	)
 	err := s.Pool.QueryRow(ctx, `
 		SELECT
@@ -53,28 +62,44 @@ func (s *Store) GetSellableProduct(ctx context.Context, branchID, productID int6
 			b.company_id,
 			b.name,
 			b.image_url,
+			b.accepting_orders,
+			b.supports_pickup,
+			b.supports_rider_delivery,
+			b.rider_delivery_fee::double precision,
+			b.operational_note,
 			p.id,
 			p.name,
 			p.image_url,
 			COALESCE(bp.price_override, p.base_price)::double precision,
-			bp.stock_qty
+			bp.stock_qty,
+			bp.is_temporarily_closed,
+			bp.availability_note
 		FROM branch_products bp
 		JOIN branches b ON b.id = bp.branch_id
 		JOIN products p ON p.id = bp.product_id
 		WHERE bp.branch_id = $1
 			AND bp.product_id = $2
 			AND bp.is_enabled = TRUE
+			AND bp.is_temporarily_closed = FALSE
+			AND b.accepting_orders = TRUE
 			AND p.is_active = TRUE
 	`, branchID, productID).Scan(
 		&product.BranchID,
 		&product.CompanyID,
 		&product.BranchName,
 		&branchImage,
+		&product.AcceptingOrders,
+		&product.SupportsPickup,
+		&product.SupportsRiderDelivery,
+		&product.RiderDeliveryFee,
+		&operationalNote,
 		&product.ProductID,
 		&product.ProductName,
 		&productImage,
 		&product.UnitPrice,
 		&stockQty,
+		&product.IsTemporarilyClosed,
+		&availabilityNote,
 	)
 	if err != nil {
 		return SellableProduct{}, err
@@ -82,6 +107,8 @@ func (s *Store) GetSellableProduct(ctx context.Context, branchID, productID int6
 	product.BranchImage = nullString(branchImage)
 	product.ProductImage = nullString(productImage)
 	product.StockQty = nullInt(stockQty)
+	product.OperationalNote = nullString(operationalNote)
+	product.AvailabilityNote = nullString(availabilityNote)
 	return product, nil
 }
 

@@ -9,18 +9,19 @@ npm test
 npm run build
 ```
 
-### Test Layout
+### Test layout
 
-- `tests/*.test.ts`: Node runner tests for storage and utility behavior
-- `src/**/__tests__/*.test.ts?(x)`: Jest tests for components, services, and selectors
+- `tests/*.test.ts`: Node-runner utility and storage tests
+- `src/**/__tests__/*.test.ts?(x)`: Jest component and selector tests
 
-### Covered Areas
+### Current frontend coverage
 
-- token and cart persistence
-- response envelope unwrapping
+- customer token, cart, config, and admin-session storage
 - cart selectors
-- payment method picker interaction
-- cart drawer selection-to-checkout draft behavior
+- cart drawer checkout-draft flow
+- payment method picker selection
+- role-aware admin navigation rendering
+- response envelope unwrapping
 
 ## Backend
 
@@ -31,32 +32,34 @@ cd go_backend
 go test ./...
 ```
 
-### Covered Areas
+### Current backend coverage
 
-- JWT signing and parsing
-- refresh token hashing helpers
-- auth middleware
+- JWT signing and refresh token helpers
+- customer/admin auth middleware behavior
 - handler parsing helpers
 - shared service helpers
-- LINE profile claim normalization
-- cart add-on signature generation
+- LINE profile normalization
+- cart add-on/signature helpers
+- payroll calculation logic
+- Omise checkout mapping and webhook normalization
 
-## Full Verification
+## Recommended verification flow
 
-Use the repo-level command:
+```bash
+npm run build
+npm test
+npm run backend:test
+```
+
+Or run the combined command:
 
 ```bash
 npm run verify
 ```
 
-This runs:
-
-- frontend production build
-- frontend tests
-- backend tests
-
 ## Notes
 
-- The frontend test harness combines Node’s built-in test runner and Jest.
-- `scripts/run-tests.js` compiles Node-runner tests into `.test-dist` before execution.
-- If API contract types change, update frontend types and rerun both build and tests.
+- the frontend test harness runs Node tests first, then Jest
+- Go tests are pure unit tests and do not require a running server
+- if you change API types or session storage, rerun both `npm test` and `npm run build`
+- if you change backend DTOs or payment/operations logic, rerun `go test ./...`

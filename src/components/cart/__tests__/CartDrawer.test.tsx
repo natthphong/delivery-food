@@ -3,6 +3,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import auth from "@/store/authSlice";
+import adminAuth from "@/store/adminAuthSlice";
 import cart from "@/store/cartSlice";
 import config from "@/store/configSlice";
 import notifications from "@/store/notificationsSlice";
@@ -58,9 +59,10 @@ function renderDrawer(cartState: {
     lastSyncedAt: string;
 }) {
     const store = configureStore({
-        reducer: { auth, cart, config, notifications },
+        reducer: { auth, adminAuth, cart, config, notifications },
         preloadedState: {
             auth: { accessToken: "access", refreshToken: "refresh", user: null },
+            adminAuth: { accessToken: null, refreshToken: null, session: null },
             cart: { value: cartState },
             config: { values: {} },
             notifications: { items: [] },

@@ -5,10 +5,12 @@ import auth from "./authSlice";
 import notifications from "./notificationsSlice";
 import config from "./configSlice";
 import cart from "./cartSlice";
+import adminAuth from "./adminAuthSlice";
 
 export const store = configureStore({
     reducer: {
         auth,
+        adminAuth,
         notifications,
         config,
         cart,
