@@ -293,6 +293,7 @@
   "payment.order.title": { "th": "รายละเอียดคำสั่งซื้อ", "en": "Order details" },
   "order.status.pending": { "th": "รอชำระ", "en": "Pending" },
   "order.status.prepare": { "th": "กำลังเตรียม", "en": "Preparing" },
+  "order.status.delivery": { "th": "กำลังจัดส่ง", "en": "On the way" },
   "order.status.accepted": { "th": "ยืนยันแล้ว", "en": "Accepted" },
   "order.status.rejected": { "th": "ถูกปฏิเสธ", "en": "Rejected" },
   "order.status.expired": { "th": "หมดอายุ", "en": "Expired" },
@@ -300,4 +301,3 @@
   "order.status.cancelled": { "th": "ยกเลิก", "en": "Cancelled" },
   "order.status.unknown": { "th": "ไม่ทราบสถานะ", "en": "Unknown status" }
 }
-

@@ -4,12 +4,14 @@ import { useDispatch, useSelector, type TypedUseSelectorHook } from "react-redux
 import auth from "./authSlice";
 import notifications from "./notificationsSlice";
 import config from "./configSlice";
+import cart from "./cartSlice";
 
 export const store = configureStore({
     reducer: {
         auth,
         notifications,
         config,
+        cart,
     },
 });
 export type RootState = ReturnType<typeof store.getState>;

@@ -3,13 +3,13 @@ import React, { useEffect, useState } from "react";
 import Head from "next/head";
 import Layout from "@components/Layout";
 import { useRouter } from "next/router";
-import axios from "@utils/apiClient";
 import { useAppDispatch } from "@store/index";
 import { setTokens, setUser } from "@store/authSlice";
 import { saveTokens, saveUser } from "@utils/tokenStorage";
 import liff from "@line/liff";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
+import { loginWithLineProfile } from "@/services/auth";
 
 type Status = "boot" | "init" | "login" | "post" | "done" | "error";
 
@@ -39,16 +39,20 @@ export default function WebHookLinePage() {
                     throw new Error(t(I18N_KEYS.LINE_ERROR_NO_PROFILE));
                 }
                 setStatus("post");
-                const r = await axios.post("/api/login-line", { profile });
+                const payload = await loginWithLineProfile({
+                    userId: profile.userId,
+                    displayName: profile.displayName,
+                    pictureUrl: profile.pictureUrl,
+                });
                 if (cancelled) return;
                 const tokens = {
-                    accessToken: r.data?.body?.accessToken,
-                    refreshToken: r.data?.body?.refreshToken,
+                    accessToken: payload.accessToken,
+                    refreshToken: payload.refreshToken,
                 };
                 if (!tokens.accessToken || !tokens.refreshToken) {
                     throw new Error(t(I18N_KEYS.LINE_ERROR_NO_TOKENS));
                 }
-                const user = r.data?.body?.user;
+                const user = payload.user;
                 dispatch(setTokens(tokens));
                 dispatch(setUser(user));
                 saveTokens(tokens);

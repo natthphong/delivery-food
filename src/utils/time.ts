@@ -39,11 +39,11 @@ export function toBangkokIso(input: string | number | Date | null | undefined): 
 
 // Helper to map common timestamp fields on a row (mutates a shallow copy).
 export function mapTimestampsToBangkok<T extends Record<string, any>>(row: T, fields: string[]): T {
-    const out = { ...row } as T;
+    const out: Record<string, any> = { ...row };
     for (const f of fields) {
         if (f in out) {
-            out[f] = toBangkokIso(out[f]) as any;
+            out[f] = toBangkokIso(out[f]);
         }
     }
-    return out;
+    return out as T;
 }

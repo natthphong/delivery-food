@@ -10,7 +10,7 @@ import DepositModal from "@/components/payment/DepositModal";
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [cartOpen, setCartOpen] = useState(false);
     const [depositOpen, setDepositOpen] = useState(false);
-    const user = useAppSelector((state) => state.auth.user);
+    const cart = useAppSelector((state) => state.cart.value);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -33,12 +33,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             return null;
         };
 
-        const groups = user?.card ?? [];
+        const groups = cart.groups ?? [];
         const lastGroup = groups.length > 0 ? groups[groups.length - 1] : null;
         const branchId = parseNumeric(lastGroup?.branchId) ?? 1;
         const companyId = parseNumeric(lastGroup?.companyId) ?? 1;
         return { branchId, companyId };
-    }, [user]);
+    }, [cart.groups]);
 
     return (
         <div className="min-h-screen bg-slate-50">

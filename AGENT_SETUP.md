@@ -1,4 +1,6 @@
 
+> Legacy note: this document describes the pre-Go-backend repository shape and is no longer the source of truth.
+> Use `AGENTS.md` and the files under `docs/` for the current architecture, schema, API, and workflow.
 
 ## 0) What this app is
 
@@ -507,4 +509,3 @@ const r = await axios.get("/api/user/me"); // Authorization added by interceptor
 > If you’re an agent implementing a new feature, *stick to these boundaries*, reuse helpers, keep responses consistent with existing DTO shapes, and update this document if you change conventions.
 
 ---
-

@@ -1,636 +1,288 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Layout from "@components/Layout";
-import axios, { type ApiResponse } from "@utils/apiClient";
-import { auth, makeRecaptcha } from "@utils/firebaseClient";
-import { useAppDispatch } from "@store/index";
-import { logout, setUser } from "@store/authSlice";
-import { useSelector } from "react-redux";
-import type { RootState } from "@/store";
-import type { TransactionRow, OrderRow, TransactionMethod, TxnStatus } from "@/types/transaction";
-import { signInWithPhoneNumber, signOut } from "firebase/auth";
-import { clearTokens, clearUser, saveUser } from "@utils/tokenStorage";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ProfileCard from "@/components/account/ProfileCard";
-import VerifyUpdateCard from "@/components/account/VerifyUpdateCard";
-import type { Me } from "@/components/account/types";
-import type { I18nKey } from "@/constants/i18nKeys";
-import { I18N_KEYS } from "@/constants/i18nKeys";
+import { useSelector } from "react-redux";
+import { auth } from "@/utils/firebaseClient";
+import { sendEmailVerification, signOut } from "firebase/auth";
+import Layout from "@components/Layout";
+import type { RootState } from "@/store";
+import { useAppDispatch } from "@/store";
+import { logout, setUser } from "@/store/authSlice";
+import { clearCart as clearCartState, setCart } from "@/store/cartSlice";
+import { clearConfig as clearConfigState } from "@/store/configSlice";
+import { clearCart, clearConfig, clearTokens, clearUser } from "@/utils/tokenStorage";
 import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
 import { notify } from "@/utils/notify";
 import { formatTHB } from "@/utils/currency";
-import { TXN_TYPE, chipClassForTxnStatus, humanTxnStatus, humanTxnType } from "@/constants/statusMaps";
-import { formatInBangkok } from "@/utils/datetime";
-import {
-    STATUS_I18N_KEY,
-    type DisplayStatus,
-    deriveDisplayStatus,
-} from "@/constants/status";
+import { fetchOrders, fetchTransactions, updateProfile } from "@/services/app";
+import type { Order, TransactionSummary } from "@/types/transaction";
 
-import type { ConfirmationResult } from "firebase/auth";
-
-type AccountUpdatePayload = {
-    email?: string | null;
-    phone?: string | null;
-    is_email_verified?: boolean | null;
-    is_phone_verified?: boolean | null;
-};
-
-type UserEnvelope = { user?: any };
-
-type AccountUpdateResponse = ApiResponse<UserEnvelope>;
-type SendVerifyEmailResponse = ApiResponse<{ ok: boolean }>;
-
-type MessageState = { key: I18nKey } | { text: string } | null;
-
-function normalizeUser(payload: any | null | undefined): Me {
-    return {
-        id: typeof payload?.id === "number" ? payload.id : 0,
-        email: payload?.email ?? null,
-        phone: payload?.phone ?? null,
-        provider: payload?.provider ?? null,
-        is_email_verified: Boolean(payload?.is_email_verified),
-        is_phone_verified: Boolean(payload?.is_phone_verified),
-    };
-}
-
-const emptyUser = normalizeUser(null);
 type TabKey = "profile" | "transactions" | "orders";
-type TransactionDetails = TransactionRow & {
-    isExpired: boolean;
-    method: Pick<TransactionMethod, "id" | "code" | "name" | "type"> | null;
-    order: OrderRow | null;
-};
-
-type OrderTxnSummary = {
-    id: number;
-    status: TxnStatus;
-    expired_at: string | null;
-    isExpired: boolean;
-};
-
-type OrderDetailEntry = {
-    id: number;
-    status: OrderRow["status"];
-    displayStatus: DisplayStatus;
-    created_at: string;
-    updated_at: string;
-    order_details: OrderRow["order_details"];
-    branch: {
-        id: number;
-        name: string;
-        address: string | null;
-        lat: number | null;
-        lng: number | null;
-    } | null;
-    txn: OrderTxnSummary | null;
-};
-
-type OrderDetailsResponse = ApiResponse<{ orders: OrderDetailEntry[] }>;
 
 export default function AccountPage() {
     const router = useRouter();
     const dispatch = useAppDispatch();
     const { t, locale } = useI18n();
-    const authUser = useSelector((state: RootState) => state.auth.user);
-    const resolveErrorMessage = useCallback(
-        (error: any, fallbackKey: I18nKey) => {
-            const code = error?.response?.data?.code;
-            if (code === "DUPLICATE_EMAIL") {
-                return t(I18N_KEYS.ACCOUNT_DUPLICATE_EMAIL);
-            }
-            if (code === "DUPLICATE_PHONE") {
-                return t(I18N_KEYS.ACCOUNT_DUPLICATE_PHONE);
-            }
-            const responseMessage = error?.response?.data?.message ?? error?.message;
-            if (typeof responseMessage === "string" && responseMessage.length > 0) {
-                return responseMessage;
-            }
-            return t(fallbackKey);
-        },
-        [t]
-    );
-    const [me, setMe] = useState<Me | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [message, setMessage] = useState<MessageState>(null);
-    const [error, setError] = useState<MessageState>(null);
+    const user = useSelector((state: RootState) => state.auth.user);
+    const cart = useSelector((state: RootState) => state.cart.value);
+    const [tab, setTab] = useState<TabKey>("profile");
+    const [displayName, setDisplayName] = useState(user?.displayName ?? "");
+    const [email, setEmail] = useState(user?.email ?? "");
+    const [phone, setPhone] = useState(user?.phone ?? "");
+    const [saving, setSaving] = useState(false);
+    const [transactions, setTransactions] = useState<TransactionSummary[]>([]);
+    const [orders, setOrders] = useState<Order[]>([]);
 
-    const [newEmail, setNewEmail] = useState("");
-    const [phone, setPhone] = useState("");
-    const [otp, setOtp] = useState("");
+    useEffect(() => {
+        const currentTab = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
+        if (currentTab === "profile" || currentTab === "transactions" || currentTab === "orders") {
+            setTab(currentTab);
+        }
+    }, [router.query.tab]);
 
-    const [updatingEmail, setUpdatingEmail] = useState(false);
-    const [verifyingEmail, setVerifyingEmail] = useState(false);
-    const [sendingOtp, setSendingOtp] = useState(false);
-    const [confirmingOtp, setConfirmingOtp] = useState(false);
-    const [activeTab, setActiveTab] = useState<TabKey>("profile");
-    const [txnLoading, setTxnLoading] = useState(false);
-    const [txnDetails, setTxnDetails] = useState<TransactionDetails[]>([]);
-    const [ordersData, setOrdersData] = useState<OrderDetailEntry[] | null>(null);
-    const [orderLoading, setOrderLoading] = useState(false);
+    useEffect(() => {
+        setDisplayName(user?.displayName ?? "");
+        setEmail(user?.email ?? "");
+        setPhone(user?.phone ?? "");
+    }, [user?.displayName, user?.email, user?.phone]);
 
-    const confirmRef = useRef<ConfirmationResult | null>(null);
+    useEffect(() => {
+        if (tab === "transactions") {
+            fetchTransactions().then(setTransactions).catch(() => setTransactions([]));
+        }
+        if (tab === "orders") {
+            fetchOrders().then(setOrders).catch(() => setOrders([]));
+        }
+    }, [tab]);
 
-    const resolvedMessage = useMemo(() => {
-        if (!message) return "";
-        return "key" in message ? t(message.key) : message.text;
-    }, [message, t]);
+    const cartSummary = useMemo(() => `${cart.totalQuantity} items in basket`, [cart.totalQuantity]);
 
-    const resolvedError = useMemo(() => {
-        if (!error) return "";
-        return "key" in error ? t(error.key) : error.text;
-    }, [error, t]);
-
-    const sortedTransactions = useMemo(() => {
-        return [...txnDetails].sort((a, b) => {
-            const aTime = Date.parse(a.created_at);
-            const bTime = Date.parse(b.created_at);
-            return bTime - aTime;
-        });
-    }, [txnDetails]);
-
-    const fallbackOrders = useMemo<OrderDetailEntry[]>(() => {
-        return txnDetails
-            .filter((item) => item.order)
-            .map((item) => {
-                const order = item.order as OrderRow;
-                const txn: OrderTxnSummary = {
-                    id: item.id,
-                    status: item.status,
-                    expired_at: item.expired_at,
-                    isExpired: item.isExpired,
-                };
-                return {
-                    id: order.id,
-                    status: order.status,
-                    displayStatus: deriveDisplayStatus(order, txn),
-                    created_at: order.created_at,
-                    updated_at: order.updated_at,
-                    order_details: order.order_details,
-                    branch: null,
-                    txn,
-                };
-            });
-    }, [txnDetails]);
-
-    const ordersToRender = useMemo(() => ordersData ?? fallbackOrders, [ordersData, fallbackOrders]);
-
-    const sortedOrders = useMemo(() => {
-        return [...ordersToRender].sort((a, b) => {
-            const aTime = Date.parse(a.created_at);
-            const bTime = Date.parse(b.created_at);
-            return bTime - aTime;
-        });
-    }, [ordersToRender]);
-
-    const fetchMe = useCallback(async () => {
-        setLoading(true);
+    const handleSave = async () => {
         try {
-            const r = await axios.get<ApiResponse<UserEnvelope>>("/api/user/me");
-            if (r.data.code !== "OK") {
-                throw new Error(r.data.message || t(I18N_KEYS.ACCOUNT_LOAD_ERROR));
-            }
-            const user = r.data.body?.user;
-            if (!user) {
-                throw new Error(t(I18N_KEYS.ACCOUNT_ERROR_INVALID_PROFILE));
-            }
-            setMe(normalizeUser(user));
-            dispatch(setUser(user));
-            saveUser(user);
-            setError(null);
-        } catch (e: any) {
-            const messageText = e?.response?.data?.message || e?.message || t(I18N_KEYS.ACCOUNT_LOAD_ERROR);
-            setError({ text: messageText });
-            setMe(null);
+            setSaving(true);
+            const nextUser = await updateProfile({ displayName, email, phone });
+            dispatch(setUser(nextUser));
+            notify("Profile updated.", "success");
+        } catch (error: any) {
+            notify(error?.response?.data?.message || error?.message || "Unable to update profile.", "error");
         } finally {
-            setLoading(false);
+            setSaving(false);
         }
-    }, [dispatch, t]);
+    };
 
-    useEffect(() => {
-        fetchMe().catch(() => {});
-    }, [fetchMe]);
-
-    useEffect(() => {
-        if (!router.isReady) return;
-        const raw = router.query.tab;
-        const value = Array.isArray(raw) ? raw[0] : raw;
-        if (value === "transactions" || value === "orders" || value === "profile") {
-            setActiveTab(value);
-        }
-    }, [router.isReady, router.query.tab]);
-
-    useEffect(() => {
-        const history = authUser?.txn_history ?? [];
-        if (!history || history.length === 0) {
-            setTxnDetails([]);
-            setTxnLoading(false);
-            return;
-        }
-        setTxnLoading(true);
-        axios
-            .post<ApiResponse<{ txns: TransactionDetails[] }>>("/api/transaction/details", { ids: history })
-            .then((response) => {
-                if (response.data.code === "OK" && Array.isArray(response.data.body?.txns)) {
-                    setTxnDetails(response.data.body.txns);
-                } else {
-                    setTxnDetails([]);
-                }
-            })
-            .catch((error) => {
-                notify(error?.response?.data?.message || t(I18N_KEYS.PAYMENT_DETAIL_ERROR), "error");
-                setTxnDetails([]);
-            })
-            .finally(() => {
-                setTxnLoading(false);
-            });
-    }, [authUser?.txn_history, t]);
-
-    useEffect(() => {
-        const history = authUser?.order_history ?? [];
-        if (!history || history.length === 0) {
-            setOrdersData([]);
-            setOrderLoading(false);
-            return;
-        }
-        const ids = history.slice(0, 100);
-        setOrderLoading(true);
-        axios
-            .post<OrderDetailsResponse>("/api/order/details", { ids })
-            .then((response) => {
-                if (response.data.code === "OK" && Array.isArray(response.data.body?.orders)) {
-                    setOrdersData(response.data.body.orders);
-                } else {
-                    setOrdersData([]);
-                }
-            })
-            .catch((error) => {
-                notify(error?.response?.data?.message || t(I18N_KEYS.PAYMENT_DETAIL_ERROR), "error");
-            })
-            .finally(() => {
-                setOrderLoading(false);
-            });
-    }, [authUser?.order_history, t]);
-
-    async function updateAccount(patch: AccountUpdatePayload) {
-        const response = await axios.post<AccountUpdateResponse>("/api/v1/account/update", patch);
-        if (response.data.code !== "OK") {
-            throw new Error(response.data.message || t(I18N_KEYS.ACCOUNT_ERROR_UPDATE_FAILED));
-        }
-        const user = response.data.body?.user;
-        if (!user) {
-            throw new Error(t(I18N_KEYS.ACCOUNT_ERROR_INVALID_PROFILE));
-        }
-        setMe(normalizeUser(user));
-        dispatch(setUser(user));
-        saveUser(user);
-    }
-
-    async function handleVerifyEmail() {
-        setError(null);
-        setMessage(null);
+    const handleVerifyEmail = async () => {
         try {
             if (!auth.currentUser) {
-                throw new Error(t(I18N_KEYS.ACCOUNT_ERROR_NO_SESSION));
+                notify(t(I18N_KEYS.ACCOUNT_ERROR_NO_SESSION), "warning");
+                return;
             }
-            setVerifyingEmail(true);
-            await auth.currentUser.reload();
             if (auth.currentUser.emailVerified) {
-                await updateAccount({ is_email_verified: true });
-                setMessage({ key: I18N_KEYS.ACCOUNT_MESSAGE_EMAIL_VERIFIED });
+                const nextUser = await updateProfile({ isEmailVerified: true });
+                dispatch(setUser(nextUser));
                 notify(t(I18N_KEYS.ACCOUNT_MESSAGE_EMAIL_VERIFIED), "success");
-            } else {
-                const idToken = await auth.currentUser.getIdToken();
-                const response = await axios.post<SendVerifyEmailResponse>("/api/user/send-verify-email", { idToken });
-                if (response.data.code !== "OK") {
-                    throw new Error(response.data.message || t(I18N_KEYS.ACCOUNT_ERROR_VERIFY_EMAIL));
-                }
-                setMessage({ key: I18N_KEYS.ACCOUNT_MESSAGE_VERIFICATION_SENT });
-                notify(t(I18N_KEYS.ACCOUNT_MESSAGE_VERIFICATION_SENT), "info");
+                return;
             }
-        } catch (e: any) {
-            const messageText = resolveErrorMessage(e, I18N_KEYS.ACCOUNT_ERROR_PROCESS_EMAIL);
-            setError({ text: messageText });
-            notify(messageText, "error");
-        } finally {
-            setVerifyingEmail(false);
+            await sendEmailVerification(auth.currentUser);
+            notify(t(I18N_KEYS.ACCOUNT_MESSAGE_VERIFICATION_SENT), "info");
+        } catch (error: any) {
+            notify(error?.message || t(I18N_KEYS.ACCOUNT_ERROR_VERIFY_EMAIL), "error");
         }
-    }
+    };
 
-    async function handleChangeEmail() {
-        setError(null);
-        setMessage(null);
-        try {
-            const trimmed = newEmail.trim();
-            if (!trimmed) {
-                throw new Error(t(I18N_KEYS.ACCOUNT_ERROR_NEW_EMAIL_REQUIRED));
-            }
-            if (!auth.currentUser) {
-                throw new Error(t(I18N_KEYS.ACCOUNT_ERROR_NO_SESSION));
-            }
-            if (me?.is_email_verified && trimmed !== (me.email ?? null)) {
-                const confirmMessage = t(I18N_KEYS.ACCOUNT_RESET_VERIFY_CONFIRM);
-                if (!window.confirm(confirmMessage)) {
-                    return;
-                }
-            }
-            setUpdatingEmail(true);
-            await updateAccount({ email: trimmed });
-            setMessage({ key: I18N_KEYS.ACCOUNT_MESSAGE_EMAIL_UPDATED });
-            notify(t(I18N_KEYS.ACCOUNT_MESSAGE_EMAIL_UPDATED), "success");
-            setNewEmail("");
-        } catch (e: any) {
-            const messageText = resolveErrorMessage(e, I18N_KEYS.ACCOUNT_ERROR_UPDATE_EMAIL);
-            setError({ text: messageText });
-            notify(messageText, "error");
-        } finally {
-            setUpdatingEmail(false);
-        }
-    }
-
-    async function handleSendOtp() {
-        setError(null);
-        setMessage(null);
-        try {
-            const trimmed = phone.trim();
-            if (!trimmed) {
-                throw new Error(t(I18N_KEYS.ACCOUNT_ERROR_PHONE_REQUIRED));
-            }
-            if (me?.is_phone_verified && trimmed !== (me.phone ?? null)) {
-                const confirmMessage = t(I18N_KEYS.ACCOUNT_RESET_VERIFY_CONFIRM);
-                if (!window.confirm(confirmMessage)) {
-                    return;
-                }
-            }
-            setSendingOtp(true);
-            if (trimmed !== (me?.phone ?? "")) {
-                await updateAccount({ phone: trimmed, is_phone_verified: false });
-            }
-            const verifier = makeRecaptcha("btn-send-otp");
-            const confirmation = await signInWithPhoneNumber(auth, trimmed, verifier);
-            confirmRef.current = confirmation;
-            setMessage({ key: I18N_KEYS.ACCOUNT_MESSAGE_OTP_SENT });
-            notify(t(I18N_KEYS.ACCOUNT_MESSAGE_OTP_SENT), "info");
-            setOtp("");
-        } catch (e: any) {
-            const messageText = resolveErrorMessage(e, I18N_KEYS.ACCOUNT_ERROR_SEND_OTP);
-            setError({ text: messageText });
-            notify(messageText, "error");
-        } finally {
-            setSendingOtp(false);
-        }
-    }
-
-    async function handleConfirmOtp() {
-        setError(null);
-        setMessage(null);
-        try {
-            const confirmation = confirmRef.current;
-            if (!confirmation) {
-                throw new Error(t(I18N_KEYS.ACCOUNT_ERROR_NO_OTP_SESSION));
-            }
-            const code = otp.trim();
-            if (!code) {
-                throw new Error(t(I18N_KEYS.ACCOUNT_ERROR_ENTER_OTP));
-            }
-            setConfirmingOtp(true);
-            await confirmation.confirm(code);
-            const trimmedPhone = phone.trim();
-            await updateAccount({ phone: trimmedPhone || null, is_phone_verified: true });
-            setMessage({ key: I18N_KEYS.ACCOUNT_MESSAGE_PHONE_VERIFIED });
-            notify(t(I18N_KEYS.ACCOUNT_MESSAGE_PHONE_VERIFIED), "success");
-            setPhone("");
-            setOtp("");
-            confirmRef.current = null;
-        } catch (e: any) {
-            const messageText = resolveErrorMessage(e, I18N_KEYS.ACCOUNT_ERROR_CONFIRM_OTP);
-            setError({ text: messageText });
-            notify(messageText, "error");
-        } finally {
-            setConfirmingOtp(false);
-        }
-    }
-
-    async function handleLogout() {
-        await signOut(auth).catch(() => {});
+    const handleLogout = async () => {
+        await signOut(auth).catch(() => undefined);
         dispatch(logout());
+        dispatch(clearCartState());
+        dispatch(clearConfigState());
+        dispatch(setCart({ groups: [], totalAmount: 0, totalItems: 0, totalQuantity: 0, lastSyncedAt: new Date(0).toISOString() }));
         clearTokens();
         clearUser();
-        router.replace("/login");
-    }
+        clearCart();
+        clearConfig();
+        void router.replace("/login");
+    };
 
-    const safeUser = me ?? emptyUser;
+    const formatDate = (value: string) =>
+        new Intl.DateTimeFormat(locale === "th" ? "th-TH" : "en-US", {
+            dateStyle: "medium",
+            timeStyle: "short",
+        }).format(new Date(value));
 
     return (
         <Layout>
-            <div className="mx-auto max-w-3xl space-y-6">
-                <div>
-                    <h1 className="text-3xl font-bold text-slate-900">{t(I18N_KEYS.ACCOUNT_TITLE)}</h1>
-                    <p className="text-sm text-slate-500">{t(I18N_KEYS.ACCOUNT_SUBTITLE)}</p>
-                </div>
-
-                <div className="inline-flex rounded-2xl bg-slate-100 p-1">
-                    <button
-                        type="button"
-                        onClick={() => setActiveTab("profile")}
-                        className={`rounded-xl px-4 py-2 text-xs font-medium transition ${
-                            activeTab === "profile" ? "bg-white shadow-sm" : "text-slate-500"
-                        }`}
-                        aria-pressed={activeTab === "profile"}
-                    >
-                        {t(I18N_KEYS.ACCOUNT_TAB_PROFILE)}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setActiveTab("orders")}
-                        className={`rounded-xl px-4 py-2 text-xs font-medium transition ${
-                            activeTab === "orders" ? "bg-white shadow-sm" : "text-slate-500"
-                        }`}
-                        aria-pressed={activeTab === "orders"}
-                    >
-                        {t(I18N_KEYS.ACCOUNT_TAB_ORDERS)}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setActiveTab("transactions")}
-                        className={`rounded-xl px-4 py-2 text-xs font-medium transition ${
-                            activeTab === "transactions" ? "bg-white shadow-sm" : "text-slate-500"
-                        }`}
-                        aria-pressed={activeTab === "transactions"}
-                    >
-                        {t(I18N_KEYS.ACCOUNT_TAB_TRANSACTIONS)}
-                    </button>
-
-                </div>
-
-                {activeTab === "profile" ? (
-                    <div className="space-y-6">
-                        <ProfileCard me={safeUser} loading={loading} onLogout={handleLogout}/>
-
-                        <VerifyUpdateCard
-                            me={me}
-                            newEmail={newEmail}
-                            setNewEmail={setNewEmail}
-                            onResendEmail={handleVerifyEmail}
-                            onChangeEmail={handleChangeEmail}
-                            phone={phone}
-                            setPhone={setPhone}
-                            otp={otp}
-                            setOtp={setOtp}
-                            onSendOtp={handleSendOtp}
-                            onConfirmOtp={handleConfirmOtp}
-                            verifyingEmail={verifyingEmail}
-                            updatingEmail={updatingEmail}
-                            sendingOtp={sendingOtp}
-                            confirmingOtp={confirmingOtp}
-                        />
-
-                        {!!resolvedMessage && (
-                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
-                                {resolvedMessage}
-                            </div>
-                        )}
-                        {!!resolvedError && (
-                            <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
-                                {resolvedError}
-                            </div>
-                        )}
+            <div className="mx-auto max-w-6xl space-y-6">
+                <section className="rounded-[2rem] bg-[linear-gradient(135deg,#0f172a_0%,#065f46_50%,#d1fae5_125%)] px-6 py-8 text-white shadow-xl">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                        <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-200">Account center</p>
+                            <h1 className="mt-3 text-3xl font-semibold">{user?.displayName || user?.email || "Your account"}</h1>
+                            <p className="mt-2 text-sm text-emerald-50/85">
+                                Wallet {formatTHB(user?.walletBalance ?? 0)} · {cartSummary}
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => void handleLogout()}
+                            className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/15"
+                        >
+                            {t(I18N_KEYS.ACCOUNT_LOGOUT)}
+                        </button>
                     </div>
-                ) : null}
+                </section>
 
-                {activeTab === "transactions" ? (
-                    <section className="space-y-4">
-                        {txnLoading ? (
-                            <p className="text-sm text-slate-500">{t(I18N_KEYS.COMMON_LOADING)}</p>
-                        ) : sortedTransactions.length === 0 ? (
-                            <p className="text-sm text-slate-500">{t(I18N_KEYS.ACCOUNT_TRANSACTIONS_EMPTY)}</p>
-                        ) : (
-                            <ul className="space-y-4">
-                                {sortedTransactions.map((item) => {
-                                    const normalizedType = item.txn_type as keyof typeof TXN_TYPE;
-                                    const normalizedStatus = item.status as TxnStatus;
-                                    const typeLabel = humanTxnType(normalizedType, locale);
-                                    const statusLabel = humanTxnStatus(normalizedStatus, locale);
-                                    const chipClass = chipClassForTxnStatus(normalizedStatus);
-                                    const createdAt = formatInBangkok(item.created_at, locale);
-                                    const expires = item.expired_at ? formatInBangkok(item.expired_at, locale) : null;
-                                    const hasExpired = item.status === "pending" && item.isExpired;
+                <div className="flex flex-wrap gap-3">
+                    {(["profile", "transactions", "orders"] as TabKey[]).map((item) => (
+                        <button
+                            key={item}
+                            type="button"
+                            onClick={() => setTab(item)}
+                            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                tab === item ? "bg-slate-950 text-white" : "bg-white text-slate-600 shadow-sm"
+                            }`}
+                        >
+                            {item === "profile" ? "Profile" : item === "transactions" ? "Transactions" : "Orders"}
+                        </button>
+                    ))}
+                </div>
 
-                                    return (
-                                        <li key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-900">{formatTHB(item.amount)}</p>
-                                                    <p className="text-xs text-slate-500">
-                                                        {t(I18N_KEYS.ACCOUNT_TRANSACTIONS_TYPE)}: {typeLabel}
-                                                    </p>
-                                                    <p className="text-xs text-slate-500 flex items-center gap-2">
-                                                        {t(I18N_KEYS.DETAIL_STATUS_LABEL)}:
-                                                        <span className={chipClass}>{statusLabel}</span>
-                                                    </p>
-                                                    {hasExpired ? (
-                                                        <p className="text-[11px] text-rose-600">
-                                                            {t(I18N_KEYS.ACCOUNT_TRANSACTIONS_EXPIRED)}
-                                                        </p>
-                                                    ) : null}
-                                                    {item.method ? (
-                                                        <p className="text-xs text-slate-500">
-                                                            {item.method.name} ({item.method.code})
-                                                        </p>
-                                                    ) : null}
-                                                    <p className="text-xs text-slate-400">{createdAt}</p>
-                                                    {expires ? (
-                                                        <p className="text-[11px] text-slate-400">
-                                                            {t(I18N_KEYS.DETAIL_EXPIRES_AT)}: {expires}
-                                                        </p>
-                                                    ) : null}
-                                                </div>
-                                                <div className="flex flex-col items-end gap-2">
-                                                    {item.txn_type === "payment" && item.status === "pending" ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => router.push(`/payment/${item.id}`)}
-                                                            className="rounded-xl border border-emerald-200 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
-                                                        >
-                                                            {t(I18N_KEYS.ACCOUNT_TRANSACTIONS_PAY_NOW)}
-                                                        </button>
-                                                    ) : null}
-                                                    {item.status === "accepted" && item.txn_type === "payment" && item.order ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => router.push(`/payment/${item.id}`)}
-                                                            className="rounded-xl border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                                                        >
-                                                            {t(I18N_KEYS.ACCOUNT_TRANSACTIONS_VIEW_ORDER)}
-                                                        </button>
-                                                    ) : null}
-                                                </div>
-                                            </div>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        )}
+                {tab === "profile" ? (
+                    <section className="grid gap-6 lg:grid-cols-[1fr_0.82fr]">
+                        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                            <h2 className="text-lg font-semibold text-slate-900">Profile details</h2>
+                            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                                <label className="space-y-2">
+                                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Display name</span>
+                                    <input
+                                        value={displayName}
+                                        onChange={(event) => setDisplayName(event.target.value)}
+                                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                                    />
+                                </label>
+                                <label className="space-y-2">
+                                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Email</span>
+                                    <input
+                                        type="email"
+                                        value={email}
+                                        onChange={(event) => setEmail(event.target.value)}
+                                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                                    />
+                                </label>
+                                <label className="space-y-2">
+                                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Phone</span>
+                                    <input
+                                        type="tel"
+                                        value={phone}
+                                        onChange={(event) => setPhone(event.target.value)}
+                                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                                    />
+                                </label>
+                            </div>
+                            <div className="mt-5 flex flex-wrap gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => void handleSave()}
+                                    disabled={saving}
+                                    className="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-60"
+                                >
+                                    {saving ? t(I18N_KEYS.COMMON_UPDATING) : "Save profile"}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => void handleVerifyEmail()}
+                                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                                >
+                                    {user?.isEmailVerified ? "Refresh email verification" : "Send verification email"}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                            <h2 className="text-lg font-semibold text-slate-900">Session and wallet</h2>
+                            <div className="mt-5 space-y-4 text-sm">
+                                <div className="rounded-2xl bg-slate-50 p-4">
+                                    <p className="text-slate-500">Provider</p>
+                                    <p className="mt-1 font-semibold text-slate-900">{user?.providerLabel || user?.authProvider || "-"}</p>
+                                </div>
+                                <div className="rounded-2xl bg-slate-50 p-4">
+                                    <p className="text-slate-500">Wallet balance</p>
+                                    <p className="mt-1 text-2xl font-semibold text-slate-900">{formatTHB(user?.walletBalance ?? 0)}</p>
+                                </div>
+                                <div className="rounded-2xl bg-slate-50 p-4">
+                                    <p className="text-slate-500">Verification</p>
+                                    <p className="mt-1 font-semibold text-slate-900">
+                                        Email {user?.isEmailVerified ? "verified" : "pending"} · Phone {user?.isPhoneVerified ? "verified" : "pending"}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
                     </section>
                 ) : null}
 
-                {activeTab === "orders" ? (
-                    <section className="space-y-4">
-                        {orderLoading && ordersData == null ? (
-                            <p className="text-sm text-slate-500">{t(I18N_KEYS.COMMON_LOADING)}</p>
-                        ) : sortedOrders.length === 0 ? (
-                            <p className="text-sm text-slate-500">{t(I18N_KEYS.ACCOUNT_ORDERS_EMPTY)}</p>
-                        ) : (
-                            <ul className="space-y-4">
-                                {sortedOrders.map((order) => {
-                                    const localeKey = locale === "th" ? "th" : "en";
-                                    const statusLabel = STATUS_I18N_KEY[order.displayStatus][localeKey];
-                                    const createdAt = formatInBangkok(order.created_at, locale);
-                                    const txn = order.txn;
-                                    const txnId = txn?.id ?? null;
-                                    const canPayNow = txn?.status === "pending" && !txn.isExpired;
+                {tab === "transactions" ? (
+                    <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                        <h2 className="text-lg font-semibold text-slate-900">Transactions</h2>
+                        <div className="mt-5 space-y-3">
+                            {transactions.length === 0 ? (
+                                <p className="text-sm text-slate-500">No transactions yet.</p>
+                            ) : (
+                                transactions.map((transaction) => (
+                                    <button
+                                        key={transaction.id}
+                                        type="button"
+                                        onClick={() => void router.push(`/payment/${transaction.id}`)}
+                                        className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-4 py-4 text-left transition hover:bg-slate-50"
+                                    >
+                                        <div>
+                                            <p className="text-sm font-semibold text-slate-900">
+                                                {transaction.txnType.toUpperCase()} · {transaction.method?.name ?? "Method"}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-500">{formatDate(transaction.createdAt)}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-sm font-semibold text-slate-900">{formatTHB(transaction.amount)}</p>
+                                            <p className="mt-1 text-xs text-slate-500">{transaction.status.toUpperCase()}</p>
+                                        </div>
+                                    </button>
+                                ))
+                            )}
+                        </div>
+                    </section>
+                ) : null}
 
-                                    return (
-                                        <li key={order.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-900">
-                                                        {order.order_details.branchName}
-                                                    </p>
-                                                    <p className="text-xs text-slate-500">{statusLabel}</p>
-                                                    <p className="text-xs text-slate-400">{createdAt}</p>
-                                                </div>
-                                                {txnId ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => router.push(`/payment/${txnId}`)}
-                                                        className={`rounded-xl px-3 py-1 text-xs font-medium transition ${
-                                                            canPayNow
-                                                                ? "border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                                                                : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-                                                        }`}
-                                                    >
-                                                        {canPayNow
-                                                            ? t(I18N_KEYS.ACCOUNT_TRANSACTIONS_PAY_NOW)
-                                                            : t(I18N_KEYS.ACCOUNT_TRANSACTIONS_VIEW_ORDER)}
-                                                    </button>
-                                                ) : null}
+                {tab === "orders" ? (
+                    <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                        <h2 className="text-lg font-semibold text-slate-900">Orders</h2>
+                        <div className="mt-5 space-y-3">
+                            {orders.length === 0 ? (
+                                <p className="text-sm text-slate-500">No orders yet.</p>
+                            ) : (
+                                orders.map((order) => (
+                                    <button
+                                        key={order.id}
+                                        type="button"
+                                        onClick={() => void router.push(`/payment/${order.transactionId}`)}
+                                        className="w-full rounded-2xl border border-slate-200 px-4 py-4 text-left transition hover:bg-slate-50"
+                                    >
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                                <p className="text-sm font-semibold text-slate-900">
+                                                    Order #{order.id} · {order.branch?.name ?? "Branch"}
+                                                </p>
+                                                <p className="mt-1 text-xs text-slate-500">{formatDate(order.createdAt)}</p>
                                             </div>
-                                            <ul className="mt-3 space-y-2 text-xs text-slate-600">
-                                                {order.order_details.productList.map((product, index) => (
-                                                    <li key={`${product.productId}-${index}`}>
-                                                        <span className="font-medium text-slate-700">{product.productName}</span>{" "}
-                                                        <span className="text-slate-500">
-                                                            {t(I18N_KEYS.CHECKOUT_ITEM_QTY)}
-                                                            {product.qty}
-                                                        </span>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        )}
+                                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{order.status}</span>
+                                        </div>
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                            {order.items.slice(0, 3).map((item) => (
+                                                <span key={item.id} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
+                                                    {item.quantity}x {item.productName}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </button>
+                                ))
+                            )}
+                        </div>
                     </section>
                 ) : null}
             </div>

@@ -171,7 +171,10 @@ export function useI18n() {
     }, [router.isReady, router.query.lang, locale]);
 
     const translate = useCallback(
-        (key: I18nKey, params?: TranslationParams, override?: Locale) => t(key, params ?? undefined, override ?? locale),
+        (key: I18nKey, params?: TranslationParams, override?: Locale) => {
+            const nextLocale = override ?? locale;
+            return params ? t(key, params, nextLocale) : t(key, nextLocale);
+        },
         [locale]
     );
 

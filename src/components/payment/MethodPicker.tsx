@@ -8,6 +8,8 @@ type MethodPickerProps = {
     selectedId: number | null;
     onSelect: (methodId: number) => void;
     loading?: boolean;
+    title?: string;
+    subtitle?: string;
 };
 
 const METHOD_I18N: Record<string, I18nKey> = {
@@ -15,7 +17,7 @@ const METHOD_I18N: Record<string, I18nKey> = {
     balance: I18N_KEYS.PAYMENT_METHOD_BALANCE,
 };
 
-export function MethodPicker({ methods, selectedId, onSelect, loading }: MethodPickerProps) {
+export function MethodPicker({ methods, selectedId, onSelect, loading, title, subtitle }: MethodPickerProps) {
     const { t } = useI18n();
 
     if (loading) {
@@ -36,10 +38,12 @@ export function MethodPicker({ methods, selectedId, onSelect, loading }: MethodP
 
     return (
         <div className="space-y-3">
+            {title ? <h3 className="text-base font-semibold text-slate-900">{title}</h3> : null}
+            {subtitle ? <p className="text-sm text-slate-500">{subtitle}</p> : null}
             {methods.map((method) => {
                 const isActive = selectedId === method.id;
-                const typeKey = METHOD_I18N[method.type];
-                const typeLabel = typeKey ? t(typeKey) : method.type;
+                const typeKey = METHOD_I18N[method.methodType];
+                const typeLabel = typeKey ? t(typeKey) : method.methodType;
                 return (
                     <button
                         key={method.id}

@@ -5,295 +5,213 @@ import type { EmailPasswordPayload } from "@components/auth";
 import { auth, googleProvider, makeRecaptcha } from "@utils/firebaseClient";
 import {
     ConfirmationResult,
+    createUserWithEmailAndPassword,
+    sendEmailVerification,
     signInWithEmailAndPassword,
     signInWithPhoneNumber,
     signInWithPopup,
 } from "firebase/auth";
-import axios, { type ApiResponse } from "@utils/apiClient";
 import { useAppDispatch } from "@store/index";
 import { logout, setTokens, setUser } from "@store/authSlice";
 import { useRouter } from "next/router";
-import { clearTokens, clearUser, saveTokens, saveUser } from "@utils/tokenStorage";
-import type { UserRecord } from "@/types";
+import { clearCart, clearConfig, clearTokens, clearUser, saveTokens, saveUser } from "@utils/tokenStorage";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
+import { loginWithFirebase } from "@/services/auth";
+
 type Tab = "login" | "signup";
-
-type AuthTokens = { accessToken: string; refreshToken: string };
-type AuthSuccessBody = AuthTokens & { user: UserRecord };
-
-function extractAuth(
-    body: AuthSuccessBody | null | undefined,
-    invalidMessage: string
-): { tokens: AuthTokens; user: UserRecord } {
-    if (!body?.accessToken || !body?.refreshToken || !body?.user) {
-        throw new Error(invalidMessage);
-    }
-    return {
-        tokens: {
-            accessToken: body.accessToken,
-            refreshToken: body.refreshToken,
-        },
-        user: body.user,
-    };
-}
 
 export default function LoginSignupPage() {
     const dispatch = useAppDispatch();
     const router = useRouter();
     const [tab, setTab] = useState<Tab>("login");
     const { t } = useI18n();
-
     const [message, setMessage] = useState("");
     const [lastError, setLastError] = useState<{ code?: string; message?: string } | null>(null);
     const [submitting, setSubmitting] = useState(false);
-
     const confirmRef = useRef<ConfirmationResult | null>(null);
 
-    const brandName = t(I18N_KEYS.BRAND_NAME);
-    const heroTagline = t(I18N_KEYS.AUTH_TAGLINE);
-    const welcomeTitle = `${t(I18N_KEYS.AUTH_WELCOME_PREFIX)} ${brandName}`;
-    const heroSubtitle = tab === "login" ? t(I18N_KEYS.AUTH_SUBTITLE_LOGIN) : t(I18N_KEYS.AUTH_SUBTITLE_SIGNUP);
-    const quickTitle = tab === "login" ? t(I18N_KEYS.AUTH_QUICK_TITLE_LOGIN) : t(I18N_KEYS.AUTH_QUICK_TITLE_SIGNUP);
+    const finishLogin = async (idToken: string) => {
+        const response = await loginWithFirebase(idToken);
+        dispatch(setTokens({ accessToken: response.accessToken, refreshToken: response.refreshToken }));
+        dispatch(setUser(response.user));
+        saveTokens({ accessToken: response.accessToken, refreshToken: response.refreshToken });
+        saveUser(response.user);
+        await router.replace("/");
+    };
 
-    const boot = () => {
+    const resetState = () => {
         setMessage("");
         setLastError(null);
     };
 
-    const finishLogin = async (idToken: string) => {
-        const response = await axios.post<ApiResponse<AuthSuccessBody>>("/api/login", { idToken });
-        const { tokens, user } = extractAuth(response.data.body, t(I18N_KEYS.AUTH_INVALID_RESPONSE));
-        dispatch(setTokens(tokens));
-        dispatch(setUser(user));
-        saveTokens(tokens);
-        saveUser(user);
-        router.replace("/");
-    };
-
-    const finishSignupWithIdToken = async (idToken: string, provider: "google" | "phone") => {
-        const response = await axios.post<ApiResponse<AuthSuccessBody>>("/api/signup", { provider, idToken });
-        const { tokens, user } = extractAuth(response.data.body, t(I18N_KEYS.AUTH_INVALID_RESPONSE));
-        dispatch(setTokens(tokens));
-        dispatch(setUser(user));
-        saveTokens(tokens);
-        saveUser(user);
-        router.replace("/");
+    const handleAuthError = (error: any, fallbackKey: string) => {
+        const resolved = error?.response?.data?.message || error?.message || t(fallbackKey as any);
+        setLastError({ code: error?.code, message: resolved });
+        setMessage(resolved);
+        throw new Error(resolved);
     };
 
     const onLoginEmail = async ({ email, password }: EmailPasswordPayload) => {
+        resetState();
+        setSubmitting(true);
         try {
-            boot();
-            setSubmitting(true);
             const credential = await signInWithEmailAndPassword(auth, email, password);
             const idToken = await credential.user.getIdToken();
             await finishLogin(idToken);
         } catch (error: any) {
-            const fallback = t(I18N_KEYS.AUTH_LOGIN_FAILED);
-            const responseMessage = error?.response?.data?.message;
-            const rawMessage = typeof responseMessage === "string" && responseMessage.length > 0 ? responseMessage : error?.message;
-            const resolved = typeof rawMessage === "string" && rawMessage.length > 0 ? rawMessage : fallback;
-            setLastError({ code: error?.code, message: resolved });
-            setMessage(resolved);
-            throw new Error(resolved);
+            handleAuthError(error, I18N_KEYS.AUTH_LOGIN_FAILED);
         } finally {
             setSubmitting(false);
         }
     };
 
-    const onSignupEmail = async ({ email, password, sendVerifyEmail }: EmailPasswordPayload) => {
+    const onSignupEmail = async ({ email, password, sendVerifyEmail: shouldVerify }: EmailPasswordPayload) => {
+        resetState();
+        setSubmitting(true);
         try {
-            boot();
-            setSubmitting(true);
-            if (!email || !password) throw new Error(t(I18N_KEYS.AUTH_EMAIL_PASSWORD_REQUIRED));
-            const response = await axios.post<ApiResponse<AuthSuccessBody>>("/api/signup", {
-                provider: "password",
-                email,
-                password,
-                sendVerifyEmail,
-            });
-            const { tokens, user } = extractAuth(response.data.body, t(I18N_KEYS.AUTH_INVALID_RESPONSE));
-            dispatch(setTokens(tokens));
-            dispatch(setUser(user));
-            saveTokens(tokens);
-            saveUser(user);
-            try {
-                await signInWithEmailAndPassword(auth, email, password);
-            } catch {
-                /* ignore */
+            const credential = await createUserWithEmailAndPassword(auth, email, password);
+            if (shouldVerify) {
+                await sendEmailVerification(credential.user);
             }
-            router.replace("/");
+            const idToken = await credential.user.getIdToken();
+            await finishLogin(idToken);
+            if (shouldVerify) {
+                setMessage(t(I18N_KEYS.ACCOUNT_MESSAGE_VERIFICATION_SENT));
+            }
         } catch (error: any) {
-            const fallback = t(I18N_KEYS.AUTH_SIGNUP_FAILED);
-            const responseMessage = error?.response?.data?.message;
-            const rawMessage = typeof responseMessage === "string" && responseMessage.length > 0 ? responseMessage : error?.message;
-            const resolved = typeof rawMessage === "string" && rawMessage.length > 0 ? rawMessage : fallback;
-            const code = error?.response?.data?.code || error?.code;
-            setLastError({ code, message: resolved });
-            setMessage(resolved);
-            throw new Error(resolved);
+            handleAuthError(error, I18N_KEYS.AUTH_SIGNUP_FAILED);
         } finally {
             setSubmitting(false);
         }
     };
 
-    const onLoginGoogle = async () => {
+    const onGoogle = async () => {
+        resetState();
+        setSubmitting(true);
         try {
-            boot();
-            setSubmitting(true);
             const credential = await signInWithPopup(auth, googleProvider);
             const idToken = await credential.user.getIdToken();
             await finishLogin(idToken);
         } catch (error: any) {
-            const fallback = t(I18N_KEYS.AUTH_LOGIN_FAILED);
-            const responseMessage = error?.response?.data?.message;
-            const rawMessage = typeof responseMessage === "string" && responseMessage.length > 0 ? responseMessage : error?.message;
-            const resolved = typeof rawMessage === "string" && rawMessage.length > 0 ? rawMessage : fallback;
-            setLastError({ code: error?.code, message: resolved });
-            setMessage(resolved);
+            setLastError({ code: error?.code, message: error?.message || t(I18N_KEYS.AUTH_LOGIN_FAILED) });
+            setMessage(error?.message || t(I18N_KEYS.AUTH_LOGIN_FAILED));
         } finally {
             setSubmitting(false);
         }
     };
 
-    const onSignupGoogle = async () => {
-        try {
-            boot();
-            setSubmitting(true);
-            const credential = await signInWithPopup(auth, googleProvider);
-            const idToken = await credential.user.getIdToken();
-            await finishSignupWithIdToken(idToken, "google");
-        } catch (error: any) {
-            const fallback = t(I18N_KEYS.AUTH_SIGNUP_FAILED);
-            const responseMessage = error?.response?.data?.message;
-            const rawMessage = typeof responseMessage === "string" && responseMessage.length > 0 ? responseMessage : error?.message;
-            const resolved = typeof rawMessage === "string" && rawMessage.length > 0 ? rawMessage : fallback;
-            setLastError({ code: error?.code, message: resolved });
-            setMessage(resolved);
-        } finally {
-            setSubmitting(false);
-        }
+    const onLine = async () => {
+        dispatch(logout());
+        clearTokens();
+        clearUser();
+        clearCart();
+        clearConfig();
+        await router.replace("/web-hook-line");
     };
 
-    const onLoginLine = async () => {
-        try {
-            dispatch(logout());
-            clearTokens();
-            clearUser();
-            router.replace("/web-hook-line");
-        } catch (error: any) {
-            const fallback = t(I18N_KEYS.AUTH_LINE_LOGIN_FAILED);
-            const resolved = typeof error?.message === "string" && error.message.length > 0 ? error.message : fallback;
-            setLastError({ code: error?.code, message: resolved });
-            setMessage(resolved);
-        }
-    };
-
-    const handleSocialGoogle = async () => {
-        if (tab === "login") {
-            await onLoginGoogle();
-        } else {
-            await onSignupGoogle();
-        }
-    };
-
-    const handlePhoneSend = async (phoneNumber: string) => {
-        boot();
+    const onPhoneSend = async (phoneNumber: string) => {
+        resetState();
         setSubmitting(true);
         try {
             const verifier = makeRecaptcha(tab === "login" ? "btn-login-phone-otp" : "btn-signup-phone-otp");
-            const confirmation = await signInWithPhoneNumber(auth, phoneNumber, verifier);
-            confirmRef.current = confirmation;
+            confirmRef.current = await signInWithPhoneNumber(auth, phoneNumber, verifier);
             setMessage(t(I18N_KEYS.AUTH_OTP_SENT));
         } catch (error: any) {
-            const fallback = t(I18N_KEYS.AUTH_OTP_SEND_FAILED);
-            const resolved = typeof error?.message === "string" && error.message.length > 0 ? error.message : fallback;
-            setLastError({ code: error?.code, message: resolved });
-            setMessage(resolved);
-            throw new Error(resolved);
+            handleAuthError(error, I18N_KEYS.AUTH_OTP_SEND_FAILED);
         } finally {
             setSubmitting(false);
         }
     };
 
-    const handlePhoneConfirm = async (code: string) => {
+    const onPhoneConfirm = async (code: string) => {
         setSubmitting(true);
         try {
             if (!confirmRef.current) {
                 throw new Error(t(I18N_KEYS.AUTH_SEND_OTP_FIRST));
             }
-            if (!/^\d{6}$/.test(code)) {
-                throw new Error(t(I18N_KEYS.AUTH_ENTER_OTP));
-            }
             const result = await confirmRef.current.confirm(code);
             const idToken = await result.user.getIdToken();
-            if (tab === "login") {
-                await finishLogin(idToken);
-            } else {
-                await finishSignupWithIdToken(idToken, "phone");
-            }
+            await finishLogin(idToken);
         } catch (error: any) {
-            const fallback = t(I18N_KEYS.AUTH_OTP_DEFAULT_ERROR);
-            const resolved = typeof error?.message === "string" && error.message.length > 0 ? error.message : fallback;
-            setLastError({ code: error?.code, message: resolved });
-            setMessage(resolved);
-            throw new Error(resolved);
+            handleAuthError(error, I18N_KEYS.AUTH_OTP_DEFAULT_ERROR);
         } finally {
             setSubmitting(false);
         }
     };
 
+    const brandName = t(I18N_KEYS.BRAND_NAME);
+
     return (
         <Layout>
-            <div className="min-h-[80vh] bg-gradient-to-b from-emerald-50/60 to-white flex items-center">
-                <div className="w-full max-w-4xl mx-auto px-4">
-                    <div className="text-center mb-8">
-                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-medium mb-3">
-                            {heroTagline}
+            <div className="min-h-[82vh] bg-[radial-gradient(circle_at_top_right,_rgba(16,185,129,0.18),_transparent_28%),linear-gradient(180deg,#ecfdf5_0%,#ffffff_55%)] flex items-center">
+                <div className="mx-auto w-full max-w-5xl px-4">
+                    <div className="mb-8 text-center">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                            {t(I18N_KEYS.AUTH_TAGLINE)}
                         </div>
-                        <h1 className="text-4xl font-extrabold tracking-tight">{welcomeTitle}</h1>
-                        <p className="text-slate-500 mt-1">{heroSubtitle}</p>
+                        <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-950">
+                            {t(I18N_KEYS.AUTH_WELCOME_PREFIX)} {brandName}
+                        </h1>
+                        <p className="mt-2 text-slate-500">
+                            Use Firebase for identity and the Go backend for app sessions, cart, and order state.
+                        </p>
                     </div>
 
-                    <div className="bg-white/80 backdrop-blur border border-slate-200 rounded-3xl shadow-sm p-2">
-                        <AuthTabs value={tab} onChange={setTab} />
-                        <div className="grid md:grid-cols-2 gap-4 p-4 md:p-6">
-                            <div className="rounded-2xl border border-slate-200 p-4 md:p-6">
-                                <h2 className="text-lg font-semibold mb-4">{t(I18N_KEYS.AUTH_EMAIL_PASSWORD_TITLE)}</h2>
-                                {tab === "login" ? (
-                                    <EmailPasswordForm mode="login" onSubmit={onLoginEmail} submitting={submitting} />
-                                ) : (
-                                    <EmailPasswordForm mode="signup" onSubmit={onSignupEmail} submitting={submitting} />
-                                )}
-                            </div>
-                            <div className="rounded-2xl border border-slate-200 p-4 md:p-6">
-                                <h2 className="text-lg font-semibold mb-4">{quickTitle}</h2>
-                                <SocialButtons mode={tab} onGoogle={handleSocialGoogle} onLine={onLoginLine} submitting={submitting} />
-                                <div className="mt-4">
-                                    <PhoneAuthSection
-                                        mode={tab}
-                                        onSendOtp={handlePhoneSend}
-                                        onConfirmOtp={handlePhoneConfirm}
-                                        submitting={submitting}
-                                        buttonId={tab === "login" ? "btn-login-phone-otp" : "btn-signup-phone-otp"}
-                                    />
+                    <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-xl">
+                        <div className="grid lg:grid-cols-[0.95fr_1.05fr]">
+                            <section className="bg-[linear-gradient(160deg,#052e2b_0%,#064e3b_38%,#10b981_115%)] p-8 text-white">
+                                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">Fast checkout stack</p>
+                                <h2 className="mt-4 text-3xl font-semibold">Sign in once and keep your cart, wallet, and orders in sync.</h2>
+                                <p className="mt-4 text-sm leading-6 text-emerald-50/85">
+                                    This upgrade separates the mobile frontend from the backend service, so auth exchange, cart state,
+                                    checkout, and payment verification all run through a dedicated Go API.
+                                </p>
+                            </section>
+
+                            <section className="p-6 sm:p-8">
+                                <AuthTabs value={tab} onChange={setTab} />
+                                <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                                    <div className="rounded-3xl border border-slate-200 p-5">
+                                        <h2 className="text-lg font-semibold text-slate-900">{t(I18N_KEYS.AUTH_EMAIL_PASSWORD_TITLE)}</h2>
+                                        <div className="mt-4">
+                                            {tab === "login" ? (
+                                                <EmailPasswordForm mode="login" onSubmit={onLoginEmail} submitting={submitting} />
+                                            ) : (
+                                                <EmailPasswordForm mode="signup" onSubmit={onSignupEmail} submitting={submitting} />
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-3xl border border-slate-200 p-5">
+                                        <h2 className="text-lg font-semibold text-slate-900">
+                                            {tab === "login" ? t(I18N_KEYS.AUTH_QUICK_TITLE_LOGIN) : t(I18N_KEYS.AUTH_QUICK_TITLE_SIGNUP)}
+                                        </h2>
+                                        <div className="mt-4 space-y-4">
+                                            <SocialButtons mode={tab} onGoogle={onGoogle} onLine={onLine} submitting={submitting} />
+                                            <PhoneAuthSection
+                                                mode={tab}
+                                                onSendOtp={onPhoneSend}
+                                                onConfirmOtp={onPhoneConfirm}
+                                                submitting={submitting}
+                                                buttonId={tab === "login" ? "btn-login-phone-otp" : "btn-signup-phone-otp"}
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
-                        <div className="px-4 pb-4 md:px-6 space-y-3">
-                            {!!message && (
-                                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div>
-                            )}
-                            {!!lastError && (
-                                <pre className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 overflow-x-auto">
-{JSON.stringify(lastError, null, 2)}
-                                </pre>
-                            )}
-                        </div>
-                    </div>
 
-                    <div className="text-center text-xs text-slate-500 mt-6">
-                        © {new Date().getFullYear()} {brandName}. {t(I18N_KEYS.AUTH_COPYRIGHT_TAGLINE)}
+                                {message ? (
+                                    <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                                        {message}
+                                    </div>
+                                ) : null}
+                                {lastError ? (
+                                    <pre className="mt-3 overflow-x-auto rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+{JSON.stringify(lastError, null, 2)}
+                                    </pre>
+                                ) : null}
+                            </section>
+                        </div>
                     </div>
                 </div>
             </div>

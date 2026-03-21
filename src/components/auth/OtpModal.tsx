@@ -107,7 +107,9 @@ const OtpModal: React.FC<OtpModalProps> = ({ open, phone, error, onClose, onVeri
                 {Array.from({ length: BOXES }).map((_, index) => (
                     <input
                         key={index}
-                        ref={(element) => (inputsRef.current[index] = element)}
+                        ref={(element) => {
+                            inputsRef.current[index] = element;
+                        }}
                         className="h-12 w-12 rounded-xl border border-slate-200 text-center text-lg font-semibold outline-none focus:ring-4 focus:ring-emerald-100 focus:border-emerald-400"
                         inputMode="numeric"
                         maxLength={1}

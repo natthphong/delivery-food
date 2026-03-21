@@ -6,9 +6,10 @@ import { setTokens, logout } from "@/store/authSlice";
 import { saveTokens } from "@utils/tokenStorage";
 
 export type ApiResponse<T> = { code: string; message: string; body: T };
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
 
 const axios = Axios.create({
-    baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || "",
+    baseURL: API_BASE_URL,
     withCredentials: false,
 });
 
@@ -44,7 +45,7 @@ axios.interceptors.response.use(
                 try {
                     const rt = store.getState().auth.refreshToken;
                     if (!rt) throw new Error("no_refresh");
-                    const r = await Axios.post<ApiResponse<{ accessToken: string; refreshToken: string }>>("/api/refresh-token", {
+                    const r = await Axios.post<ApiResponse<{ accessToken: string; refreshToken: string }>>(`${API_BASE_URL}/v1/auth/refresh`, {
                         refreshToken: rt,
                     });
                     const tokens = r.data?.body;

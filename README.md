@@ -1,38 +1,123 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Delivery Food
 
-## Getting Started
+Mobile-first food ordering application with a Next.js frontend, a dedicated Go backend, and versioned PostgreSQL migrations.
 
-First, run the development server:
+## What Changed
+
+The repository is now split clearly by responsibility:
+
+- Next.js handles presentation, route orchestration, and client state
+- Go handles API routing, validation, business logic, database access, and transactions
+- SQL migrations in `sql/` define schema, baseline configuration, and preset data
+
+Start with [`AGENTS.md`](./AGENTS.md) for the developer source of truth.
+
+## Repository Layout
+
+- `src/`: Next.js frontend
+- `go_backend/`: Go API service
+- `sql/`: versioned schema, seed, and indexing migrations
+- `docs/`: project, architecture, schema, API, testing, and responsive UI docs
+
+## Local Development
+
+### 1. Frontend env
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-Use `npm run dev` and open `/convert` (Pages Router) and `/` (App Router) to verify Tailwind styles.
+Required frontend vars:
 
+- `NEXT_PUBLIC_API_BASE_URL`
+- `NEXT_PUBLIC_FIREBASE_API_KEY`
+- `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
+- `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
+- `NEXT_PUBLIC_LINE_LIFF_ID`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 2. Backend env
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+cp go_backend/.env.example go_backend/.env
+```
 
-## Learn More
+Required backend vars:
 
-To learn more about Next.js, take a look at the following resources:
+- `APP_JWT_SECRET`
+- database connection values or `DATABASE_URL`
+- `FIREBASE_API_KEY` for Firebase token exchange
+- `SLIPOK_*` values if using remote slip verification
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 3. Run migrations
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run backend:migrate
+```
 
-## Deploy on Vercel
+### 4. Start both services
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Frontend:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run dev:frontend
+```
+
+Backend:
+
+```bash
+npm run dev:backend
+```
+
+Default local URLs:
+
+- frontend: `http://localhost:3000`
+- backend: `http://localhost:8080`
+
+## Verification
+
+Frontend build:
+
+```bash
+npm run build
+```
+
+Frontend tests:
+
+```bash
+npm test
+```
+
+Backend tests:
+
+```bash
+npm run backend:test
+```
+
+Full verification:
+
+```bash
+npm run verify
+```
+
+## Main Flows
+
+- login with Firebase or LINE
+- discover nearby branches by keyword/category/location
+- browse branch menu and featured dishes
+- add items with add-ons to a normalized cart
+- checkout with delivery location confirmation
+- pay by wallet or QR/slip
+- view payment details, orders, and account history
+- top up wallet balance through deposit transactions
+
+## Documentation
+
+- [`AGENTS.md`](./AGENTS.md)
+- [`docs/PROJECT_STRUCTURE.md`](./docs/PROJECT_STRUCTURE.md)
+- [`docs/FEATURES.md`](./docs/FEATURES.md)
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
+- [`docs/DB_SCHEMA.md`](./docs/DB_SCHEMA.md)
+- [`docs/API_CONTRACT.md`](./docs/API_CONTRACT.md)
+- [`docs/TESTING.md`](./docs/TESTING.md)
+- [`docs/MIGRATION_GUIDE.md`](./docs/MIGRATION_GUIDE.md)
+- [`docs/RESPONSIVE_UI_GUIDE.md`](./docs/RESPONSIVE_UI_GUIDE.md)
