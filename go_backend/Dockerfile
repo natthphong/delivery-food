@@ -3,4 +3,5 @@ RUN apk --no-cache add tzdata curl coreutils
 ENV TZ=Asia/Bangkok
 WORKDIR /app
 COPY ./goapp ./goapp
+COPY ../sql ../sql
 CMD ["./goapp"]
