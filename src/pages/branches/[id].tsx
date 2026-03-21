@@ -16,6 +16,7 @@ import { addCartItem } from "@/services/cart";
 import { notify } from "@/utils/notify";
 import type { BranchProduct } from "@/components/branch/BranchProductCard";
 import type { BranchSummary } from "@/types";
+import { parseApiError } from "@/utils/apiErrors";
 
 type Product = BranchProduct;
 
@@ -37,6 +38,9 @@ function normalizeMenuItem(item: any): Product {
             price: addOn.price,
         })),
         isRecommended: item.isRecommended,
+        isTemporarilyClosed: item.isTemporarilyClosed,
+        availabilityNote: item.availabilityNote,
+        reorderLevel: item.reorderLevel,
     };
 }
 
@@ -108,7 +112,7 @@ const BranchPage: NextPage = () => {
                 setError(null);
             } catch (err: any) {
                 if (ignore) return;
-                setError(err?.message || t(I18N_KEYS.BRANCH_LOAD_ERROR));
+                setError(parseApiError(err, t(I18N_KEYS.BRANCH_LOAD_ERROR)).message);
                 setProducts([]);
             } finally {
                 if (!ignore) setLoading(false);
@@ -125,6 +129,9 @@ const BranchPage: NextPage = () => {
         if (!branch) return null;
         if (branch.isForceClosed) {
             return { label: t(I18N_KEYS.BRANCH_CLOSED_MANUAL), className: "border-rose-200 bg-rose-50 text-rose-700" };
+        }
+        if (!branch.acceptingOrders) {
+            return { label: t(I18N_KEYS.BRANCH_ORDERS_PAUSED), className: "border-amber-200 bg-amber-50 text-amber-700" };
         }
         if (branch.isOpen) {
             return { label: t(I18N_KEYS.BRANCH_OPEN), className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
@@ -156,7 +163,7 @@ const BranchPage: NextPage = () => {
             setSelectedAddOns({});
             setQuantity(1);
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || t(I18N_KEYS.BRANCH_SAVE_ERROR), "error");
+            notify(parseApiError(error, t(I18N_KEYS.BRANCH_SAVE_ERROR)).message, "error");
         } finally {
             setSaving(false);
         }
@@ -171,6 +178,11 @@ const BranchPage: NextPage = () => {
                         address={branch.addressLine}
                         imageUrl={branch.imageUrl}
                         status={statusBadge}
+                        description={branch.description}
+                        operationalNote={branch.operationalNote}
+                        supportsPickup={branch.supportsPickup}
+                        supportsRiderDelivery={branch.supportsRiderDelivery}
+                        riderDeliveryFee={branch.riderDeliveryFee}
                     />
                 ) : null}
 
@@ -194,9 +206,14 @@ const BranchPage: NextPage = () => {
                     <div className="flex items-center justify-between gap-3">
                         <div>
                             <h2 className="text-lg font-semibold text-slate-900">{t(I18N_KEYS.BRANCH_MENU_TITLE)}</h2>
-                            <p className="text-sm text-slate-500">Designed for one-thumb browsing and larger tap targets.</p>
+                            <p className="text-sm text-slate-500">{t(I18N_KEYS.BRANCH_MENU_SUBTITLE)}</p>
                         </div>
                     </div>
+                    {branch?.acceptingOrders === false ? (
+                        <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                            {t(I18N_KEYS.BRANCH_ORDERS_PAUSED)}
+                        </div>
+                    ) : null}
                     <BranchMenuGrid products={products} onPick={(product) => {
                         setSelectedProduct(product);
                         setSelectedAddOns(

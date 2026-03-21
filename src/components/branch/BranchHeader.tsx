@@ -9,9 +9,24 @@ type Props = {
     address?: string | null;
     imageUrl?: string | null;
     status: BranchStatusBadge;
+    description?: string | null;
+    operationalNote?: string | null;
+    supportsPickup?: boolean;
+    supportsRiderDelivery?: boolean;
+    riderDeliveryFee?: number;
 };
 
-const BranchHeader: React.FC<Props> = ({ name, address, imageUrl, status }) => {
+const BranchHeader: React.FC<Props> = ({
+    name,
+    address,
+    imageUrl,
+    status,
+    description,
+    operationalNote,
+    supportsPickup,
+    supportsRiderDelivery,
+    riderDeliveryFee,
+}) => {
     const { t } = useI18n();
 
     return (
@@ -30,6 +45,7 @@ const BranchHeader: React.FC<Props> = ({ name, address, imageUrl, status }) => {
                     <div>
                         <h1 className="text-2xl font-semibold text-slate-900">{name}</h1>
                         {address && <p className="text-sm text-slate-500">{address}</p>}
+                        {description ? <p className="mt-3 max-w-2xl text-sm text-slate-600">{description}</p> : null}
                     </div>
                     {status && (
                         <span
@@ -39,6 +55,23 @@ const BranchHeader: React.FC<Props> = ({ name, address, imageUrl, status }) => {
                         </span>
                     )}
                 </div>
+                <div className="flex flex-wrap gap-2">
+                    {supportsPickup ? (
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                            {t(I18N_KEYS.BRANCH_PICKUP_READY)}
+                        </span>
+                    ) : null}
+                    {supportsRiderDelivery ? (
+                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                            {t(I18N_KEYS.BRANCH_RIDER_DELIVERY)}
+                        </span>
+                    ) : null}
+                </div>
+                {operationalNote ? (
+                    <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                        {operationalNote}
+                    </div>
+                ) : null}
             </div>
         </div>
     );

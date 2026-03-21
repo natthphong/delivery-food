@@ -9,6 +9,7 @@ type AppError struct {
 	Code       string
 	Message    string
 	StatusCode int
+	Body       any
 	Err        error
 }
 
@@ -22,6 +23,10 @@ func (e *AppError) Unwrap() error {
 
 func New(statusCode int, code, message string) *AppError {
 	return &AppError{StatusCode: statusCode, Code: code, Message: message}
+}
+
+func NewWithBody(statusCode int, code, message string, body any) *AppError {
+	return &AppError{StatusCode: statusCode, Code: code, Message: message, Body: body}
 }
 
 func Wrap(statusCode int, code, message string, err error) *AppError {
@@ -46,6 +51,12 @@ func NotFound(message string) *AppError {
 
 func Conflict(message string) *AppError {
 	return New(http.StatusConflict, "CONFLICT", message)
+}
+
+func Validation(message string, fieldErrors map[string]string) *AppError {
+	return NewWithBody(http.StatusUnprocessableEntity, "VALIDATION_ERROR", message, map[string]any{
+		"fieldErrors": fieldErrors,
+	})
 }
 
 func Internal(message string, err error) *AppError {

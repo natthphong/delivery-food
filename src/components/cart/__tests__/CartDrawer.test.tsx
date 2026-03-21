@@ -3,6 +3,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import auth from "@/store/authSlice";
+import adminAuth from "@/store/adminAuthSlice";
 import cart from "@/store/cartSlice";
 import config from "@/store/configSlice";
 import notifications from "@/store/notificationsSlice";
@@ -17,13 +18,17 @@ jest.mock("next/router", () => ({
     }),
 }));
 
-jest.mock("@/utils/i18n", () => ({
-    useI18n: () => ({
-        locale: "en",
-        t: (key: string) => key,
-        setLocale: jest.fn(),
-    }),
-}));
+jest.mock("@/utils/i18n", () => {
+    const translate = (key: string) => key;
+    return {
+        useI18n: () => ({
+            locale: "en",
+            t: translate,
+            setLocale: jest.fn(),
+        }),
+        t: translate,
+    };
+});
 
 jest.mock("@/utils/notify", () => ({
     notify: (...args: unknown[]) => notify(...args),
@@ -45,7 +50,7 @@ function renderDrawer(cartState: {
             quantity: number;
             unitPrice: number;
             stockQty: number | null;
-            addOns: Array<{ name: string; price: number }>;
+            addOns: Array<{ name: string; price: number }> | null;
             lineTotal: number;
             variantKey: string;
             createdAt: string;
@@ -58,9 +63,10 @@ function renderDrawer(cartState: {
     lastSyncedAt: string;
 }) {
     const store = configureStore({
-        reducer: { auth, cart, config, notifications },
+        reducer: { auth, adminAuth, cart, config, notifications },
         preloadedState: {
             auth: { accessToken: "access", refreshToken: "refresh", user: null },
+            adminAuth: { accessToken: null, refreshToken: null, session: null },
             cart: { value: cartState },
             config: { values: {} },
             notifications: { items: [] },
@@ -119,7 +125,7 @@ describe("CartDrawer", () => {
         });
 
         await user.click(screen.getByRole("checkbox"));
-        await user.click(screen.getByRole("button", { name: /Proceed to checkout/i }));
+        await user.click(screen.getByRole("button", { name: "cart.proceedCheckout" }));
 
         await waitFor(() => expect(push).toHaveBeenCalledWith("/checkout"));
         expect(JSON.parse(window.localStorage.getItem(CHECKOUT_DRAFT_KEY) || "null")).toEqual({
@@ -191,10 +197,84 @@ describe("CartDrawer", () => {
         const checkboxes = screen.getAllByRole("checkbox");
         await user.click(checkboxes[0]);
         await user.click(checkboxes[1]);
-        await user.click(screen.getByRole("button", { name: /Proceed to checkout/i }));
+        await user.click(screen.getByRole("button", { name: "cart.proceedCheckout" }));
 
-        expect(notify).toHaveBeenCalledWith("Select items from a single branch before checkout.", "warning");
+        expect(notify).toHaveBeenCalledWith("cart.singleBranchWarning", "warning");
         expect(push).not.toHaveBeenCalled();
         expect(window.localStorage.getItem(CHECKOUT_DRAFT_KEY)).toBeNull();
+    });
+
+    it("renders safely when persisted cart items contain null add-ons", () => {
+        renderDrawer({
+            groups: [
+                {
+                    branchId: 1,
+                    companyId: 1,
+                    branchName: "BaanFoodie Siam",
+                    branchImage: null,
+                    subTotal: 89,
+                    items: [
+                        {
+                            id: 12,
+                            branchId: 1,
+                            productId: 2,
+                            productName: "Green Curry",
+                            imageUrl: null,
+                            quantity: 1,
+                            unitPrice: 89,
+                            stockQty: 8,
+                            addOns: null,
+                            lineTotal: 89,
+                            variantKey: "2:[]",
+                            createdAt: "2024-01-01T00:00:00.000Z",
+                            updatedAt: "2024-01-01T00:00:00.000Z",
+                        },
+                    ],
+                },
+            ],
+            totalAmount: 89,
+            totalItems: 1,
+            totalQuantity: 1,
+            lastSyncedAt: "2024-01-01T00:00:00.000Z",
+        });
+
+        expect(screen.getByText("Green Curry")).toBeInTheDocument();
+    });
+
+    it("renders add-on names when they are present", () => {
+        renderDrawer({
+            groups: [
+                {
+                    branchId: 1,
+                    companyId: 1,
+                    branchName: "BaanFoodie Siam",
+                    branchImage: null,
+                    subTotal: 99,
+                    items: [
+                        {
+                            id: 13,
+                            branchId: 1,
+                            productId: 4,
+                            productName: "Tom Yum Fried Rice",
+                            imageUrl: null,
+                            quantity: 1,
+                            unitPrice: 99,
+                            stockQty: 8,
+                            addOns: [{ name: "ไข่ดาว", price: 15 }],
+                            lineTotal: 114,
+                            variantKey: "4:[1]",
+                            createdAt: "2024-01-01T00:00:00.000Z",
+                            updatedAt: "2024-01-01T00:00:00.000Z",
+                        },
+                    ],
+                },
+            ],
+            totalAmount: 114,
+            totalItems: 1,
+            totalQuantity: 1,
+            lastSyncedAt: "2024-01-01T00:00:00.000Z",
+        });
+
+        expect(screen.getByText("ไข่ดาว")).toBeInTheDocument();
     });
 });

@@ -29,7 +29,7 @@ func WriteOK(w http.ResponseWriter, body interface{}) {
 
 func WriteError(w http.ResponseWriter, err error) {
 	if appErr, ok := apperror.As(err); ok {
-		WriteJSON(w, appErr.StatusCode, appErr.Code, appErr.Message, nil)
+		WriteJSON(w, appErr.StatusCode, appErr.Code, appErr.Message, appErr.Body)
 		return
 	}
 	WriteJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error", nil)

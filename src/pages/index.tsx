@@ -10,6 +10,7 @@ import { getCurrentPositionWithPermission } from "@utils/geo";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import { searchBranches } from "@/services/catalog";
+import { parseApiError } from "@/utils/apiErrors";
 
 const SearchPage: NextPage = () => {
     const router = useRouter();
@@ -51,7 +52,7 @@ const SearchPage: NextPage = () => {
             })
             .catch((err: any) => {
                 if (ignore) return;
-                setError(err?.message || t(I18N_KEYS.SEARCH_ERROR_DEFAULT));
+                setError(parseApiError(err, t(I18N_KEYS.SEARCH_ERROR_DEFAULT)).message);
                 setBranches([]);
             })
             .finally(() => {
@@ -67,17 +68,27 @@ const SearchPage: NextPage = () => {
     return (
         <Layout>
             <div className="mx-auto flex max-w-6xl flex-col gap-6">
-                <section className="overflow-hidden rounded-[2rem] bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.22),_transparent_42%),linear-gradient(135deg,#0f172a_0%,#111827_40%,#1f2937_100%)] px-6 py-8 text-white shadow-xl sm:px-8">
+                <section className="overflow-hidden rounded-[2rem] border border-emerald-100 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.16),_transparent_42%),linear-gradient(180deg,#ffffff_0%,#f0fdf4_100%)] px-6 py-8 shadow-sm sm:px-8">
                     <div className="max-w-2xl">
-                        <div className="inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-200">
-                            Mobile-first ordering
+                        <div className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">
+                            {t(I18N_KEYS.BRAND_NAME)}
                         </div>
-                        <h1 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">
-                            Browse nearby kitchens, compare menus, and check out in a few taps.
+                        <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+                            {t(I18N_KEYS.HOME_TITLE)}
                         </h1>
-                        <p className="mt-3 max-w-xl text-sm text-slate-200 sm:text-base">
-                            Delivery flow is now powered by the dedicated Go backend, so search, cart, payment, and order history stay in sync end to end.
+                        <p className="mt-3 max-w-xl text-sm text-slate-600 sm:text-base">
+                            {t(I18N_KEYS.HOME_SUBTITLE)}
                         </p>
+                    </div>
+                    <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-[1.5rem] border border-white bg-white/80 p-4 shadow-sm">
+                            <p className="text-sm font-semibold text-slate-900">{t(I18N_KEYS.HOME_SURFACE_TITLE)}</p>
+                            <p className="mt-2 text-sm text-slate-500">{t(I18N_KEYS.HOME_SURFACE_SUBTITLE)}</p>
+                        </div>
+                        <div className="rounded-[1.5rem] border border-emerald-100 bg-emerald-50/80 p-4 shadow-sm">
+                            <p className="text-sm font-semibold text-slate-900">{t(I18N_KEYS.CHECKOUT_TITLE)}</p>
+                            <p className="mt-2 text-sm text-slate-500">{t(I18N_KEYS.CHECKOUT_SUBTITLE)}</p>
+                        </div>
                     </div>
                 </section>
 

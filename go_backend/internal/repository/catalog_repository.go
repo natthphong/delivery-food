@@ -74,6 +74,11 @@ func (s *Store) SearchBranches(
 			b.lat,
 			b.lng,
 			b.is_force_closed,
+			b.accepting_orders,
+			b.supports_pickup,
+			b.supports_rider_delivery,
+			b.rider_delivery_fee::double precision,
+			b.operational_note,
 			COALESCE(hours.hours_json, '[]'::json) AS open_hours,
 			CASE
 				WHEN $3::double precision IS NULL OR $4::double precision IS NULL OR b.lat IS NULL OR b.lng IS NULL THEN NULL
@@ -110,6 +115,7 @@ func (s *Store) SearchBranches(
 			JOIN products p ON p.id = bp.product_id
 			WHERE bp.branch_id = b.id
 				AND bp.is_enabled = TRUE
+				AND bp.is_temporarily_closed = FALSE
 				AND p.is_active = TRUE
 				AND ($2::bigint IS NULL OR EXISTS (
 					SELECT 1
@@ -141,9 +147,10 @@ func (s *Store) SearchBranches(
 					bp.sort_order
 				FROM branch_products bp
 				JOIN products p ON p.id = bp.product_id
-				WHERE bp.branch_id = b.id
-					AND bp.is_enabled = TRUE
-					AND p.is_active = TRUE
+					WHERE bp.branch_id = b.id
+						AND bp.is_enabled = TRUE
+						AND bp.is_temporarily_closed = FALSE
+						AND p.is_active = TRUE
 					AND ($2::bigint IS NULL OR EXISTS (
 						SELECT 1
 						FROM product_categories pc
@@ -201,9 +208,12 @@ func (s *Store) GetBranchMenuPage(
 	err = s.Pool.QueryRow(ctx, `
 		SELECT COUNT(*)::int
 		FROM branch_products bp
+		JOIN branches b ON b.id = bp.branch_id
 		JOIN products p ON p.id = bp.product_id
 		WHERE bp.branch_id = $1
 			AND bp.is_enabled = TRUE
+			AND bp.is_temporarily_closed = FALSE
+			AND b.accepting_orders = TRUE
 			AND p.is_active = TRUE
 			AND ($2 = '' OR LOWER(COALESCE(p.name, '') || ' ' || COALESCE(p.description, '') || ' ' || COALESCE(p.search_terms, ''))
 				LIKE '%' || $2 || '%')
@@ -230,13 +240,18 @@ func (s *Store) GetBranchMenuPage(
 			p.image_url,
 			COALESCE(bp.price_override, p.base_price)::double precision AS price,
 			p.base_price::double precision AS base_price,
-			(bp.stock_qty IS NULL OR bp.stock_qty > 0) AS in_stock,
+			(bp.stock_qty IS NULL OR bp.stock_qty > 0) AND bp.is_temporarily_closed = FALSE AS in_stock,
 			bp.stock_qty,
-			bp.is_recommended
+			bp.is_recommended,
+			bp.is_temporarily_closed,
+			bp.availability_note,
+			bp.reorder_level
 		FROM branch_products bp
+		JOIN branches b ON b.id = bp.branch_id
 		JOIN products p ON p.id = bp.product_id
 		WHERE bp.branch_id = $1
 			AND bp.is_enabled = TRUE
+			AND b.accepting_orders = TRUE
 			AND p.is_active = TRUE
 			AND ($2 = '' OR LOWER(COALESCE(p.name, '') || ' ' || COALESCE(p.description, '') || ' ' || COALESCE(p.search_terms, ''))
 				LIKE '%' || $2 || '%')
@@ -254,10 +269,12 @@ func (s *Store) GetBranchMenuPage(
 	indexByProductID := make(map[int64]int)
 	for rows.Next() {
 		var (
-			description sql.NullString
-			imageURL    sql.NullString
-			stockQty    sql.NullInt32
-			item        model.MenuItem
+			description      sql.NullString
+			imageURL         sql.NullString
+			stockQty         sql.NullInt32
+			availabilityNote sql.NullString
+			reorderLevel     sql.NullInt32
+			item             model.MenuItem
 		)
 		if err := rows.Scan(
 			&item.ProductID,
@@ -269,12 +286,17 @@ func (s *Store) GetBranchMenuPage(
 			&item.InStock,
 			&stockQty,
 			&item.IsRecommended,
+			&item.IsTemporarilyClosed,
+			&availabilityNote,
+			&reorderLevel,
 		); err != nil {
 			return model.BranchSummary{}, nil, 0, err
 		}
 		item.Description = nullString(description)
 		item.ImageURL = nullString(imageURL)
 		item.StockQty = nullInt(stockQty)
+		item.AvailabilityNote = nullString(availabilityNote)
+		item.ReorderLevel = nullInt(reorderLevel)
 		menu = append(menu, item)
 		productIDs = append(productIDs, item.ProductID)
 		indexByProductID[item.ProductID] = len(menu) - 1
@@ -289,17 +311,22 @@ func (s *Store) GetBranchMenuPage(
 
 	addOnRows, err := s.Pool.Query(ctx, `
 		SELECT
-			product_id,
-			id,
-			group_name,
-			name,
-			price::double precision,
-			is_required,
-			sort_order
-		FROM product_add_ons
-		WHERE product_id = ANY($1)
+			pa.product_id,
+			pa.id,
+			pa.group_name,
+			pa.name,
+			COALESCE(bpa.price_override, pa.price)::double precision,
+			pa.is_required,
+			pa.sort_order
+		FROM product_add_ons pa
+		LEFT JOIN branch_product_add_ons bpa
+			ON bpa.branch_id = $1
+			AND bpa.product_add_on_id = pa.id
+		WHERE pa.product_id = ANY($2)
+			AND COALESCE(bpa.is_enabled, TRUE) = TRUE
+			AND COALESCE(bpa.is_temporarily_closed, FALSE) = FALSE
 		ORDER BY product_id, sort_order, id
-	`, productIDs)
+	`, branchID, productIDs)
 	if err != nil {
 		return model.BranchSummary{}, nil, 0, err
 	}
@@ -332,13 +359,14 @@ func (s *Store) GetBranchMenuPage(
 
 func (s *Store) GetBranchSummary(ctx context.Context, branchID int64) (model.BranchSummary, error) {
 	var (
-		description sql.NullString
-		imageURL    sql.NullString
-		addressLine sql.NullString
-		lat         sql.NullFloat64
-		lng         sql.NullFloat64
-		hoursJSON   []byte
-		branch      model.BranchSummary
+		description     sql.NullString
+		imageURL        sql.NullString
+		addressLine     sql.NullString
+		lat             sql.NullFloat64
+		lng             sql.NullFloat64
+		operationalNote sql.NullString
+		hoursJSON       []byte
+		branch          model.BranchSummary
 	)
 
 	err := s.Pool.QueryRow(ctx, `
@@ -353,6 +381,11 @@ func (s *Store) GetBranchSummary(ctx context.Context, branchID int64) (model.Bra
 			b.lat,
 			b.lng,
 			b.is_force_closed,
+			b.accepting_orders,
+			b.supports_pickup,
+			b.supports_rider_delivery,
+			b.rider_delivery_fee::double precision,
+			b.operational_note,
 			COALESCE((
 				SELECT json_agg(
 					json_build_object(
@@ -378,6 +411,11 @@ func (s *Store) GetBranchSummary(ctx context.Context, branchID int64) (model.Bra
 		&lat,
 		&lng,
 		&branch.IsForceClosed,
+		&branch.AcceptingOrders,
+		&branch.SupportsPickup,
+		&branch.SupportsRiderDelivery,
+		&branch.RiderDeliveryFee,
+		&operationalNote,
 		&hoursJSON,
 	)
 	if err != nil {
@@ -388,10 +426,11 @@ func (s *Store) GetBranchSummary(ctx context.Context, branchID int64) (model.Bra
 	branch.AddressLine = nullString(addressLine)
 	branch.Lat = nullFloat(lat)
 	branch.Lng = nullFloat(lng)
+	branch.OperationalNote = nullString(operationalNote)
 	if err := json.Unmarshal(hoursJSON, &branch.OpenHours); err != nil {
 		return model.BranchSummary{}, fmt.Errorf("decode branch open hours: %w", err)
 	}
-	branch.IsOpen = computeBranchOpen(branch.OpenHours, branch.IsForceClosed)
+	branch.IsOpen = computeBranchOpen(branch.OpenHours, branch.IsForceClosed) && branch.AcceptingOrders
 	return branch, nil
 }
 
@@ -403,10 +442,15 @@ func (s *Store) GetPaymentMethods(ctx context.Context, companyID int64) ([]model
 			pm.name,
 			pm.method_type,
 			cpm.sort_order,
-			c.promptpay_id
+			c.promptpay_id,
+			pp.code,
+			pm.provider_method_code,
+			pm.checkout_flow,
+			pm.metadata
 		FROM company_payment_methods cpm
 		JOIN payment_methods pm ON pm.id = cpm.payment_method_id
 		JOIN companies c ON c.id = cpm.company_id
+		LEFT JOIN payment_providers pp ON pp.id = pm.provider_id
 		WHERE cpm.company_id = $1
 			AND cpm.is_enabled = TRUE
 			AND pm.is_active = TRUE
@@ -420,8 +464,11 @@ func (s *Store) GetPaymentMethods(ctx context.Context, companyID int64) ([]model
 	methods := make([]model.PaymentMethod, 0)
 	for rows.Next() {
 		var (
-			promptPayID sql.NullString
-			item        model.PaymentMethod
+			promptPayID        sql.NullString
+			providerCode       sql.NullString
+			providerMethodCode sql.NullString
+			metadataJSON       []byte
+			item               model.PaymentMethod
 		)
 		if err := rows.Scan(
 			&item.ID,
@@ -430,10 +477,21 @@ func (s *Store) GetPaymentMethods(ctx context.Context, companyID int64) ([]model
 			&item.MethodType,
 			&item.SortOrder,
 			&promptPayID,
+			&providerCode,
+			&providerMethodCode,
+			&item.CheckoutFlow,
+			&metadataJSON,
 		); err != nil {
 			return nil, err
 		}
 		item.PromptPayID = nullString(promptPayID)
+		item.ProviderCode = nullString(providerCode)
+		item.ProviderMethodCode = nullString(providerMethodCode)
+		if len(metadataJSON) > 0 {
+			if err := json.Unmarshal(metadataJSON, &item.Metadata); err != nil {
+				return nil, err
+			}
+		}
 		methods = append(methods, item)
 	}
 	return methods, rows.Err()
@@ -441,8 +499,11 @@ func (s *Store) GetPaymentMethods(ctx context.Context, companyID int64) ([]model
 
 func (s *Store) GetPaymentMethod(ctx context.Context, companyID, methodID int64) (model.PaymentMethod, error) {
 	var (
-		promptPayID sql.NullString
-		method      model.PaymentMethod
+		promptPayID        sql.NullString
+		providerCode       sql.NullString
+		providerMethodCode sql.NullString
+		metadataJSON       []byte
+		method             model.PaymentMethod
 	)
 	err := s.Pool.QueryRow(ctx, `
 		SELECT
@@ -451,10 +512,15 @@ func (s *Store) GetPaymentMethod(ctx context.Context, companyID, methodID int64)
 			pm.name,
 			pm.method_type,
 			cpm.sort_order,
-			c.promptpay_id
+			c.promptpay_id,
+			pp.code,
+			pm.provider_method_code,
+			pm.checkout_flow,
+			pm.metadata
 		FROM company_payment_methods cpm
 		JOIN payment_methods pm ON pm.id = cpm.payment_method_id
 		JOIN companies c ON c.id = cpm.company_id
+		LEFT JOIN payment_providers pp ON pp.id = pm.provider_id
 		WHERE cpm.company_id = $1
 			AND pm.id = $2
 			AND cpm.is_enabled = TRUE
@@ -466,11 +532,22 @@ func (s *Store) GetPaymentMethod(ctx context.Context, companyID, methodID int64)
 		&method.MethodType,
 		&method.SortOrder,
 		&promptPayID,
+		&providerCode,
+		&providerMethodCode,
+		&method.CheckoutFlow,
+		&metadataJSON,
 	)
 	if err != nil {
 		return model.PaymentMethod{}, err
 	}
 	method.PromptPayID = nullString(promptPayID)
+	method.ProviderCode = nullString(providerCode)
+	method.ProviderMethodCode = nullString(providerMethodCode)
+	if len(metadataJSON) > 0 {
+		if err := json.Unmarshal(metadataJSON, &method.Metadata); err != nil {
+			return model.PaymentMethod{}, err
+		}
+	}
 	return method, nil
 }
 
@@ -478,14 +555,15 @@ func scanBranchSearchRow(scanner interface {
 	Scan(dest ...interface{}) error
 }) (model.BranchSearchResult, error) {
 	var (
-		description sql.NullString
-		imageURL    sql.NullString
-		addressLine sql.NullString
-		lat         sql.NullFloat64
-		lng         sql.NullFloat64
-		hoursJSON   []byte
-		sampleJSON  []byte
-		row         branchSearchRow
+		description     sql.NullString
+		imageURL        sql.NullString
+		addressLine     sql.NullString
+		lat             sql.NullFloat64
+		lng             sql.NullFloat64
+		operationalNote sql.NullString
+		hoursJSON       []byte
+		sampleJSON      []byte
+		row             branchSearchRow
 	)
 
 	err := scanner.Scan(
@@ -499,6 +577,11 @@ func scanBranchSearchRow(scanner interface {
 		&lat,
 		&lng,
 		&row.IsForceClosed,
+		&row.AcceptingOrders,
+		&row.SupportsPickup,
+		&row.SupportsRiderDelivery,
+		&row.RiderDeliveryFee,
+		&operationalNote,
 		&hoursJSON,
 		&row.DistanceKM,
 		&row.MatchCount,
@@ -513,13 +596,14 @@ func scanBranchSearchRow(scanner interface {
 	row.AddressLine = nullString(addressLine)
 	row.Lat = nullFloat(lat)
 	row.Lng = nullFloat(lng)
+	row.OperationalNote = nullString(operationalNote)
 	if err := json.Unmarshal(hoursJSON, &row.OpenHours); err != nil {
 		return model.BranchSearchResult{}, err
 	}
 	if err := json.Unmarshal(sampleJSON, &row.ProductSample); err != nil {
 		return model.BranchSearchResult{}, err
 	}
-	row.IsOpen = computeBranchOpen(row.OpenHours, row.IsForceClosed)
+	row.IsOpen = computeBranchOpen(row.OpenHours, row.IsForceClosed) && row.AcceptingOrders
 
 	return model.BranchSearchResult{
 		BranchSummary: row.BranchSummary,

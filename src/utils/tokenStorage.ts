@@ -1,11 +1,15 @@
 // src/utils/tokenStorage.ts
 import type { Cart, UserRecord } from "@/types";
+import type { AdminSession } from "@/types/admin";
+import { normalizeCart } from "../services/normalizers";
 
 export type StoredTokens = { accessToken: string; refreshToken: string };
 const KEY = "auth_tokens_v1";
 const USER_KEY = "APP_USER";
 const CONFIG_KEY = "APP_CONFIG";
 const CART_KEY = "APP_CART";
+const ADMIN_KEY = "admin_auth_tokens_v1";
+const ADMIN_SESSION_KEY = "ADMIN_SESSION";
 
 export function saveTokens(tokens: StoredTokens) {
     if (typeof window === "undefined") return;
@@ -74,7 +78,7 @@ export function clearConfig() {
 
 export function saveCart(cart: Cart) {
     if (typeof window === "undefined") return;
-    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    localStorage.setItem(CART_KEY, JSON.stringify(normalizeCart(cart)));
 }
 
 export function loadCart(): Cart | null {
@@ -82,7 +86,7 @@ export function loadCart(): Cart | null {
     const raw = localStorage.getItem(CART_KEY);
     if (!raw) return null;
     try {
-        return JSON.parse(raw) as Cart;
+        return normalizeCart(JSON.parse(raw) as Cart);
     } catch {
         return null;
     }
@@ -91,4 +95,46 @@ export function loadCart(): Cart | null {
 export function clearCart() {
     if (typeof window === "undefined") return;
     localStorage.removeItem(CART_KEY);
+}
+
+export function saveAdminTokens(tokens: StoredTokens) {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(ADMIN_KEY, JSON.stringify(tokens));
+}
+
+export function loadAdminTokens(): StoredTokens | null {
+    if (typeof window === "undefined") return null;
+    const raw = localStorage.getItem(ADMIN_KEY);
+    if (!raw) return null;
+    try {
+        return JSON.parse(raw) as StoredTokens;
+    } catch {
+        return null;
+    }
+}
+
+export function clearAdminTokens() {
+    if (typeof window === "undefined") return;
+    localStorage.removeItem(ADMIN_KEY);
+}
+
+export function saveAdminSession(session: AdminSession) {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(session));
+}
+
+export function loadAdminSession(): AdminSession | null {
+    if (typeof window === "undefined") return null;
+    const raw = localStorage.getItem(ADMIN_SESSION_KEY);
+    if (!raw) return null;
+    try {
+        return JSON.parse(raw) as AdminSession;
+    } catch {
+        return null;
+    }
+}
+
+export function clearAdminSession() {
+    if (typeof window === "undefined") return;
+    localStorage.removeItem(ADMIN_SESSION_KEY);
 }

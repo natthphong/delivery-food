@@ -7,6 +7,7 @@ const TXN_STATUS_CHIP: Record<TxnStatus, string> = {
     pending: "bg-amber-50 text-amber-700 border-amber-200",
     accepted: "bg-emerald-50 text-emerald-700 border-emerald-200",
     rejected: "bg-rose-50 text-rose-700 border-rose-200",
+    expired: "bg-amber-50 text-amber-700 border-amber-200",
 };
 
 export const TXN_TYPE = {

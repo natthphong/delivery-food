@@ -46,6 +46,11 @@ export type BranchSummary = {
     lat: number | null;
     lng: number | null;
     isForceClosed: boolean;
+    acceptingOrders: boolean;
+    supportsPickup: boolean;
+    supportsRiderDelivery: boolean;
+    riderDeliveryFee: number;
+    operationalNote: string | null;
     isOpen: boolean;
     openHours: OperatingWindow[];
 };
@@ -75,6 +80,9 @@ export type MenuItem = {
     inStock: boolean;
     stockQty: number | null;
     isRecommended: boolean;
+    isTemporarilyClosed: boolean;
+    availabilityNote: string | null;
+    reorderLevel: number | null;
     addOns: ProductAddOn[];
 };
 

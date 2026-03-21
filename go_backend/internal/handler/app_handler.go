@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"io"
 	"net/http"
 	"strconv"
 
@@ -41,6 +42,34 @@ func (h *AppHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.WriteOK(w, map[string]any{"user": user})
+}
+
+func (h *AppHandler) SendVerificationEmail(w http.ResponseWriter, r *http.Request) {
+	claims, _ := middleware.ClaimsFromContext(r.Context())
+	var request dto.VerificationEmailRequest
+	if err := httpapi.DecodeJSON(r, &request); err != nil && err != io.EOF {
+		httpapi.WriteError(w, err)
+		return
+	}
+	if err := h.service.SendVerificationEmail(r.Context(), claims.UserID, request.Locale); err != nil {
+		httpapi.WriteError(w, err)
+		return
+	}
+	httpapi.WriteOK(w, map[string]any{"sent": true})
+}
+
+func (h *AppHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var request dto.VerifyEmailTokenRequest
+	if err := httpapi.DecodeJSON(r, &request); err != nil {
+		httpapi.WriteError(w, err)
+		return
+	}
+	user, err := h.service.VerifyEmailToken(r.Context(), request.Token)
+	if err != nil {
+		httpapi.WriteError(w, err)
+		return
+	}
+	httpapi.WriteOK(w, map[string]any{"user": user, "verified": true})
 }
 
 func (h *AppHandler) Transactions(w http.ResponseWriter, r *http.Request) {

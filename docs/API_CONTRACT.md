@@ -12,9 +12,26 @@ Every response uses:
 }
 ```
 
-Error responses keep the same envelope with `body: null`.
+Errors keep the same envelope shape with an error `code` and `message`.
+Frontend maps stable `code` values first, then known `message` strings, into shared localized UI copy.
+Raw backend messages should not be shown directly in normal user flows.
 
-## Auth
+Validation failures may return structured `body.fieldErrors` data:
+
+```json
+{
+  "code": "VALIDATION_ERROR",
+  "message": "validation failed",
+  "body": {
+    "fieldErrors": {
+      "name": "Branch name is required",
+      "copyFromBranchId": "Select a source branch before copying menu items"
+    }
+  }
+}
+```
+
+## Customer Auth
 
 ### `POST /v1/auth/login`
 
@@ -37,23 +54,15 @@ Request:
 { "refreshToken": "..." }
 ```
 
-Response body:
-
-- `accessToken`
-- `refreshToken`
-- `user`
-
 ### `GET /v1/auth/me`
-
-Bearer auth required. Returns the current user.
-
-## App Bootstrap and Account
-
-### `GET /v1/bootstrap`
 
 Bearer auth required.
 
-Response body:
+## Customer App
+
+### `GET /v1/bootstrap`
+
+Returns:
 
 - `user`
 - `config`
@@ -61,9 +70,7 @@ Response body:
 
 ### `PATCH /v1/account/profile`
 
-Bearer auth required.
-
-Patch fields:
+Patchable fields:
 
 - `displayName`
 - `email`
@@ -71,13 +78,38 @@ Patch fields:
 - `isEmailVerified`
 - `isPhoneVerified`
 
+### `POST /v1/account/email/verification`
+
+Bearer auth required.
+
+Request:
+
+```json
+{ "locale": "th" }
+```
+
+Response body:
+
+- `sent`
+
+### `POST /v1/account/email/verify`
+
+Public endpoint used by the verification-link landing page.
+
+Request:
+
+```json
+{ "token": "..." }
+```
+
+Response body:
+
+- `verified`
+- `user`
+
 ### `GET /v1/account/transactions`
 
-Bearer auth required. Returns recent transactions.
-
 ### `GET /v1/account/orders`
-
-Bearer auth required. Returns recent orders.
 
 ## Catalog
 
@@ -90,7 +122,7 @@ Query params:
 - `lat`
 - `lng`
 
-Response body:
+Returns:
 
 - `branches`
 - `categories`
@@ -103,7 +135,7 @@ Query params:
 - `page`
 - `size`
 
-Response body:
+Returns:
 
 - `branch`
 - `menu`
@@ -113,17 +145,30 @@ Response body:
 
 ### `GET /v1/catalog/branches/{id}/featured`
 
-Returns recommended items for a branch.
+### `GET /v1/payment-methods?companyId={id}&scope={checkout|deposit}`
 
-### `GET /v1/payment-methods?companyId={id}`
+Returns normalized payment methods including:
 
-Returns enabled payment methods for the company.
+- `methodType`
+- `providerCode`
+- `providerMethodCode`
+- `checkoutFlow`
+- `metadata`
+
+Behavior notes:
+
+- `scope=checkout` hides legacy manual-slip methods from the active customer checkout flow
+- `scope=deposit` keeps deposit-specific methods available
 
 ## Cart
 
 ### `GET /v1/cart`
 
-Bearer auth required. Returns grouped cart state.
+Contract notes:
+
+- cart `groups` is always an array
+- cart item `addOns` is always an array, never `null`
+- stale client-side cart item ids are treated as recoverable drift; update/remove flows should return current server cart truth instead of leaving the customer stuck on an old item id
 
 ### `POST /v1/cart/items`
 
@@ -136,23 +181,15 @@ Bearer auth required. Returns grouped cart state.
 }
 ```
 
-Returns the full updated cart.
-
 ### `PATCH /v1/cart/items/{id}`
 
 ```json
 { "quantity": 3 }
 ```
 
-Returns the full updated cart. Quantity `<= 0` removes the item.
-
 ### `DELETE /v1/cart/items/{id}`
 
-Returns the full updated cart.
-
 ### `DELETE /v1/cart/branches/{branchId}`
-
-Clears all cart items for one branch and returns the full updated cart.
 
 ## Checkout and Payments
 
@@ -161,8 +198,10 @@ Clears all cart items for one branch and returns the full updated cart.
 ```json
 {
   "branchId": 1,
-  "paymentMethodId": 2,
+  "paymentMethodId": 3,
   "selectedItemIds": [10, 11],
+  "fulfillmentMode": "rider_delivery",
+  "customerNote": "Call on arrival",
   "deliveryLat": 13.7464,
   "deliveryLng": 100.5349,
   "deliveryDistanceKm": 2.4
@@ -175,7 +214,14 @@ Response body:
 - `transaction`
 - `order`
 - `cart`
-- `user` when wallet balance changes
+- `user` when balance changed
+
+Contract notes:
+
+- checkout returns normalized `cart`
+- when `order` is present, `order.items` and each item `addOns` are always arrays
+- checkout may still return a successful transaction/order result even when the post-commit detail/cart readback needs to fall back to the pre-checkout cart snapshot
+- `transaction.referenceCode` and `order.referenceCode` are business-facing identifiers in the `TXyyMMdd######` / `ODyyMMdd######` format
 
 ### `POST /v1/deposits`
 
@@ -187,8 +233,6 @@ Response body:
 }
 ```
 
-Returns the created pending deposit transaction.
-
 ### `GET /v1/transactions/{id}`
 
 Returns:
@@ -197,14 +241,226 @@ Returns:
 - `order`
 - optional `user`
 
+`transaction.status` is normalized for the frontend and may be:
+
+- `pending`
+- `accepted`
+- `rejected`
+- `expired`
+
+Important transaction fields:
+
+- `referenceCode`
+- `expiresAt`
+- `providerStatus`
+- `paidAt`
+- `failedReason`
+- `paymentAction.qrImageUrl`
+- `paymentAction.authorizeUri`
+- `paymentAction.sourceId`
+- `paymentAction.chargeId`
+- `paymentAction.failureCode`
+- `paymentAction.failureMessage`
+
 ### `POST /v1/transactions/{id}/slip`
 
-Multipart upload with `file`.
+Legacy/manual QR endpoint. Backend still supports it, but the active customer checkout flow no longer exposes it.
 
-Used to verify a payment or deposit slip and update the transaction.
+### `POST /v1/transactions/{id}/retry`
+
+Bearer auth required.
+
+Creates a new payment attempt for an expired or rejected order-linked payment transaction.
+
+Request:
+
+```json
+{ "paymentMethodId": 9 }
+```
+
+Response body:
+
+- `transaction`
+- `order`
+- optional `user`
+
+### `POST /v1/payments/webhooks/omise`
+
+Webhook endpoint for Omise events.
+
+## Admin Auth
+
+### `POST /v1/admin/auth/login`
+
+```json
+{
+  "username": "owner",
+  "password": "secret"
+}
+```
+
+Response:
+
+- `accessToken`
+- `refreshToken`
+- `session`
+
+### `POST /v1/admin/auth/refresh`
+
+### `GET /v1/admin/auth/session`
+
+Returns normalized admin session:
+
+- `sessionType`
+- `actorType`
+- `actorLabel`
+- `roles`
+- `permissions`
+- `branchIds`
+
+## Admin Operations
+
+### Dashboard
+
+- `GET /v1/admin/dashboard`
+
+Query params:
+
+- `branchId` optional
+- `days` optional, defaults to `14`
+
+Response body includes:
+
+- operational counters
+- `salesSeries`
+- `branchSales`
+- `recentComplaints`
+- `recentOtRequests`
+- `staffCounts`
+- `workSchedule`
+- `appliedBranchId`
+
+### Employees
+
+- `GET /v1/admin/employees`
+- `POST /v1/admin/employees`
+- `PATCH /v1/admin/employees/{id}`
+
+### Attendance
+
+- `GET /v1/admin/attendance`
+- `POST /v1/admin/attendance/clock-in`
+- `POST /v1/admin/attendance/clock-out`
+- `PATCH /v1/admin/attendance/{id}`
+
+### OT / Payroll
+
+- `GET /v1/admin/ot-requests`
+- `POST /v1/admin/ot-requests`
+- `PATCH /v1/admin/ot-requests/{id}`
+- `GET /v1/admin/payroll/settings`
+- `PATCH /v1/admin/payroll/settings`
+- `GET /v1/admin/payroll/periods`
+- `POST /v1/admin/payroll/periods`
+- `GET /v1/admin/payroll/periods/{id}`
+- `POST /v1/admin/payroll/periods/{id}/generate`
+
+### Branches / Stock
+
+- `GET /v1/admin/branches`
+- `POST /v1/admin/branches`
+- `PATCH /v1/admin/branches/{id}`
+- `GET /v1/admin/branches/{id}/products`
+- `PATCH /v1/admin/branches/{id}/products/{productId}`
+- `PATCH /v1/admin/branches/{id}/products/{productId}/add-ons/{addOnId}`
+- `POST /v1/admin/branches/{id}/stock`
+
+`POST /v1/admin/branches` supports:
+
+- base branch fields: `name`, `slug`, `description`, `imageUrl`, `addressLine`, `lat`, `lng`
+- operational fields: `acceptingOrders`, `isForceClosed`, `supportsPickup`, `supportsRiderDelivery`, `riderDeliveryFee`, `operationalNote`
+- optional menu copy workflow:
+  - `copyMode: "none" | "all" | "selected"`
+  - `copyFromBranchId`
+  - `categoryIds`
+  - `productIds`
+
+`PATCH /v1/admin/branches/{id}/products/{productId}` supports:
+
+- `isEnabled`
+- `isTemporarilyClosed`
+- `stockQty`
+- `reorderLevel`
+- `availabilityNote`
+- `clearAvailabilityNote`
+- `priceOverride`
+- `clearPriceOverride`
+
+`GET /v1/admin/branches/{id}/products` returns:
+
+- product `basePrice`
+- product `priceOverride`
+- nested `addOns` with effective/base pricing and current branch sellability state
+
+`PATCH /v1/admin/branches/{id}/products/{productId}/add-ons/{addOnId}` supports:
+
+- `isEnabled`
+- `isTemporarilyClosed`
+- `availabilityNote`
+- `clearAvailabilityNote`
+- `priceOverride`
+- `clearPriceOverride`
+
+`POST /v1/admin/branches/{id}/stock` request:
+
+```json
+{
+  "productId": 7,
+  "deltaQty": 10,
+  "reason": "restock",
+  "note": "morning refill"
+}
+```
+
+### Orders / Riders / Payments
+
+- `GET /v1/admin/orders`
+- `GET /v1/admin/orders/{id}`
+- `PATCH /v1/admin/orders/{id}/status`
+- `GET /v1/admin/rider/jobs`
+- `POST /v1/admin/rider/jobs/{id}/claim`
+- `PATCH /v1/admin/rider/jobs/{id}/status`
+- `GET /v1/admin/payments`
+- `GET /v1/admin/payments/providers`
+- `GET /v1/admin/payments/webhooks`
+
+Admin order responses are normalized for safe rendering:
+
+- `items` is always an array
+- each order item `addOns` collection is always an array
+- `allowedStatuses` lists valid next actions for the current actor and order state
+- `referenceCode` is the primary business-facing order identifier
+
+Admin payment responses now include:
+
+- transaction `referenceCode`
+- optional `orderReferenceCode`
+
+Current operational order states:
+
+- `PENDING`
+- `PREPARE`
+- `READY`
+- `DELIVERY`
+- `COMPLETED`
+- `REJECTED`
 
 ## Health
 
 ### `GET /healthz`
 
-Returns `{ "status": "ok" }`.
+Returns:
+
+```json
+{ "status": "ok" }
+```

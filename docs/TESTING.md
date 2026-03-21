@@ -9,18 +9,38 @@ npm test
 npm run build
 ```
 
-### Test Layout
+### Test layout
 
-- `tests/*.test.ts`: Node runner tests for storage and utility behavior
-- `src/**/__tests__/*.test.ts?(x)`: Jest tests for components, services, and selectors
+- `tests/*.test.ts`: Node-runner utility and storage tests
+- `src/**/__tests__/*.test.ts?(x)`: Jest component and selector tests
 
-### Covered Areas
+### Current frontend coverage
 
-- token and cart persistence
-- response envelope unwrapping
+- customer token, cart, config, and admin-session storage
 - cart selectors
-- payment method picker interaction
-- cart drawer selection-to-checkout draft behavior
+- cart drawer checkout-draft flow
+- cart null-add-on normalization and defensive rendering
+- navbar admin-entry visibility
+- payment method picker selection
+- payment detail expired/retry flow
+- payment detail live countdown and local expiry transition
+- checkout stale-draft reconciliation after checkout failure
+- account/admin payment reference-code rendering
+- role-aware admin navigation rendering
+- admin sidebar scroll-region rendering
+- admin locale switch persistence
+- admin order detail null-item regression coverage
+- admin dashboard branch-filter visibility by role
+- admin payment record reference rendering
+- admin employee validation error rendering
+- admin branch creation with menu-copy flow
+- admin branch product add-on edit flow
+- login/signup auth screen layout without customer nav
+- LINE callback minimal-layout regression coverage
+- SSR-safe locale initialization and runtime locale hydration
+- shared UI error mapping and account profile conflict feedback
+- BAAN JSON preset generator category/add-on inference
+- response envelope unwrapping
 
 ## Backend
 
@@ -31,32 +51,44 @@ cd go_backend
 go test ./...
 ```
 
-### Covered Areas
+### Current backend coverage
 
-- JWT signing and parsing
-- refresh token hashing helpers
-- auth middleware
+- JWT signing and refresh token helpers
+- customer/admin auth middleware behavior
 - handler parsing helpers
 - shared service helpers
-- LINE profile claim normalization
-- cart add-on signature generation
+- LINE profile normalization
+- cart add-on/signature helpers
+- payroll calculation logic
+- Omise checkout mapping and webhook normalization
+- payment expiry normalization
+- business reference format helpers
+- notification service email/LINE fan-out
+- admin order transition helpers
+- checkout consumed-cart fallback filtering
+- validation error response shaping
+- branch menu-copy selection helpers
+- manager_branch branch-scope enforcement for branch operations
 
-## Full Verification
+## Recommended verification flow
 
-Use the repo-level command:
+```bash
+npm run build
+npm test
+npm run backend:test
+```
+
+Or run the combined command:
 
 ```bash
 npm run verify
 ```
 
-This runs:
-
-- frontend production build
-- frontend tests
-- backend tests
-
 ## Notes
 
-- The frontend test harness combines Node’s built-in test runner and Jest.
-- `scripts/run-tests.js` compiles Node-runner tests into `.test-dist` before execution.
-- If API contract types change, update frontend types and rerun both build and tests.
+- the frontend test harness runs Node tests first, then Jest
+- Go tests are pure unit tests and do not require a running server
+- if you change API types or session storage, rerun both `npm test` and `npm run build`
+- if you change backend DTOs or payment/operations logic, rerun `go test ./...`
+- if you change admin workflows or preset data, also rerun `npm run backend:migrate` against a local dev database before manual QA so new versioned SQL is applied
+- if you change pages under `src/pages`, keep test files outside routable page folders so Next.js does not treat them as pages during build

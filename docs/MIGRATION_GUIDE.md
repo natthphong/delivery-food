@@ -2,60 +2,97 @@
 
 ## Summary
 
-The repository moved from a Next.js-mixed frontend/backend structure to a split architecture with:
+The repo has now moved through two major phases:
 
-- frontend in Next.js
-- backend in Go
-- normalized PostgreSQL schema in versioned SQL files
+1. mixed Next.js frontend/backend -> split Next.js + Go architecture
+2. customer ordering app -> customer app + operations/admin platform
 
-## Major Changes
+## What Changed
 
-### Backend Extraction
+### Backend
 
-Removed:
+Added and expanded:
 
-- `src/pages/api/*`
-- `src/repository/*`
-- frontend-side backend helpers tied to the old API layer
+- dedicated Go backend structure
+- admin auth sessions
+- role + permission enforcement
+- employee/attendance/payroll services
+- stock and branch operations services
+- payment gateway abstraction
+- Omise integration + webhook processing
+- backend notification service for Resend + LINE
+- rider delivery workflows
 
-Added:
+### Frontend
 
-- `go_backend/cmd/server`
-- `go_backend/cmd/migrate`
-- layered Go packages for config, handlers, services, repositories, models, DTOs, and middleware
+Added and expanded:
 
-### Database Normalization
+- dedicated admin route space under `/admin/*`
+- separate admin token/session handling
+- shared locale handling across customer and admin auth surfaces
+- improved customer checkout for pickup vs rider delivery
+- richer payment detail rendering from backend `paymentAction`
+- payment expiry + retry UX
+- account-driven admin entry instead of a customer navigation tab
+- responsive customer and admin surfaces
+- focused `/login` and `/signup` screens without customer top navigation
+- modal-based admin employee/branch workflows
 
-Old behavior mixed domain state more loosely across frontend/backend assumptions.
+### Database
 
-New schema explicitly models:
+Extended with:
 
-- refresh sessions
-- carts and cart line add-ons
-- transactions
-- orders and immutable order item snapshots
-- payment method assignment by company
+- roles, permissions, and staff accounts
+- employee assignments
+- attendance and OT
+- payroll settings, periods, and entries
+- branch stock movements
+- payment providers and webhook events
+- fulfillment mode and rider delivery tables/fields
+- `READY` order state in `V7__admin_workflows_and_baan_seed.sql`
+- branch add-on override controls in `V8__branch_add_on_controls.sql`
+- BAAN JSON-driven preset catalog refresh in `V9__baan_json_preset_seed.sql`
+- daily business references, stale-cart cleanup SQL, and dashboard complaint/reference support in `V10__payment_refs_cart_cleanup_and_dashboard.sql`
 
-### Frontend Integration
+Existing transaction fields already cover:
 
-The frontend now calls the Go API through `src/services/*` and hydrates app state through `/v1/bootstrap`.
+- `expires_at`
+- `provider_status`
+- `payment_action`
+- `paid_at`
+- `failed_reason`
 
-Key refactors:
+## Upgrade Steps For Local Environments
 
-- cart state moved to `src/store/cartSlice.ts`
-- pages use service helpers instead of local API routes
-- account, payment, checkout, and branch flows align to the new backend contract
+1. update frontend env from `.env.example`
+2. update backend env from `go_backend/.env.example`
+3. add admin credentials, Omise keys, and notification credentials where needed
+4. run:
 
-## Local Upgrade Steps
+```bash
+npm run backend:migrate
+```
 
-1. Copy `.env.example` to `.env`.
-2. Copy `go_backend/.env.example` to `go_backend/.env`.
-3. Run `npm run backend:migrate`.
-4. Run `npm run dev:backend`.
-5. Run `npm run dev:frontend`.
+5. restart backend and frontend
+6. if you need the refreshed local/demo catalog, ensure `V8__branch_add_on_controls.sql` and `V9__baan_json_preset_seed.sql` have been applied
+7. apply `V10__payment_refs_cart_cleanup_and_dashboard.sql` before verifying payment references, stale-cart cleanup, or the new admin dashboard analytics
 
-## Developer Notes
+## Breaking/Important Behavioral Differences
 
-- Use `AGENTS.md` as the repo source of truth.
-- Add all new schema work under `sql/` with the next `V*__*.sql` file.
-- Do not reintroduce domain logic into `src/pages/api`.
+- admin auth is separate from customer auth
+- branch/product availability is enforced by backend operations state
+- branch add-on pricing/sellability is enforced by backend branch override state
+- admin order actions are gated by backend-computed valid transitions, including `READY`
+- checkout now includes fulfillment mode and can create rider jobs
+- order and transaction APIs now expose business-facing `referenceCode` values in the `ODyyMMdd######` / `TXyyMMdd######` format
+- stale cart cleanup has both runtime self-healing and DB cleanup support for already-broken rows
+- payment records can be provider-backed and include gateway payment actions
+- payroll data is computed from attendance + OT approvals instead of being implicit
+- branch creation can copy all or selected menu items from another branch through backend workflow rules
+
+## Development Rules Going Forward
+
+- do not add backend-heavy logic back into Next.js routes
+- do not change schema outside versioned SQL
+- regenerate BAAN preset SQL through `scripts/generate-baan-seed.js` instead of hand-editing local/demo seed rows
+- update AGENTS and docs whenever schema/API/feature behavior changes

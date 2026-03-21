@@ -1,114 +1,304 @@
 # AGENTS.md
 
-This file is the source of truth for repository structure, architecture boundaries, developer workflow, and verification commands.
+This file is the repository source of truth for architecture boundaries, workflow expectations, verification commands, and the current feature surface.
 
-## Overview
+## Product Scope
 
-This repository is a mobile-first food ordering application with:
+This repository is now a production-style food ordering platform with two major product surfaces:
 
-- a Next.js frontend in the repository root
-- a dedicated Go API in [`go_backend`](./go_backend)
-- PostgreSQL migrations and preset data in [`sql`](./sql)
+- customer ordering web app
+- admin and branch operations console
 
-The current architecture intentionally keeps presentation and client orchestration in Next.js while moving business logic, validation, transactional behavior, and SQL access into the Go backend.
+## Repository Workflow
+
+Before making any change:
+
+1. read `AGENTS.md`
+2. read the relevant files under `docs/`
+3. inspect the current frontend/backend flow for the feature being changed
+4. inspect the current SQL migrations when schema or seed behavior is involved
+
+After every meaningful change:
+
+- update docs
+- update `AGENTS.md` when conventions or architecture changed
+- add a new versioned SQL file under `/sql` for schema/data changes
+- update tests for behavior/API changes
+- document cleanup or migration steps when repairing stale data
+
+The platform supports:
+
+- mobile-first customer ordering
+- branch discovery and menu browsing
+- cart, checkout, payment, and order history
+- backend email verification and provider-login notification email
+- LINE notifications for LINE-linked customer order events
+- admin login with backend-owned sessions
+- employee, attendance, OT, payroll, and branch operations
+- stock-aware menu availability
+- branch-aware add-on sellability and price overrides
+- pluggable payment gateways with Omise first
+- rider-based branch delivery workflow
 
 ## Current Architecture
 
 ### Frontend
 
-The frontend uses the Pages Router and follows this structure:
+The frontend lives in the repository root and stays frontend-first:
 
-- `src/pages`: route entry points and page orchestration
-- `src/components`: reusable UI and interaction components
-- `src/services`: frontend-facing API helpers that call the Go backend
-- `src/store`: Redux state for auth, cart, config, and notifications
-- `src/utils`: shared browser/client utilities
-- `src/types`: frontend DTO/domain types aligned with the Go API payloads
+- `src/pages`: route orchestration
+- `src/components`: reusable UI
+- `src/services`: frontend API callers and FE-side interaction helpers
+- `src/store`: Redux slices for customer auth, admin auth, cart, config, notifications
+- `src/types`: frontend payload types aligned to Go JSON responses
+- `src/utils`: storage, API clients, helpers
 
-Pages should stay thin. Business rules should not move back into page files or Redux reducers unless the logic is purely client-side presentation logic.
+Rules:
+
+- keep pages thin
+- keep reusable UI in components
+- keep endpoint knowledge inside `src/services`
+- do not reintroduce business logic or data writes into Next.js API routes
 
 ### Backend
 
-The Go service lives in `go_backend` and follows a practical layered structure:
+The Go API lives in `go_backend`:
 
-- `cmd/server`: API server entrypoint
-- `cmd/migrate`: SQL migration runner
-- `internal/config`: env loading and runtime configuration
-- `internal/db`: PostgreSQL connection and migration execution
-- `internal/auth`: access/refresh token helpers and Firebase verification helpers
-- `internal/middleware`: HTTP auth middleware
-- `internal/handler`: HTTP request parsing and response writing
-- `internal/service`: business workflows and validation
-- `internal/repository`: SQL queries and transaction boundaries
-- `internal/model`: domain models returned to the frontend
-- `internal/dto`: request DTOs for API inputs
-- `internal/httpapi`: shared JSON envelope helpers
+- `cmd/server`: HTTP server entrypoint
+- `cmd/migrate`: migration runner
+- `internal/config`: env/runtime config
+- `internal/db`: PostgreSQL connection + migration execution
+- `internal/auth`: JWT + identity helpers
+- `internal/middleware`: customer/admin auth and permission enforcement
+- `internal/handler`: request parsing + envelope writing
+- `internal/service`: business workflows
+- `internal/repository`: SQL and transaction-safe persistence
+- `internal/model`: response models
+- `internal/dto`: request DTOs
+- `internal/httpapi`: common response helpers
 
-Handlers should stay small. Repositories own SQL. Services own rules, orchestration, and transaction-level decisions.
+Rules:
+
+- handlers stay small
+- services own workflow, validation, money/status transitions, and permission-aware orchestration
+- repositories own SQL
+- money, payroll, attendance, stock, and payment state remain backend-owned
 
 ### Database
 
-All schema work now lives in versioned SQL files under `sql`:
+All schema work lives under `sql/` as versioned migrations:
 
 - `V0__baseline.sql`
 - `V1__core_schema.sql`
 - `V2__preset_data.sql`
 - `V3__indexes_and_constraints.sql`
+- `V4__operations_schema.sql`
+- `V5__operations_preset_data.sql`
+- `V6__operations_indexes.sql`
+- `V7__admin_workflows_and_baan_seed.sql`
+- `V8__branch_add_on_controls.sql`
+- `V9__baan_json_preset_seed.sql`
+- `V10__payment_refs_cart_cleanup_and_dashboard.sql`
 
-Do not scatter schema definitions into app code or ad hoc SQL files. New schema work should use a new versioned migration.
+Rules:
+
+- add schema changes only via a new `V*__*.sql`
+- keep seed/preset data deterministic
+- regenerate BAAN preset SQL through `scripts/generate-baan-seed.js` when the source JSON changes
+- update docs whenever tables, indexes, or constraints change
+
+## Frontend Route Map
+
+### Customer routes
+
+- `/`
+- `/search`
+- `/branches/[id]`
+- `/checkout`
+- `/payment/[txnId]`
+- `/account`
+- `/login`
+- `/signup`
+- `/verify-email`
+- `/web-hook-line`
+
+### Admin routes
+
+- `/admin/login`
+- `/admin`
+- `/admin/employees`
+- `/admin/attendance`
+- `/admin/payroll`
+- `/admin/branches`
+- `/admin/menu` -> branch/menu operations alias
+- `/admin/stock` -> stock operations alias
+- `/admin/orders`
+- `/admin/riders`
+- `/admin/payments`
+
+Customer and admin auth/session state are intentionally separate.
 
 ## Feature Map
 
-The repository currently supports:
+### Customer app
 
-- Firebase and LINE login
-- access token + refresh token session flow
-- bootstrap payload for authenticated app hydration
-- branch search by text/category/location
-- branch menu browsing and featured items
-- product add-ons
-- cart add/update/remove/clear by branch
-- checkout with single-branch enforcement
-- wallet balance payments
-- QR/slip-based payments
-- deposit/top-up flow
-- transaction detail and slip submission
-- account profile update
-- order and transaction history
+- Firebase + LINE login
+- LINE callback handoff on `/web-hook-line` uses a minimal auth shell instead of the customer layout
+- locale boot is SSR-safe on first render, then hydrates persisted/browser locale after mount
+- minimal login/signup screens with shared locale switching and no customer top nav
+- bootstrap hydration
+- branch search by keyword/category/location
+- branch operating state and fulfillment mode visibility
+- menu browsing with stock-aware and branch-aware availability
+- add-ons and normalized cart
+- cart and order item `addOns` must be normalized to empty arrays before render/persistence
+- pickup or rider-delivery checkout
+- wallet and Omise PromptPay flows in the active checkout experience
+- legacy manual QR/slip support kept backend-side but hidden from customer checkout
+- payment detail with provider-backed QR rendering, expiry handling, live countdown, and retry flow
+- order and transaction business references in the `ODyyMMdd######` / `TXyyMMdd######` format
+- checkout-draft reconciliation against current cart truth after checkout/payment transitions
+- shared frontend error mapping converts backend codes/messages into localized user-safe copy
+- logout, backend email verification, and order/provider notification delivery
+- profile, order history, and transaction history
 
-## Frontend Conventions
+### Admin / operations
 
-- Route pages orchestrate data loading and compose sections.
-- Components stay reusable and UI-focused.
-- Services are the only place that should know endpoint paths.
-- The frontend API envelope is `{"code","message","body"}` and is unwrapped in `src/services/api.ts`.
-- Auth and cart state are persisted in local storage through `src/utils/tokenStorage.ts`.
-- Mobile-first UX is required for ordering flows. The cart, checkout, and payment flows should remain touch-friendly.
+- bootstrap owner login from `ADMIN_USERNAME` and `ADMIN_PASSWORD`
+- staff-account login through employee management
+- role + permission + branch-scope session model
+- shared Thai/English locale switch using the same i18n persistence model as the customer app
+- employee creation/update with roles, branches, and compensation data
+- modal-based employee and branch create/edit workflows with inline validation and submit-level feedback
+- attendance clock in / clock out / correction flows
+- OT request and review
+- payroll settings, payroll periods, and generated payroll entries
+- branch open/close and fulfillment controls
+- branch creation with optional menu copy from an existing branch
+- stock-aware branch product overrides
+- branch-level add-on price and sellability overrides
+- branch-level stock quantity, reorder level, and product temporary closure controls
+- order queue management
+- order detail modal with defensive empty states and backend-shaped item arrays
+- kitchen-ready order transition before pickup completion or rider handoff
+- role-aware admin dashboard with sales, complaints, OT, staffing, and schedule views
+- rider job queue, claim, and delivery status transitions
+- payment provider list, payment records, and webhook event visibility
 
-## Backend Conventions
+## Role Model
 
-- Every external request returns the shared JSON envelope.
-- Validation belongs at the handler boundary and in services where business constraints apply.
-- Database writes that change multiple tables must stay transactional.
-- Prefer joined/batched reads over repeated lookup loops.
-- Repository methods should match the normalized schema instead of reintroducing JSON blobs or denormalized user-owned cart/order state.
+Supported roles:
 
-## SQL Conventions
+- `employee`
+- `manager_branch`
+- `manager`
+- `owner`
+- `rider`
 
-- Keep migrations deterministic and idempotent where practical.
-- Seed/preset data needed for local bootstrapping belongs in versioned migrations, not ad hoc scripts.
-- Add indexes for hot paths only when tied to real read/write flows.
-- Document new tables and relationships in `docs/DB_SCHEMA.md` whenever schema changes.
+Permissions are stored in SQL and enforced by Go middleware/services. Frontend navigation is role-aware but not authoritative.
+
+## Order Operations Model
+
+Supported operational order statuses:
+
+- `PENDING`
+- `PREPARE`
+- `READY`
+- `DELIVERY`
+- `COMPLETED`
+- `REJECTED`
+
+Operational notes:
+
+- backend returns admin order detail with `items` normalized to an empty array
+- backend also returns `allowedStatuses` so admin UI can render only valid actions
+- `READY` is the kitchen handoff state before pickup completion or rider-delivery dispatch
+
+## Payment Architecture
+
+Payment logic is backend-owned.
+
+- frontend receives payment DTOs and `paymentAction`
+- backend normalizes payment method type, provider state, and webhook events
+- backend refreshes gateway-backed transaction state and derives `expired` from `expires_at`
+- backend allocates business-facing `reference_code` values for transactions and orders
+- checkout payment-method discovery uses API scope so legacy manual QR methods stay hidden from active customer checkout
+- payment gateway logic is abstracted behind `PaymentGateway`
+- Omise is the first provider implementation
+- another provider should be added by implementing the interface and registering it in `PaymentService`
+
+Notification delivery is also backend-owned.
+
+- `NotificationService` wraps email + LINE delivery
+- Resend is used through the `Mailer` abstraction
+- LINE bot push is used through the `LineMessenger` abstraction
+- order-ready notifications include branch context and a short item summary where available
+- notification copy should prefer business-facing order references when available
+- frontend never sees provider secrets or notification credentials
+
+## Rider Delivery Model
+
+Supported fulfillment modes:
+
+- `pickup`
+- `rider_delivery`
+
+Delivery jobs are created only for rider-delivery orders. Rider flow is branch-local and intentionally non-realtime.
+
+Typical statuses:
+
+- `waiting_for_rider`
+- `assigned_to_rider`
+- `picked_up`
+- `delivered`
+- `failed_delivery`
+- `cancelled`
+
+## UI Standards
+
+### Customer app
+
+- mobile first
+- tablet intentional, not stretched mobile
+- white surfaces, emerald/soft green primary accents, slate neutrals
+- strong cart/checkout/payment hierarchy
+- large touch targets
+- sticky CTAs where helpful
+- auth routes stay focused on sign-in/sign-up tasks and do not reuse the customer top navigation
+
+### Admin app
+
+- web/tablet first, mobile usable
+- operational dashboard look
+- clean white surfaces with emerald accents
+- grouped navigation, modal-first editing, and strong inline validation/error feedback
+- page -> component -> service structure still applies
+
+## Change Checklist
+
+When changing schema, API shape, features, permissions, or project structure:
+
+1. add/update SQL migration files
+2. update Go DTOs, services, repositories, handlers, and middleware together
+3. update frontend types and `src/services`
+4. update customer/admin pages and reusable components
+5. update tests
+6. update this file and relevant docs in `docs/`
 
 ## Verification Commands
 
 Frontend:
 
 ```bash
-npm run dev
+npm run dev:frontend
 npm run build
 npm test
 ```
+
+Notes:
+
+- `npm run dev` uses Next.js 16 dev server
+- `npm run build` uses `next build --webpack` for stable production builds on the current repo
 
 Backend:
 
@@ -119,35 +309,29 @@ go run ./cmd/server
 go test ./...
 ```
 
-Repo-level shortcuts:
+Repo level:
 
 ```bash
-npm run dev:frontend
-npm run dev:backend
 npm run backend:migrate
 npm run backend:test
 npm run verify
 ```
 
-## Change Checklist
-
-When changing API shape, schema, feature flow, or project structure:
-
-1. Update or add a SQL migration when schema/data shape changes.
-2. Update Go DTOs, services, repositories, handlers, and API docs together.
-3. Update frontend types and service helpers to match the API contract.
-4. Update pages/components if UX or flow changes.
-5. Add or update tests on both the Go and frontend side.
-6. Update this file and the relevant docs in `docs/`.
-
 ## Documentation Map
 
-- [`README.md`](./README.md): quickstart and repo overview
-- [`docs/PROJECT_STRUCTURE.md`](./docs/PROJECT_STRUCTURE.md): directory map
-- [`docs/FEATURES.md`](./docs/FEATURES.md): user-facing flows
-- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md): frontend/backend responsibilities
-- [`docs/DB_SCHEMA.md`](./docs/DB_SCHEMA.md): schema and relationships
-- [`docs/API_CONTRACT.md`](./docs/API_CONTRACT.md): HTTP contract
-- [`docs/TESTING.md`](./docs/TESTING.md): test layout and commands
-- [`docs/MIGRATION_GUIDE.md`](./docs/MIGRATION_GUIDE.md): migration notes from the old structure
-- [`docs/RESPONSIVE_UI_GUIDE.md`](./docs/RESPONSIVE_UI_GUIDE.md): mobile/tablet UX rules
+- [`README.md`](./README.md)
+- [`docs/PROJECT_STRUCTURE.md`](./docs/PROJECT_STRUCTURE.md)
+- [`docs/FEATURES.md`](./docs/FEATURES.md)
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
+- [`docs/DB_SCHEMA.md`](./docs/DB_SCHEMA.md)
+- [`docs/API_CONTRACT.md`](./docs/API_CONTRACT.md)
+- [`docs/TESTING.md`](./docs/TESTING.md)
+- [`docs/MIGRATION_GUIDE.md`](./docs/MIGRATION_GUIDE.md)
+- [`docs/RESPONSIVE_UI_GUIDE.md`](./docs/RESPONSIVE_UI_GUIDE.md)
+- [`docs/ADMIN_MODE.md`](./docs/ADMIN_MODE.md)
+- [`docs/EMPLOYEE_PAYROLL.md`](./docs/EMPLOYEE_PAYROLL.md)
+- [`docs/PAYMENT_GATEWAYS.md`](./docs/PAYMENT_GATEWAYS.md)
+- [`docs/NOTIFICATIONS.md`](./docs/NOTIFICATIONS.md)
+- [`docs/PRESET_DATA.md`](./docs/PRESET_DATA.md)
+- [`docs/RIDER_DELIVERY.md`](./docs/RIDER_DELIVERY.md)
+- [`docs/ROLE_PERMISSION_MATRIX.md`](./docs/ROLE_PERMISSION_MATRIX.md)

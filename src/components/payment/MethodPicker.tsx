@@ -43,7 +43,12 @@ export function MethodPicker({ methods, selectedId, onSelect, loading, title, su
             {methods.map((method) => {
                 const isActive = selectedId === method.id;
                 const typeKey = METHOD_I18N[method.methodType];
-                const typeLabel = typeKey ? t(typeKey) : method.methodType;
+                const typeLabel = method.methodType === "gateway"
+                    ? t(I18N_KEYS.PAYMENT_METHOD_GATEWAY)
+                    : typeKey
+                        ? t(typeKey)
+                        : method.methodType;
+                const providerLabel = method.providerCode ? ` · ${method.providerCode}` : "";
                 return (
                     <button
                         key={method.id}
@@ -58,7 +63,10 @@ export function MethodPicker({ methods, selectedId, onSelect, loading, title, su
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-sm font-semibold text-slate-900">{method.name}</p>
-                                <p className="text-xs text-slate-500">{typeLabel}</p>
+                                <p className="text-xs text-slate-500">
+                                    {typeLabel}
+                                    {providerLabel}
+                                </p>
                             </div>
                             <span
                                 className={`inline-flex h-5 w-5 items-center justify-center rounded-full border-2 ${

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	"github.com/natthaohong/delivery-food/go_backend/internal/apperror"
 	"github.com/natthaohong/delivery-food/go_backend/internal/model"
@@ -10,7 +11,7 @@ import (
 
 type CatalogSearchPayload struct {
 	Branches   []model.BranchSearchResult `json:"branches"`
-	Categories []model.Category          `json:"categories"`
+	Categories []model.Category           `json:"categories"`
 }
 
 type BranchMenuPayload struct {
@@ -78,13 +79,24 @@ func (s *CatalogService) FeaturedMenu(ctx context.Context, branchID int64) (Bran
 	return BranchMenuPayload{Branch: branch, Menu: menu, Page: 1, Size: 12, Total: total}, nil
 }
 
-func (s *CatalogService) PaymentMethods(ctx context.Context, companyID int64) ([]model.PaymentMethod, error) {
+func (s *CatalogService) PaymentMethods(ctx context.Context, companyID int64, scope string) ([]model.PaymentMethod, error) {
 	if companyID <= 0 {
 		return nil, apperror.BadRequest("companyId is required")
 	}
 	methods, err := s.store.GetPaymentMethods(ctx, companyID)
 	if err != nil {
 		return nil, apperror.Internal("failed to load payment methods", err)
+	}
+	scope = strings.TrimSpace(strings.ToLower(scope))
+	if scope == "checkout" {
+		filtered := make([]model.PaymentMethod, 0, len(methods))
+		for _, method := range methods {
+			if method.MethodType == "qr" && method.CheckoutFlow == "manual_slip" {
+				continue
+			}
+			filtered = append(filtered, method)
+		}
+		methods = filtered
 	}
 	return methods, nil
 }

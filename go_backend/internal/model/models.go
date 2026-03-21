@@ -41,18 +41,23 @@ type OperatingWindow struct {
 }
 
 type BranchSummary struct {
-	ID            int64             `json:"id"`
-	CompanyID     int64             `json:"companyId"`
-	Name          string            `json:"name"`
-	Slug          string            `json:"slug"`
-	Description   *string           `json:"description"`
-	ImageURL      *string           `json:"imageUrl"`
-	AddressLine   *string           `json:"addressLine"`
-	Lat           *float64          `json:"lat"`
-	Lng           *float64          `json:"lng"`
-	IsForceClosed bool              `json:"isForceClosed"`
-	OpenHours     []OperatingWindow `json:"openHours,omitempty"`
-	IsOpen        bool              `json:"isOpen"`
+	ID                    int64             `json:"id"`
+	CompanyID             int64             `json:"companyId"`
+	Name                  string            `json:"name"`
+	Slug                  string            `json:"slug"`
+	Description           *string           `json:"description"`
+	ImageURL              *string           `json:"imageUrl"`
+	AddressLine           *string           `json:"addressLine"`
+	Lat                   *float64          `json:"lat"`
+	Lng                   *float64          `json:"lng"`
+	IsForceClosed         bool              `json:"isForceClosed"`
+	AcceptingOrders       bool              `json:"acceptingOrders"`
+	SupportsPickup        bool              `json:"supportsPickup"`
+	SupportsRiderDelivery bool              `json:"supportsRiderDelivery"`
+	RiderDeliveryFee      float64           `json:"riderDeliveryFee"`
+	OperationalNote       *string           `json:"operationalNote"`
+	OpenHours             []OperatingWindow `json:"openHours,omitempty"`
+	IsOpen                bool              `json:"isOpen"`
 }
 
 type BranchSearchSample struct {
@@ -79,16 +84,19 @@ type ProductAddOn struct {
 }
 
 type MenuItem struct {
-	ProductID     int64          `json:"productId"`
-	Name          string         `json:"name"`
-	Description   *string        `json:"description"`
-	ImageURL      *string        `json:"imageUrl"`
-	Price         float64        `json:"price"`
-	BasePrice     float64        `json:"basePrice"`
-	InStock       bool           `json:"inStock"`
-	StockQty      *int           `json:"stockQty"`
-	IsRecommended bool           `json:"isRecommended"`
-	AddOns        []ProductAddOn `json:"addOns"`
+	ProductID           int64          `json:"productId"`
+	Name                string         `json:"name"`
+	Description         *string        `json:"description"`
+	ImageURL            *string        `json:"imageUrl"`
+	Price               float64        `json:"price"`
+	BasePrice           float64        `json:"basePrice"`
+	InStock             bool           `json:"inStock"`
+	StockQty            *int           `json:"stockQty"`
+	IsRecommended       bool           `json:"isRecommended"`
+	IsTemporarilyClosed bool           `json:"isTemporarilyClosed"`
+	AvailabilityNote    *string        `json:"availabilityNote"`
+	ReorderLevel        *int           `json:"reorderLevel"`
+	AddOns              []ProductAddOn `json:"addOns"`
 }
 
 type CartAddOn struct {
@@ -131,28 +139,39 @@ type Cart struct {
 }
 
 type PaymentMethod struct {
-	ID          int64   `json:"id"`
-	Code        string  `json:"code"`
-	Name        string  `json:"name"`
-	MethodType  string  `json:"methodType"`
-	SortOrder   int     `json:"sortOrder"`
-	PromptPayID *string `json:"promptPayId,omitempty"`
+	ID                 int64          `json:"id"`
+	Code               string         `json:"code"`
+	Name               string         `json:"name"`
+	MethodType         string         `json:"methodType"`
+	SortOrder          int            `json:"sortOrder"`
+	PromptPayID        *string        `json:"promptPayId,omitempty"`
+	ProviderCode       *string        `json:"providerCode,omitempty"`
+	ProviderMethodCode *string        `json:"providerMethodCode,omitempty"`
+	CheckoutFlow       string         `json:"checkoutFlow"`
+	Metadata           map[string]any `json:"metadata,omitempty"`
 }
 
 type Transaction struct {
-	ID              int64      `json:"id"`
-	UserID          int64      `json:"userId"`
-	CompanyID       int64      `json:"companyId"`
-	PaymentMethodID int64      `json:"paymentMethodId"`
-	TxnType         string     `json:"txnType"`
-	Amount          float64    `json:"amount"`
-	Status          string     `json:"status"`
-	ExpiresAt       *time.Time `json:"expiresAt"`
-	SlipReference   *string    `json:"slipReference"`
-	SlipDate        *time.Time `json:"slipDate"`
-	SlipTimestamp   *time.Time `json:"slipTimestamp"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	UpdatedAt       time.Time  `json:"updatedAt"`
+	ID                int64          `json:"id"`
+	ReferenceCode     string         `json:"referenceCode"`
+	UserID            int64          `json:"userId"`
+	CompanyID         int64          `json:"companyId"`
+	PaymentMethodID   int64          `json:"paymentMethodId"`
+	TxnType           string         `json:"txnType"`
+	Amount            float64        `json:"amount"`
+	Status            string         `json:"status"`
+	ExpiresAt         *time.Time     `json:"expiresAt"`
+	SlipReference     *string        `json:"slipReference"`
+	SlipDate          *time.Time     `json:"slipDate"`
+	SlipTimestamp     *time.Time     `json:"slipTimestamp"`
+	ProviderID        *int64         `json:"providerId,omitempty"`
+	ProviderReference *string        `json:"providerReference,omitempty"`
+	ProviderStatus    *string        `json:"providerStatus,omitempty"`
+	PaymentAction     map[string]any `json:"paymentAction,omitempty"`
+	PaidAt            *time.Time     `json:"paidAt,omitempty"`
+	FailedReason      *string        `json:"failedReason,omitempty"`
+	CreatedAt         time.Time      `json:"createdAt"`
+	UpdatedAt         time.Time      `json:"updatedAt"`
 }
 
 type TransactionSummary struct {
@@ -174,10 +193,14 @@ type OrderItem struct {
 
 type Order struct {
 	ID                 int64               `json:"id"`
+	ReferenceCode      string              `json:"referenceCode"`
 	UserID             int64               `json:"userId"`
 	BranchID           int64               `json:"branchId"`
 	TransactionID      int64               `json:"transactionId"`
 	Status             string              `json:"status"`
+	FulfillmentMode    string              `json:"fulfillmentMode"`
+	DeliveryFee        float64             `json:"deliveryFee"`
+	CustomerNote       *string             `json:"customerNote,omitempty"`
 	DeliveryLat        *float64            `json:"deliveryLat"`
 	DeliveryLng        *float64            `json:"deliveryLng"`
 	DeliveryDistanceKM *float64            `json:"deliveryDistanceKm"`
@@ -186,6 +209,7 @@ type Order struct {
 	Items              []OrderItem         `json:"items"`
 	Branch             *BranchSummary      `json:"branch,omitempty"`
 	Transaction        *TransactionSummary `json:"transaction,omitempty"`
+	DeliveryJob        *DeliveryJob        `json:"deliveryJob,omitempty"`
 	TotalAmount        float64             `json:"totalAmount"`
 }
 

@@ -1,19 +1,7 @@
-FROM golang:1.22-alpine AS build
-
-WORKDIR /app
-
-COPY go_backend/go.mod go_backend/go.sum* ./
-RUN go mod download
-
-COPY go_backend/. .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /bin/server ./cmd/server
-
 FROM alpine:3.20
-
+RUN apk --no-cache add tzdata curl coreutils
+ENV TZ=Asia/Bangkok
 WORKDIR /app
-
-COPY --from=build /bin/server /app/server
-
-EXPOSE 8080
-
-CMD ["/app/server"]
+COPY ./goapp ./goapp
+COPY ./sql-deploy ./sql
+CMD ["./goapp"]

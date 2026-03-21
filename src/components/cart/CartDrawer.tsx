@@ -5,11 +5,13 @@ import { QuantityInput } from "@components/common";
 import type { RootState } from "@store/index";
 import { useAppDispatch } from "@store/index";
 import { setCart } from "@store/cartSlice";
-import { clearCartBranch, removeCartItem, updateCartItem } from "@/services/cart";
+import { clearCartBranch, fetchCart, removeCartItem, updateCartItem } from "@/services/cart";
 import { formatTHB } from "@/utils/currency";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import { notify } from "@/utils/notify";
+import { parseApiError } from "@/utils/apiErrors";
+import { saveCheckoutDraft } from "@/utils/checkoutDraft";
 
 type CartDrawerProps = {
     open: boolean;
@@ -21,7 +23,7 @@ type CheckoutDraft = {
     itemIds: number[];
 };
 
-export const CHECKOUT_DRAFT_KEY = "CHECKOUT_DRAFT";
+export { CHECKOUT_DRAFT_KEY } from "@/utils/checkoutDraft";
 
 export default function CartDrawer({ open, onClose }: CartDrawerProps) {
     const { t } = useI18n();
@@ -30,6 +32,14 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
     const cart = useSelector((state: RootState) => state.cart.value);
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [pendingItemId, setPendingItemId] = useState<number | null>(null);
+
+    const syncCartFromServer = async () => {
+        const nextCart = await fetchCart();
+        dispatch(setCart(nextCart));
+        setSelectedIds((current) => current.filter((id) => nextCart.groups.some((group) => group.items.some((item) => item.id === id))));
+        notify(t(I18N_KEYS.CART_SYNCED), "info");
+        return nextCart;
+    };
 
     useEffect(() => {
         if (!open) {
@@ -51,7 +61,11 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
             const nextCart = await updateCartItem(itemId, quantity);
             dispatch(setCart(nextCart));
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || t(I18N_KEYS.CART_UPDATE_ERROR), "error");
+            const message = parseApiError(error, t(I18N_KEYS.CART_UPDATE_ERROR)).message;
+            if (typeof error?.response?.status === "number" && (error.response.status === 404 || error.response.status === 409)) {
+                await syncCartFromServer().catch(() => undefined);
+            }
+            notify(message, "error");
         } finally {
             setPendingItemId(null);
         }
@@ -64,7 +78,11 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
             dispatch(setCart(nextCart));
             setSelectedIds((current) => current.filter((id) => id !== itemId));
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || t(I18N_KEYS.CART_UPDATE_ERROR), "error");
+            const message = parseApiError(error, t(I18N_KEYS.CART_UPDATE_ERROR)).message;
+            if (typeof error?.response?.status === "number" && (error.response.status === 404 || error.response.status === 409)) {
+                await syncCartFromServer().catch(() => undefined);
+            }
+            notify(message, "error");
         } finally {
             setPendingItemId(null);
         }
@@ -82,7 +100,11 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                 return current.filter((id) => !branchItemIds.has(id));
             });
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || t(I18N_KEYS.CART_UPDATE_ERROR), "error");
+            const message = parseApiError(error, t(I18N_KEYS.CART_UPDATE_ERROR)).message;
+            if (typeof error?.response?.status === "number" && (error.response.status === 404 || error.response.status === 409)) {
+                await syncCartFromServer().catch(() => undefined);
+            }
+            notify(message, "error");
         } finally {
             setPendingItemId(null);
         }
@@ -96,7 +118,7 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
         const selectedItems = allItems.filter((item) => selectedIds.includes(item.id));
         const branchIds = Array.from(new Set(selectedItems.map((item) => item.branchId)));
         if (branchIds.length !== 1) {
-            notify("Select items from a single branch before checkout.", "warning");
+            notify(t(I18N_KEYS.CART_SINGLE_BRANCH_WARNING), "warning");
             return;
         }
 
@@ -104,9 +126,7 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
             branchId: branchIds[0],
             itemIds: selectedItems.map((item) => item.id),
         };
-        if (typeof window !== "undefined") {
-            window.localStorage.setItem(CHECKOUT_DRAFT_KEY, JSON.stringify(draft));
-        }
+        saveCheckoutDraft(draft);
         onClose();
         await router.push("/checkout");
     };
@@ -115,14 +135,19 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
 
     return (
         <div className="fixed inset-0 z-50">
-            <button type="button" className="absolute inset-0 bg-slate-950/35 backdrop-blur-sm" onClick={onClose} aria-label="Close cart" />
+            <button
+                type="button"
+                className="absolute inset-0 bg-emerald-950/10 backdrop-blur-sm"
+                onClick={onClose}
+                aria-label={t(I18N_KEYS.CART_CLOSE_CART)}
+            />
             <aside className="absolute bottom-0 right-0 flex h-[88vh] w-full flex-col rounded-t-[2rem] bg-white shadow-2xl md:top-0 md:h-full md:max-w-xl md:rounded-none md:rounded-l-[2rem]">
                 <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 pb-4 pt-5 backdrop-blur">
                     <div className="mx-auto mb-4 h-1.5 w-16 rounded-full bg-slate-200 md:hidden" />
                     <div className="flex items-center justify-between">
                         <div>
                             <h2 className="text-lg font-semibold text-slate-900">{t(I18N_KEYS.CART_BASKET)}</h2>
-                            <p className="text-sm text-slate-500">{cart.totalQuantity} items ready to order</p>
+                            <p className="text-sm text-slate-500">{t(I18N_KEYS.CART_ITEMS_READY, { count: cart.totalQuantity })}</p>
                         </div>
                         <button
                             type="button"
@@ -164,13 +189,14 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                                             disabled={pendingItemId === -group.branchId}
                                             className="rounded-full border border-slate-200 px-3 py-2 text-xs font-medium text-slate-500 transition hover:bg-white"
                                         >
-                                            Clear branch
+                                            {t(I18N_KEYS.CART_CLEAR_BRANCH)}
                                         </button>
                                     </div>
 
                                     <ul className="mt-4 space-y-3">
                                         {group.items.map((item) => {
                                             const checked = selectedIds.includes(item.id);
+                                            const addOns = Array.isArray(item.addOns) ? item.addOns : [];
                                             return (
                                                 <li key={item.id} className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
                                                     <div className="flex gap-3">
@@ -195,9 +221,9 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                                                             <div className="flex items-start justify-between gap-3">
                                                                 <div>
                                                                     <p className="text-sm font-semibold text-slate-900">{item.productName}</p>
-                                                                    {item.addOns.length > 0 ? (
+                                                                    {addOns.length > 0 ? (
                                                                         <p className="mt-1 text-xs text-slate-500">
-                                                                            {item.addOns.map((addOn) => addOn.name).join(", ")}
+                                                                            {addOns.map((addOn) => addOn.name).join(", ")}
                                                                         </p>
                                                                     ) : null}
                                                                 </div>
@@ -232,10 +258,10 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                 </div>
 
                 <footer className="sticky bottom-0 border-t border-slate-200 bg-white px-4 pb-5 pt-4">
-                    <div className="rounded-3xl bg-slate-950 px-4 py-4 text-white shadow-xl">
+                    <div className="rounded-3xl border border-emerald-100 bg-emerald-50 px-4 py-4 text-slate-900 shadow-sm">
                         <div className="flex items-center justify-between text-sm">
-                            <span>Selected total</span>
-                            <span className="text-lg font-semibold">{formatTHB(totalSelected)}</span>
+                            <span className="text-slate-600">{t(I18N_KEYS.CART_SELECTED_TOTAL)}</span>
+                            <span className="text-lg font-semibold text-slate-950">{formatTHB(totalSelected)}</span>
                         </div>
                         <button
                             type="button"
@@ -243,7 +269,7 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                             disabled={selectedIds.length === 0}
                             className="mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            Proceed to checkout
+                            {t(I18N_KEYS.CART_PROCEED_CHECKOUT)}
                         </button>
                     </div>
                 </footer>

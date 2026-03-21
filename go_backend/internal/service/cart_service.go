@@ -49,7 +49,7 @@ func (s *CartService) AddItem(ctx context.Context, userID int64, request dto.Add
 		return model.Cart{}, apperror.Internal("failed to load product", err)
 	}
 
-	addOns, err := s.store.GetProductAddOns(ctx, request.ProductID, request.AddOnIDs)
+	addOns, err := s.store.GetProductAddOns(ctx, request.BranchID, request.ProductID, request.AddOnIDs)
 	if err != nil {
 		return model.Cart{}, apperror.Internal("failed to load add-ons", err)
 	}
@@ -130,7 +130,7 @@ func (s *CartService) UpdateItem(ctx context.Context, userID int64, itemID int64
 	items, cartID, err := s.store.GetCartItemsByIDs(ctx, userID, []int64{itemID})
 	if err != nil {
 		if repository.IsNotFound(err) {
-			return model.Cart{}, apperror.NotFound("cart item not found")
+			return s.GetCart(ctx, userID)
 		}
 		return model.Cart{}, apperror.Internal("failed to load cart item", err)
 	}
@@ -165,7 +165,7 @@ func (s *CartService) RemoveItem(ctx context.Context, userID int64, itemID int64
 	_, cartID, err := s.store.GetCartItemsByIDs(ctx, userID, []int64{itemID})
 	if err != nil {
 		if repository.IsNotFound(err) {
-			return model.Cart{}, apperror.NotFound("cart item not found")
+			return s.GetCart(ctx, userID)
 		}
 		return model.Cart{}, apperror.Internal("failed to load cart item", err)
 	}

@@ -4,6 +4,7 @@ import { isExpiredUTC } from "@/utils/time";
 export type DisplayStatus =
     | "PENDING"
     | "PREPARE"
+    | "READY"
     | "DELIVERY"
     | "COMPLETED"
     | "REJECTED"
@@ -12,6 +13,7 @@ export type DisplayStatus =
 export const STATUS_I18N_KEY: Record<DisplayStatus, { en: string; th: string }> = {
     PENDING: { en: "Awaiting payment", th: "รอการชำระเงิน" },
     PREPARE: { en: "Preparing", th: "กำลังทำอาหาร" },
+    READY: { en: "Ready for pickup", th: "พร้อมรับอาหาร" },
     DELIVERY: { en: "On the way", th: "กำลังจัดส่ง" },
     COMPLETED: { en: "Completed", th: "สำเร็จ" },
     REJECTED: { en: "Rejected", th: "ถูกปฏิเสธ" },

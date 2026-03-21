@@ -12,15 +12,22 @@ import (
 )
 
 type SellableProduct struct {
-	BranchID    int64
-	CompanyID   int64
-	BranchName  string
-	BranchImage *string
-	ProductID   int64
-	ProductName string
-	ProductImage *string
-	UnitPrice   float64
-	StockQty    *int
+	BranchID              int64
+	CompanyID             int64
+	BranchName            string
+	BranchImage           *string
+	AcceptingOrders       bool
+	SupportsPickup        bool
+	SupportsRiderDelivery bool
+	RiderDeliveryFee      float64
+	OperationalNote       *string
+	ProductID             int64
+	ProductName           string
+	ProductImage          *string
+	UnitPrice             float64
+	StockQty              *int
+	IsTemporarilyClosed   bool
+	AvailabilityNote      *string
 }
 
 type CartVariantRecord struct {
@@ -42,10 +49,12 @@ func (s *Store) GetOrCreateCartID(ctx context.Context, tx DBTX, userID int64) (i
 
 func (s *Store) GetSellableProduct(ctx context.Context, branchID, productID int64) (SellableProduct, error) {
 	var (
-		branchImage sql.NullString
-		productImage sql.NullString
-		stockQty    sql.NullInt32
-		product     SellableProduct
+		branchImage      sql.NullString
+		productImage     sql.NullString
+		stockQty         sql.NullInt32
+		operationalNote  sql.NullString
+		availabilityNote sql.NullString
+		product          SellableProduct
 	)
 	err := s.Pool.QueryRow(ctx, `
 		SELECT
@@ -53,28 +62,44 @@ func (s *Store) GetSellableProduct(ctx context.Context, branchID, productID int6
 			b.company_id,
 			b.name,
 			b.image_url,
+			b.accepting_orders,
+			b.supports_pickup,
+			b.supports_rider_delivery,
+			b.rider_delivery_fee::double precision,
+			b.operational_note,
 			p.id,
 			p.name,
 			p.image_url,
 			COALESCE(bp.price_override, p.base_price)::double precision,
-			bp.stock_qty
+			bp.stock_qty,
+			bp.is_temporarily_closed,
+			bp.availability_note
 		FROM branch_products bp
 		JOIN branches b ON b.id = bp.branch_id
 		JOIN products p ON p.id = bp.product_id
 		WHERE bp.branch_id = $1
 			AND bp.product_id = $2
 			AND bp.is_enabled = TRUE
+			AND bp.is_temporarily_closed = FALSE
+			AND b.accepting_orders = TRUE
 			AND p.is_active = TRUE
 	`, branchID, productID).Scan(
 		&product.BranchID,
 		&product.CompanyID,
 		&product.BranchName,
 		&branchImage,
+		&product.AcceptingOrders,
+		&product.SupportsPickup,
+		&product.SupportsRiderDelivery,
+		&product.RiderDeliveryFee,
+		&operationalNote,
 		&product.ProductID,
 		&product.ProductName,
 		&productImage,
 		&product.UnitPrice,
 		&stockQty,
+		&product.IsTemporarilyClosed,
+		&availabilityNote,
 	)
 	if err != nil {
 		return SellableProduct{}, err
@@ -82,19 +107,33 @@ func (s *Store) GetSellableProduct(ctx context.Context, branchID, productID int6
 	product.BranchImage = nullString(branchImage)
 	product.ProductImage = nullString(productImage)
 	product.StockQty = nullInt(stockQty)
+	product.OperationalNote = nullString(operationalNote)
+	product.AvailabilityNote = nullString(availabilityNote)
 	return product, nil
 }
 
-func (s *Store) GetProductAddOns(ctx context.Context, productID int64, addOnIDs []int64) ([]model.ProductAddOn, error) {
+func (s *Store) GetProductAddOns(ctx context.Context, branchID int64, productID int64, addOnIDs []int64) ([]model.ProductAddOn, error) {
 	if len(addOnIDs) == 0 {
 		return []model.ProductAddOn{}, nil
 	}
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, group_name, name, price::double precision, is_required, sort_order
-		FROM product_add_ons
-		WHERE product_id = $1 AND id = ANY($2)
+		SELECT
+			pa.id,
+			pa.group_name,
+			pa.name,
+			COALESCE(bpa.price_override, pa.price)::double precision,
+			pa.is_required,
+			pa.sort_order
+		FROM product_add_ons pa
+		LEFT JOIN branch_product_add_ons bpa
+			ON bpa.branch_id = $1
+			AND bpa.product_add_on_id = pa.id
+		WHERE pa.product_id = $2
+			AND pa.id = ANY($3)
+			AND COALESCE(bpa.is_enabled, TRUE) = TRUE
+			AND COALESCE(bpa.is_temporarily_closed, FALSE) = FALSE
 		ORDER BY sort_order, id
-	`, productID, addOnIDs)
+	`, branchID, productID, addOnIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -283,12 +322,12 @@ func (s *Store) GetCart(ctx context.Context, userID int64) (model.Cart, error) {
 
 	for rows.Next() {
 		var (
-			branchImage sql.NullString
+			branchImage  sql.NullString
 			productImage sql.NullString
-			stockQty    sql.NullInt32
-			item        model.CartItem
-			companyID   int64
-			branchName  string
+			stockQty     sql.NullInt32
+			item         model.CartItem
+			companyID    int64
+			branchName   string
 		)
 		if err := rows.Scan(
 			&item.ID,
@@ -310,6 +349,7 @@ func (s *Store) GetCart(ctx context.Context, userID int64) (model.Cart, error) {
 		}
 		item.ImageURL = nullString(productImage)
 		item.StockQty = nullInt(stockQty)
+		item.AddOns = make([]model.CartAddOn, 0)
 		itemIDs = append(itemIDs, item.ID)
 
 		groupState, ok := groupMap[item.BranchID]
@@ -360,9 +400,9 @@ func (s *Store) GetCart(ctx context.Context, userID int64) (model.Cart, error) {
 
 		for addOnRows.Next() {
 			var (
-				itemID int64
+				itemID  int64
 				addOnID sql.NullInt64
-				addOn  model.CartAddOn
+				addOn   model.CartAddOn
 			)
 			if err := addOnRows.Scan(&itemID, &addOnID, &addOn.Name, &addOn.Price); err != nil {
 				return model.Cart{}, err
@@ -458,6 +498,7 @@ func (s *Store) GetCartItemsByIDs(ctx context.Context, userID int64, itemIDs []i
 		}
 		item.ImageURL = nullString(imageURL)
 		item.StockQty = nullInt(stockQty)
+		item.AddOns = make([]model.CartAddOn, 0)
 		cartID = itemCartID
 		items = append(items, item)
 	}
@@ -485,9 +526,121 @@ func (s *Store) GetCartItemsByIDs(ctx context.Context, userID int64, itemIDs []i
 	}
 	for addOnRows.Next() {
 		var (
-			itemID int64
+			itemID  int64
 			addOnID sql.NullInt64
-			addOn  model.CartAddOn
+			addOn   model.CartAddOn
+		)
+		if err := addOnRows.Scan(&itemID, &addOnID, &addOn.Name, &addOn.Price); err != nil {
+			return nil, 0, err
+		}
+		addOn.ID = nullInt64(addOnID)
+		index := indexByID[itemID]
+		items[index].AddOns = append(items[index].AddOns, addOn)
+	}
+	if err := addOnRows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	for index := range items {
+		items[index].LineTotal = items[index].UnitPrice * float64(items[index].Quantity)
+		for _, addOn := range items[index].AddOns {
+			items[index].LineTotal += addOn.Price * float64(items[index].Quantity)
+		}
+	}
+	return items, cartID, nil
+}
+
+func (s *Store) GetCartItemsByIDsForUpdate(ctx context.Context, tx DBTX, userID int64, itemIDs []int64) ([]model.CartItem, int64, error) {
+	if len(itemIDs) == 0 {
+		return []model.CartItem{}, 0, nil
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT
+			c.id,
+			ci.id,
+			ci.branch_id,
+			ci.product_id,
+			p.name,
+			p.image_url,
+			ci.quantity,
+			ci.unit_price::double precision,
+			bp.stock_qty,
+			ci.add_on_signature,
+			ci.created_at,
+			ci.updated_at
+		FROM carts c
+		JOIN cart_items ci ON ci.cart_id = c.id
+		JOIN products p ON p.id = ci.product_id
+		LEFT JOIN branch_products bp ON bp.branch_id = ci.branch_id AND bp.product_id = ci.product_id
+		WHERE c.user_id = $1
+			AND ci.id = ANY($2)
+		ORDER BY ci.id
+		FOR UPDATE OF ci
+	`, userID, itemIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]model.CartItem, 0, len(itemIDs))
+	var cartID int64
+	for rows.Next() {
+		var (
+			itemCartID int64
+			imageURL   sql.NullString
+			stockQty   sql.NullInt32
+			item       model.CartItem
+		)
+		if err := rows.Scan(
+			&itemCartID,
+			&item.ID,
+			&item.BranchID,
+			&item.ProductID,
+			&item.ProductName,
+			&imageURL,
+			&item.Quantity,
+			&item.UnitPrice,
+			&stockQty,
+			&item.VariantKey,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		item.ImageURL = nullString(imageURL)
+		item.StockQty = nullInt(stockQty)
+		item.AddOns = make([]model.CartAddOn, 0)
+		cartID = itemCartID
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	if len(items) != len(itemIDs) {
+		return nil, 0, pgx.ErrNoRows
+	}
+
+	addOnRows, err := tx.Query(ctx, `
+		SELECT cart_item_id, product_add_on_id, name, price::double precision
+		FROM cart_item_add_ons
+		WHERE cart_item_id = ANY($1)
+		ORDER BY id
+	`, itemIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer addOnRows.Close()
+
+	indexByID := make(map[int64]int, len(items))
+	for i, item := range items {
+		indexByID[item.ID] = i
+	}
+	for addOnRows.Next() {
+		var (
+			itemID  int64
+			addOnID sql.NullInt64
+			addOn   model.CartAddOn
 		)
 		if err := addOnRows.Scan(&itemID, &addOnID, &addOn.Name, &addOn.Price); err != nil {
 			return nil, 0, err

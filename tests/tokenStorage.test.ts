@@ -2,14 +2,20 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+    clearAdminSession,
+    clearAdminTokens,
     clearCart,
     clearConfig,
     clearTokens,
     clearUser,
+    loadAdminSession,
+    loadAdminTokens,
     loadCart,
     loadConfig,
     loadTokens,
     loadUser,
+    saveAdminSession,
+    saveAdminTokens,
     saveCart,
     saveConfig,
     saveTokens,
@@ -17,6 +23,7 @@ import {
     type StoredTokens,
 } from "../src/utils/tokenStorage";
 import type { Cart, UserRecord } from "../src/types";
+import type { AdminSession } from "../src/types/admin";
 
 class MemoryStorage implements Storage {
     private store = new Map<string, string>();
@@ -93,6 +100,16 @@ describe("tokenStorage utilities", () => {
         totalQuantity: 2,
         lastSyncedAt: "2024-01-01T00:00:00.000Z",
     };
+    const adminSession: AdminSession = {
+        sessionType: "admin",
+        actorType: "staff",
+        actorLabel: "Owner",
+        staffAccountId: 1,
+        employeeId: 7,
+        roles: ["owner"],
+        permissions: ["employees.manage"],
+        branchIds: [1],
+    };
     let storage: MemoryStorage;
 
     beforeEach(() => {
@@ -155,5 +172,16 @@ describe("tokenStorage utilities", () => {
         delete (globalThis as any).localStorage;
         saveTokens(tokens);
         assert.equal(loadTokens(), null);
+    });
+
+    it("stores and clears admin auth payload", () => {
+        saveAdminTokens(tokens);
+        saveAdminSession(adminSession);
+        assert.deepEqual(loadAdminTokens(), tokens);
+        assert.deepEqual(loadAdminSession(), adminSession);
+        clearAdminTokens();
+        clearAdminSession();
+        assert.equal(loadAdminTokens(), null);
+        assert.equal(loadAdminSession(), null);
     });
 });

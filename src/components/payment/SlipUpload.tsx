@@ -4,6 +4,7 @@ import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import { notify } from "@/utils/notify";
 import { submitTransactionSlip } from "@/services/payment";
+import { parseApiError } from "@/utils/apiErrors";
 
 type SlipUploadProps = {
     txnId: number;
@@ -31,8 +32,7 @@ export function SlipUpload({ txnId, onSuccess }: SlipUploadProps) {
             notify(t(I18N_KEYS.PAYMENT_SLIP_SUCCESS), "success");
             onSuccess(detail);
         } catch (error: any) {
-            const message = error?.response?.data?.message || error?.message || t(I18N_KEYS.PAYMENT_SLIP_ERROR);
-            notify(message, "error");
+            notify(parseApiError(error, t(I18N_KEYS.PAYMENT_SLIP_ERROR)).message, "error");
         } finally {
             setSubmitting(false);
         }

@@ -7,6 +7,7 @@ import { notify } from "@/utils/notify";
 import type { TransactionMethod } from "@/types/transaction";
 import { fetchPaymentMethods } from "@/services/catalog";
 import { createDeposit } from "@/services/payment";
+import { parseApiError } from "@/utils/apiErrors";
 
 type DepositModalProps = {
     open: boolean;
@@ -49,7 +50,7 @@ export default function DepositModal({ open, onClose, defaultBranchId, defaultCo
         }
 
         setLoadingMethods(true);
-        fetchPaymentMethods(defaultCompanyId)
+        fetchPaymentMethods(defaultCompanyId, "deposit")
             .then((list) => {
                 const qrMethods = list.filter((item) => item.methodType === "qr");
                 setMethods(qrMethods);
@@ -60,8 +61,7 @@ export default function DepositModal({ open, onClose, defaultBranchId, defaultCo
                 }
             })
             .catch((error) => {
-                const message = error?.response?.data?.message || error?.message || t(I18N_KEYS.DEPOSIT_METHOD_ERROR);
-                setMethodsError(message);
+                setMethodsError(parseApiError(error, t(I18N_KEYS.DEPOSIT_METHOD_ERROR)).message);
                 setMethods([]);
             })
             .finally(() => {
@@ -110,8 +110,7 @@ export default function DepositModal({ open, onClose, defaultBranchId, defaultCo
                                 });
                             })
                             .catch((error) => {
-                                const message = error?.response?.data?.message || error?.message || t(I18N_KEYS.PAYMENT_SUBMIT_ERROR);
-                                notify(message, "error");
+                                notify(parseApiError(error, t(I18N_KEYS.PAYMENT_SUBMIT_ERROR)).message, "error");
                             })
                             .finally(() => {
                                 setSubmitting(false);
@@ -172,7 +171,7 @@ export default function DepositModal({ open, onClose, defaultBranchId, defaultCo
                                             aria-pressed={checked}
                                         >
                                             <p className="text-sm font-semibold">{method.name}</p>
-                                            <p className="text-xs text-slate-500">{method.methodType.toUpperCase()}</p>
+                                            <p className="text-xs text-slate-500">{method.providerCode ?? method.methodType}</p>
                                         </button>
                                     </li>
                                 );
