@@ -206,6 +206,7 @@ export type PaymentWebhookEvent = {
 export type DeliveryJob = {
     id: number;
     orderId: number;
+    orderReferenceCode?: string | null;
     branchId: number;
     branchName?: string | null;
     status: string;
@@ -228,15 +229,27 @@ export type AdminDashboard = {
     pendingOrders: number;
     waitingRiderJobs: number;
     pendingPayments: number;
+    openComplaints: number;
+    salesTotal: number;
+    appliedBranchId?: number | null;
+    days: number;
+    salesSeries: AdminDashboardSalesPoint[];
+    branchSales: AdminDashboardBranchSales[];
+    recentComplaints: CustomerComplaint[];
+    recentOtRequests: OTRequest[];
+    staffCounts: AdminDashboardStaffCountPoint[];
+    workSchedule: AdminDashboardScheduleRow[];
 };
 
 export type AdminPaymentRecord = {
     id: number;
+    referenceCode: string;
     userId: number;
     customerName?: string | null;
     branchId?: number | null;
     branchName?: string | null;
     orderId?: number | null;
+    orderReferenceCode?: string | null;
     paymentMethodName?: string | null;
     providerCode?: string | null;
     status: string;
@@ -245,6 +258,56 @@ export type AdminPaymentRecord = {
     createdAt: string;
     updatedAt: string;
     paidAt?: string | null;
+};
+
+export type CustomerComplaint = {
+    id: number;
+    userId?: number | null;
+    orderId?: number | null;
+    orderReferenceCode?: string | null;
+    branchId: number;
+    branchName: string;
+    category: string;
+    status: string;
+    title: string;
+    message: string;
+    resolvedNote?: string | null;
+    resolvedAt?: string | null;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export type AdminDashboardSalesPoint = {
+    date: string;
+    totalSales: number;
+    orderCount: number;
+};
+
+export type AdminDashboardBranchSales = {
+    branchId: number;
+    branchName: string;
+    totalSales: number;
+    orderCount: number;
+    complaintCount: number;
+};
+
+export type AdminDashboardStaffCountPoint = {
+    date: string;
+    employeeCount: number;
+};
+
+export type AdminDashboardScheduleRow = {
+    workDate: string;
+    branchId: number;
+    branchName: string;
+    employeeId: number;
+    employeeName: string;
+    roleCodes: string[];
+    plannedStart?: string | null;
+    plannedEnd?: string | null;
+    attendanceStatus?: string | null;
+    clockInAt?: string | null;
+    clockOutAt?: string | null;
 };
 
 export type EmployeeUpsertRequest = {

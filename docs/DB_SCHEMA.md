@@ -12,6 +12,7 @@
 - `V7__admin_workflows_and_baan_seed.sql`
 - `V8__branch_add_on_controls.sql`
 - `V9__baan_json_preset_seed.sql`
+- `V10__payment_refs_cart_cleanup_and_dashboard.sql`
 
 ## Domain Groups
 
@@ -58,20 +59,24 @@ Branch add-on override records carry:
 - `carts`
 - `cart_items`
 - `cart_item_add_ons`
+- `business_reference_counters`
 - `transactions`
 - `orders`
 - `order_items`
 - `order_item_add_ons`
 - `delivery_jobs`
+- `customer_complaints`
 
 Order records now also carry:
 
+- `reference_code`
 - `fulfillment_mode`
 - `delivery_fee`
 - `customer_note`
 
 Transaction records now also carry:
 
+- `reference_code`
 - `expires_at`
 - `provider_id`
 - `provider_reference`
@@ -125,7 +130,10 @@ Current payment hardening reuses these existing fields:
 - `branches 1:n branch_products`
 - `branches 1:n branch_product_add_ons`
 - `branches 1:n delivery_jobs`
+- `branches 1:n customer_complaints`
 - `orders 0..1:1 delivery_jobs`
+- `orders 0..n customer_complaints`
+- `users 0..n customer_complaints`
 - `payment_providers 1:n payment_methods`
 - `payment_providers 1:n payment_webhook_events`
 
@@ -141,6 +149,8 @@ Current payment hardening reuses these existing fields:
 - reorder level is non-negative when present
 - transaction and order statuses are constrained
 - order status constraint now includes `READY`
+- transaction and order `reference_code` values are unique
+- `business_reference_counters` allocates daily `TX` and `OD` sequence numbers safely under concurrency
 
 ## Preset Data
 
@@ -156,6 +166,13 @@ Preset migrations provide:
 - payroll default settings
 - Omise payment provider
 - Omise PromptPay payment method
+
+`V10__payment_refs_cart_cleanup_and_dashboard.sql` also provides a DB-level repair path for stale cart data by deleting:
+
+- orphaned `cart_item_add_ons`
+- cart items whose branch-product mapping no longer exists
+- cart items tied to inactive branch-product rows
+- cart items whose selected add-ons no longer belong to the product or are branch-disabled
 
 ## Indexes
 

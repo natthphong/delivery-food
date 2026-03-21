@@ -118,4 +118,65 @@ describe("AccountPage", () => {
         expect(screen.queryByText("email is already used")).not.toBeInTheDocument();
         expect(notify).toHaveBeenCalledWith("This email is already in use.", "error");
     });
+
+    it("shows business reference codes in transaction and order history", async () => {
+        const user = userEvent.setup();
+        fetchTransactions.mockResolvedValue([
+            {
+                id: 41,
+                referenceCode: "TX260321000041",
+                userId: 1,
+                companyId: 1,
+                paymentMethodId: 9,
+                txnType: "payment",
+                amount: 120,
+                status: "pending",
+                expiresAt: null,
+                slipReference: null,
+                slipDate: null,
+                slipTimestamp: null,
+                providerId: null,
+                providerReference: null,
+                providerStatus: null,
+                paymentAction: null,
+                paidAt: null,
+                failedReason: null,
+                createdAt: "2026-03-21T09:45:00.000Z",
+                updatedAt: "2026-03-21T09:45:00.000Z",
+                method: { id: 9, code: "OMISE", name: "PromptPay", methodType: "gateway", sortOrder: 1, checkoutFlow: "qr_display" },
+                orderId: 77,
+                isExpired: false,
+            },
+        ]);
+        fetchOrders.mockResolvedValue([
+            {
+                id: 77,
+                referenceCode: "OD260321000077",
+                userId: 1,
+                branchId: 1,
+                transactionId: 41,
+                status: "PENDING",
+                fulfillmentMode: "pickup",
+                deliveryFee: 0,
+                customerNote: null,
+                deliveryLat: null,
+                deliveryLng: null,
+                deliveryDistanceKm: null,
+                createdAt: "2026-03-21T09:45:00.000Z",
+                updatedAt: "2026-03-21T09:45:00.000Z",
+                items: [],
+                branch: null,
+                transaction: null,
+                deliveryJob: null,
+                totalAmount: 120,
+            },
+        ]);
+
+        renderPage();
+        await user.click(screen.getByRole("button", { name: "Transaction history" }));
+        expect(await screen.findByText((content) => content.includes("TX260321000041"))).toBeInTheDocument();
+
+        await user.click(screen.getByRole("button", { name: "Food orders" }));
+        expect(await screen.findByText((content) => content.includes("OD260321000077"))).toBeInTheDocument();
+    });
 });

@@ -23,10 +23,15 @@ npm run build
 - navbar admin-entry visibility
 - payment method picker selection
 - payment detail expired/retry flow
+- payment detail live countdown and local expiry transition
+- checkout stale-draft reconciliation after checkout failure
+- account/admin payment reference-code rendering
 - role-aware admin navigation rendering
 - admin sidebar scroll-region rendering
 - admin locale switch persistence
 - admin order detail null-item regression coverage
+- admin dashboard branch-filter visibility by role
+- admin payment record reference rendering
 - admin employee validation error rendering
 - admin branch creation with menu-copy flow
 - admin branch product add-on edit flow
@@ -57,8 +62,10 @@ go test ./...
 - payroll calculation logic
 - Omise checkout mapping and webhook normalization
 - payment expiry normalization
+- business reference format helpers
 - notification service email/LINE fan-out
 - admin order transition helpers
+- checkout consumed-cart fallback filtering
 - validation error response shaping
 - branch menu-copy selection helpers
 - manager_branch branch-scope enforcement for branch operations

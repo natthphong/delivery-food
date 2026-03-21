@@ -9,32 +9,22 @@ This repository is now a production-style food ordering platform with two major 
 - customer ordering web app
 - admin and branch operations console
 
-==================================================
-MANDATORY FIRST STEP
-==================================================
+## Repository Workflow
 
 Before making any change:
-1. Read `AGENTS.md`
-2. Read all relevant files under `docs/`
-3. Read current checkout/payment/cart flow in frontend and Go backend
-4. Read current SQL migrations under `/sql`
-5. Read current transaction/order schema and any seed/test helpers
-6. Read current admin dashboard/admin role logic
-7. Read current branch role scope logic:
-    - manager_branch
-    - manager
-    - owner
-8. Read current payment detail page, cart drawer, checkout services, and backend checkout transaction flow
-   Treat `AGENTS.md` and `docs/` as the source of truth.
+
+1. read `AGENTS.md`
+2. read the relevant files under `docs/`
+3. inspect the current frontend/backend flow for the feature being changed
+4. inspect the current SQL migrations when schema or seed behavior is involved
 
 After every meaningful change:
+
 - update docs
-- update `AGENTS.md`
-- if schema changes, add new versioned SQL under `/sql`
-- if behavior/API changes, update docs and tests
-- if cleanup/migration is needed for stale cart mismatch data, include SQL/scripts and document them
-- do not leave docs stale
-- do not leave data migration unclear
+- update `AGENTS.md` when conventions or architecture changed
+- add a new versioned SQL file under `/sql` for schema/data changes
+- update tests for behavior/API changes
+- document cleanup or migration steps when repairing stale data
 
 The platform supports:
 
@@ -108,6 +98,7 @@ All schema work lives under `sql/` as versioned migrations:
 - `V7__admin_workflows_and_baan_seed.sql`
 - `V8__branch_add_on_controls.sql`
 - `V9__baan_json_preset_seed.sql`
+- `V10__payment_refs_cart_cleanup_and_dashboard.sql`
 
 Rules:
 
@@ -164,7 +155,9 @@ Customer and admin auth/session state are intentionally separate.
 - pickup or rider-delivery checkout
 - wallet and Omise PromptPay flows in the active checkout experience
 - legacy manual QR/slip support kept backend-side but hidden from customer checkout
-- payment detail with provider-backed QR rendering, expiry handling, and retry flow
+- payment detail with provider-backed QR rendering, expiry handling, live countdown, and retry flow
+- order and transaction business references in the `ODyyMMdd######` / `TXyyMMdd######` format
+- checkout-draft reconciliation against current cart truth after checkout/payment transitions
 - shared frontend error mapping converts backend codes/messages into localized user-safe copy
 - logout, backend email verification, and order/provider notification delivery
 - profile, order history, and transaction history
@@ -188,6 +181,7 @@ Customer and admin auth/session state are intentionally separate.
 - order queue management
 - order detail modal with defensive empty states and backend-shaped item arrays
 - kitchen-ready order transition before pickup completion or rider handoff
+- role-aware admin dashboard with sales, complaints, OT, staffing, and schedule views
 - rider job queue, claim, and delivery status transitions
 - payment provider list, payment records, and webhook event visibility
 
@@ -227,6 +221,7 @@ Payment logic is backend-owned.
 - frontend receives payment DTOs and `paymentAction`
 - backend normalizes payment method type, provider state, and webhook events
 - backend refreshes gateway-backed transaction state and derives `expired` from `expires_at`
+- backend allocates business-facing `reference_code` values for transactions and orders
 - checkout payment-method discovery uses API scope so legacy manual QR methods stay hidden from active customer checkout
 - payment gateway logic is abstracted behind `PaymentGateway`
 - Omise is the first provider implementation
@@ -238,6 +233,7 @@ Notification delivery is also backend-owned.
 - Resend is used through the `Mailer` abstraction
 - LINE bot push is used through the `LineMessenger` abstraction
 - order-ready notifications include branch context and a short item summary where available
+- notification copy should prefer business-facing order references when available
 - frontend never sees provider secrets or notification credentials
 
 ## Rider Delivery Model

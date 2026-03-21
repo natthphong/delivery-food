@@ -119,6 +119,7 @@ function renderPage() {
 function makeOrder(overrides: Record<string, unknown> = {}) {
     return {
         id: 77,
+        referenceCode: "OD260321000077",
         userId: 9,
         branchId: 1,
         transactionId: 41,
@@ -153,6 +154,7 @@ function makeOrder(overrides: Record<string, unknown> = {}) {
         },
         transaction: {
             id: 41,
+            referenceCode: "TX260321000041",
             userId: 9,
             companyId: 1,
             paymentMethodId: 1,
@@ -197,6 +199,7 @@ describe("AdminOrdersPage", () => {
         const orderButton = await screen.findByRole("button", { name: /Siam/ });
         await userEvent.click(orderButton);
 
+        expect(screen.getAllByText("OD260321000077").length).toBeGreaterThan(0);
         expect(await screen.findByText("admin.orders.itemsEmpty")).toBeInTheDocument();
 
         await userEvent.click(screen.getByRole("button", { name: "admin.orders.action.ready" }));

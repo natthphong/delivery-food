@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import dynamic from "next/dynamic";
 import Layout from "@components/Layout";
@@ -12,6 +12,10 @@ import type { Order, TransactionDetail, TxnStatus } from "@/types/transaction";
 import { useAppDispatch } from "@/store";
 import { setUser } from "@/store/authSlice";
 import { parseApiError } from "@/utils/apiErrors";
+import { dbUtcToEpochMs } from "@/utils/time";
+import { fetchCart } from "@/services/cart";
+import { setCart } from "@/store/cartSlice";
+import { clearCheckoutDraft } from "@/utils/checkoutDraft";
 
 const OrderLocationMap = dynamic(() => import("@/components/order/LocationMap"), { ssr: false });
 
@@ -61,6 +65,17 @@ function transactionTypeLabel(type: "payment" | "deposit", t: ReturnType<typeof 
     return type === "deposit" ? t(I18N_KEYS.PAYMENT_TYPE_DEPOSIT) : t(I18N_KEYS.PAYMENT_TYPE_PAYMENT);
 }
 
+function formatCountdown(remainingMs: number) {
+    const totalSeconds = Math.max(0, Math.floor(remainingMs / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) {
+        return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 export default function PaymentDetailPage() {
     const router = useRouter();
     const dispatch = useAppDispatch();
@@ -68,6 +83,8 @@ export default function PaymentDetailPage() {
     const [detail, setDetail] = useState<TransactionDetail | null>(null);
     const [loading, setLoading] = useState(true);
     const [retrying, setRetrying] = useState(false);
+    const [remainingMs, setRemainingMs] = useState<number | null>(null);
+    const expiryRefreshTriggeredRef = useRef(false);
 
     const txnId = useMemo(() => {
         const raw = Array.isArray(router.query.txnId) ? router.query.txnId[0] : router.query.txnId;
@@ -95,6 +112,19 @@ export default function PaymentDetailPage() {
     }, [dispatch, t, txnId]);
 
     useEffect(() => {
+        clearCheckoutDraft();
+    }, []);
+
+    useEffect(() => {
+        if (!txnId) return;
+        fetchCart()
+            .then((cart) => {
+                dispatch(setCart(cart));
+            })
+            .catch(() => undefined);
+    }, [dispatch, txnId]);
+
+    useEffect(() => {
         void loadDetail(false);
     }, [loadDetail]);
 
@@ -113,13 +143,46 @@ export default function PaymentDetailPage() {
     const qrImageUrl = typeof transaction?.paymentAction?.qrImageUrl === "string" ? transaction.paymentAction.qrImageUrl : null;
     const authorizeUri = typeof transaction?.paymentAction?.authorizeUri === "string" ? transaction.paymentAction.authorizeUri : null;
     const providerStatus = transaction?.providerStatus ?? (typeof transaction?.paymentAction?.providerStatus === "string" ? transaction.paymentAction.providerStatus : null);
+    useEffect(() => {
+        if (!transaction?.expiresAt || transaction.status !== "pending" || transaction.isExpired) {
+            setRemainingMs(null);
+            return;
+        }
+        const expiresAtMs = dbUtcToEpochMs(transaction.expiresAt);
+        if (expiresAtMs == null) {
+            setRemainingMs(null);
+            return;
+        }
+        const updateRemaining = () => {
+            setRemainingMs(Math.max(0, expiresAtMs - Date.now()));
+        };
+        updateRemaining();
+        const intervalId = window.setInterval(updateRemaining, 1000);
+        return () => window.clearInterval(intervalId);
+    }, [transaction?.expiresAt, transaction?.isExpired, transaction?.status]);
+
+    const countdownExpired = !!transaction?.expiresAt && transaction?.status === "pending" && !transaction?.isExpired && remainingMs === 0;
+    useEffect(() => {
+        if (!countdownExpired) {
+            expiryRefreshTriggeredRef.current = false;
+            return;
+        }
+        if (expiryRefreshTriggeredRef.current) return;
+        expiryRefreshTriggeredRef.current = true;
+        void loadDetail(true);
+    }, [countdownExpired, loadDetail]);
+
     const isPending = transaction?.status === "pending";
-    const isExpired = transaction?.status === "expired" || transaction?.isExpired;
+    const isExpired = transaction?.status === "expired" || transaction?.isExpired || countdownExpired;
+    const displayStatus: TxnStatus | "expired" | undefined = isExpired && transaction?.status === "pending" ? "expired" : transaction?.status;
     const isGatewayPending = isPending && !!transaction?.paymentAction && (transaction.paymentAction.type === "gateway_qr" || transaction.method?.methodType === "gateway");
-    const canRetry = !!transaction && transaction.txnType === "payment" && (transaction.status === "expired" || transaction.status === "rejected");
+    const canRetry = !!transaction && transaction.txnType === "payment" && (transaction.status === "rejected" || isExpired);
+    const countdownLabel = remainingMs != null && !isExpired ? formatCountdown(remainingMs) : null;
+    const transactionReference = transaction?.referenceCode || (transaction ? `#${transaction.id}` : null);
+    const orderReference = order?.referenceCode || (order ? `#${order.id}` : null);
 
     const transactionStatusLabel = useMemo(() => {
-        switch (transaction?.status) {
+        switch (displayStatus) {
         case "accepted":
             return t(I18N_KEYS.PAYMENT_STATUS_ACCEPTED);
         case "rejected":
@@ -131,7 +194,7 @@ export default function PaymentDetailPage() {
         default:
             return t(I18N_KEYS.PAYMENT_STATUS_UNKNOWN);
         }
-    }, [t, transaction?.status]);
+    }, [displayStatus, t]);
 
     const handleRetry = async () => {
         if (!transaction) return;
@@ -155,17 +218,22 @@ export default function PaymentDetailPage() {
                         {t(I18N_KEYS.PAYMENT_BACK)}
                     </button>
                     <h1 className="mt-3 text-2xl font-semibold text-slate-950 sm:text-3xl">
-                        {transaction ? `${t(I18N_KEYS.DETAIL_PAYMENT_NO)} #${transaction.id}` : t(I18N_KEYS.DETAIL_PAYMENT_NO)}
+                        {transaction ? `${t(I18N_KEYS.DETAIL_PAYMENT_NO)} ${transactionReference}` : t(I18N_KEYS.DETAIL_PAYMENT_NO)}
                     </h1>
                     {transaction ? (
                         <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600">
-                            <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusBadgeClass(transaction.status)}`}>
+                            <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusBadgeClass(displayStatus || transaction.status)}`}>
                                 {transactionStatusLabel}
                             </span>
                             <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
                                 {transactionTypeLabel(transaction.txnType, t)}
                             </span>
                             <span className="text-base font-semibold text-slate-950">{formatTHB(transaction.amount)}</span>
+                            {countdownLabel ? (
+                                <span className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
+                                    {t(I18N_KEYS.PAYMENT_TIME_LEFT, { time: countdownLabel })}
+                                </span>
+                            ) : null}
                         </div>
                     ) : null}
                 </header>
@@ -232,6 +300,11 @@ export default function PaymentDetailPage() {
                                         )}
                                     </div>
                                     <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-600">
+                                        {countdownLabel ? (
+                                            <span className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
+                                                {t(I18N_KEYS.PAYMENT_TIME_LEFT, { time: countdownLabel })}
+                                            </span>
+                                        ) : null}
                                         {transaction.expiresAt ? (
                                             <span>
                                                 {t(I18N_KEYS.DETAIL_EXPIRES_AT)}: {formatDate(transaction.expiresAt, locale)}
@@ -278,7 +351,7 @@ export default function PaymentDetailPage() {
                                     <div className="flex items-center justify-between gap-3">
                                         <div>
                                             <h2 className="text-base font-semibold text-slate-900">
-                                                {t(I18N_KEYS.PAYMENT_ORDER_NUMBER)} #{order.id}
+                                                {t(I18N_KEYS.PAYMENT_ORDER_NUMBER)} {orderReference}
                                             </h2>
                                             <p className="text-sm text-slate-500">
                                                 {order.branch?.name ?? t(I18N_KEYS.PAYMENT_ORDER_FALLBACK_BRANCH)} · {" "}
@@ -331,6 +404,16 @@ export default function PaymentDetailPage() {
                                 <h2 className="text-base font-semibold text-slate-900">{t(I18N_KEYS.PAYMENT_SUMMARY_TITLE)}</h2>
                                 <div className="mt-4 space-y-3 text-sm">
                                     <div className="flex items-center justify-between">
+                                        <span className="text-slate-500">{t(I18N_KEYS.PAYMENT_TRANSACTION_REFERENCE_LABEL)}</span>
+                                        <span className="text-right font-semibold text-slate-900">{transactionReference || "-"}</span>
+                                    </div>
+                                    {orderReference ? (
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-slate-500">{t(I18N_KEYS.PAYMENT_ORDER_REFERENCE_LABEL)}</span>
+                                            <span className="text-right font-semibold text-slate-900">{orderReference}</span>
+                                        </div>
+                                    ) : null}
+                                    <div className="flex items-center justify-between">
                                         <span className="text-slate-500">{t(I18N_KEYS.PAYMENT_SUMMARY_METHOD)}</span>
                                         <span className="text-slate-900">{transaction.method?.name ?? "-"}</span>
                                     </div>
@@ -344,10 +427,16 @@ export default function PaymentDetailPage() {
                                     </div>
                                     <div className="flex items-center justify-between">
                                         <span className="text-slate-500">{t(I18N_KEYS.PAYMENT_SUMMARY_STATUS)}</span>
-                                        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusBadgeClass(transaction.status)}`}>
+                                        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusBadgeClass(displayStatus || transaction.status)}`}>
                                             {transactionStatusLabel}
                                         </span>
                                     </div>
+                                    {countdownLabel ? (
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-slate-500">{t(I18N_KEYS.PAYMENT_COUNTDOWN_LABEL)}</span>
+                                            <span className="text-right font-semibold text-emerald-700">{countdownLabel}</span>
+                                        </div>
+                                    ) : null}
                                     <div className="flex items-center justify-between">
                                         <span className="text-slate-500">{t(I18N_KEYS.PAYMENT_PROVIDER_STATUS_LABEL)}</span>
                                         <span className="text-right text-slate-900">{providerStatus || "-"}</span>

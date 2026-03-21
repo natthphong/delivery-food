@@ -20,6 +20,7 @@ The repository preserves a strict split:
 - SSR-safe locale initialization before hydration, then post-mount locale reconciliation from query/storage/browser runtime
 - role-aware navigation
 - customer/admin layout separation
+- checkout-draft persistence plus server-truth reconciliation after checkout/payment transitions
 - defensive response normalization before render
 - shared API error mapping from backend code/message -> localized frontend copy
 - API consumption through `src/services`
@@ -32,6 +33,7 @@ The repository preserves a strict split:
 - validation error shaping
 - transactional writes
 - payment orchestration
+- business-facing order/transaction reference generation
 - payroll computation
 - attendance rules
 - stock validation
@@ -136,6 +138,8 @@ Payment rules:
 - backend treats `pending + expires_at < now + not paid` as `expired`
 - checkout hides legacy manual-slip methods through payment-method scope filtering
 - payment detail renders Omise QR from backend-provided `paymentAction.qrImageUrl`
+- customer payment countdown uses backend `expiresAt` as the source of truth, with client ticking only for presentation
+- order and transaction APIs now expose `referenceCode` while numeric ids stay internal implementation detail
 
 ## Notification Architecture
 
@@ -155,11 +159,15 @@ Important patterns already implemented:
 - branch menu batches add-ons after paged product reads
 - customer catalog and cart reads apply branch add-on override state and effective pricing in SQL-backed backend reads
 - cart is grouped by branch server-side
+- stale cart item update/delete requests reconcile back to current server cart truth instead of leaving the client stuck on an already-consumed row
 - checkout validates sellable state and commits transaction/order/cart changes in one DB transaction
+- checkout keeps a best-effort post-commit response path so successful order creation does not surface as a false frontend failure when detail/cart readback needs fallback data
 - payroll generation computes from attendance + OT + pay model in backend
 - branch creation can copy all or selected source-branch menu items within backend workflow rules
 - BAAN preset data is generated from committed JSON source files through `scripts/generate-baan-seed.js` and committed as versioned SQL
+- business reference counters are allocated in SQL-backed backend writes for daily `TXyyMMdd######` / `ODyyMMdd######` codes
 - admin order detail uses a dedicated read path and normalizes empty item collections
+- admin dashboard analytics are branch-scoped in Go and queried through one role-aware dashboard endpoint with optional `branchId` and `days`
 - rider job changes sync order status in the same transaction
 
 ## Why This Shape

@@ -335,6 +335,9 @@ export default function AccountPage() {
                                             <p className="text-sm font-semibold text-slate-900">
                                                 {transactionTypeLabel(transaction.txnType)} · {transaction.method?.name ?? "-"}
                                             </p>
+                                            <p className="mt-1 text-xs text-slate-500">
+                                                {t(I18N_KEYS.PAYMENT_TRANSACTION_REFERENCE_LABEL)}: {transaction.referenceCode || `#${transaction.id}`}
+                                            </p>
                                             <p className="mt-1 text-xs text-slate-500">{formatDate(transaction.createdAt)}</p>
                                         </div>
                                         <div className="text-right">
@@ -373,7 +376,7 @@ export default function AccountPage() {
                                         <div className="flex items-start justify-between gap-3">
                                             <div>
                                                 <p className="text-sm font-semibold text-slate-900">
-                                                    {t(I18N_KEYS.PAYMENT_ORDER_NUMBER)} #{order.id} · {order.branch?.name ?? t(I18N_KEYS.PAYMENT_ORDER_FALLBACK_BRANCH)}
+                                                    {t(I18N_KEYS.PAYMENT_ORDER_NUMBER)} {order.referenceCode || `#${order.id}`} · {order.branch?.name ?? t(I18N_KEYS.PAYMENT_ORDER_FALLBACK_BRANCH)}
                                                 </p>
                                                 <p className="mt-1 text-xs text-slate-500">
                                                     {formatDate(order.createdAt)} · {order.fulfillmentMode === "rider_delivery" ? t(I18N_KEYS.CHECKOUT_DELIVERY_TITLE) : t(I18N_KEYS.CHECKOUT_PICKUP_TITLE)}

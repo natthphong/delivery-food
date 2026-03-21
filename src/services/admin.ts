@@ -32,8 +32,8 @@ import type {
 import type { BranchSummary } from "@/types";
 import type { AdminOrder } from "@/types/adminOrder";
 
-export async function fetchAdminDashboard() {
-    const { data } = await adminAxios.get<ApiResponse<AdminDashboard>>("/v1/admin/dashboard");
+export async function fetchAdminDashboard(params: { branchId?: number | null; days?: number } = {}) {
+    const { data } = await adminAxios.get<ApiResponse<AdminDashboard>>("/v1/admin/dashboard", { params });
     return unwrapResponse(data);
 }
 

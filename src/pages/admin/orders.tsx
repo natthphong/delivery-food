@@ -10,19 +10,14 @@ import {
     adminFieldHelperClass,
     adminSurfaceMutedClass,
 } from "@/components/admin/ui";
+import { useAdminText } from "@/components/admin/useAdminText";
 import { hasAnyAdminPermission, hasAdminPermission } from "@/components/admin/permissions";
 import { useAppSelector } from "@/store";
 import { notify } from "@/utils/notify";
 import { formatTHB } from "@/utils/currency";
 import { fetchAdminOrderDetail, fetchAdminOrders, updateAdminOrderStatus } from "@/services/admin";
 import type { AdminOrder } from "@/types/adminOrder";
-import { useI18n } from "@/utils/i18n";
 import { parseApiError } from "@/utils/apiErrors";
-
-function useAdminText() {
-    const { t } = useI18n();
-    return useCallback((key: string, params?: Record<string, string | number>) => t(key as any, params as any), [t]);
-}
 
 function translateOrderStatus(status: string, tx: (key: string, params?: Record<string, string | number>) => string) {
     const keyMap: Record<string, string> = {
@@ -214,7 +209,7 @@ export default function AdminOrdersPage() {
                                     <div className="flex items-start justify-between gap-3">
                                         <div>
                                             <p className="text-sm font-semibold text-slate-900">
-                                                {tx("admin.orders.orderNumber", { id: order.id })} · {order.branch?.name || tx("admin.orders.branchFallback")}
+                                                {(order.referenceCode || tx("admin.orders.orderNumber", { id: order.id }))} · {order.branch?.name || tx("admin.orders.branchFallback")}
                                             </p>
                                             <p className="mt-1 text-sm text-slate-500">
                                                 {order.customerName || tx("admin.orders.customerFallback")} · {translateFulfillment(order.fulfillmentMode, tx)}
@@ -255,7 +250,9 @@ export default function AdminOrdersPage() {
                             <div className={adminSurfaceMutedClass}>
                                 <div className="flex flex-wrap items-start justify-between gap-3">
                                     <div>
-                                        <p className="text-lg font-semibold text-slate-950">{tx("admin.orders.orderNumber", { id: selectedOrder.id })}</p>
+                                        <p className="text-lg font-semibold text-slate-950">
+                                            {selectedOrder.referenceCode || tx("admin.orders.orderNumber", { id: selectedOrder.id })}
+                                        </p>
                                         <p className="mt-1 text-sm text-slate-600">
                                             {selectedOrder.branch?.name || tx("admin.orders.branchFallback")} · {selectedOrder.customerName || tx("admin.orders.customerFallback")}
                                         </p>
@@ -265,6 +262,8 @@ export default function AdminOrdersPage() {
                                     </span>
                                 </div>
                                 <div className="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-2">
+                                    <p>{tx("payment.orderReferenceLabel")}: {selectedOrder.referenceCode || `#${selectedOrder.id}`}</p>
+                                    <p>{tx("payment.transactionReferenceLabel")}: {selectedOrder.transaction?.referenceCode || `#${selectedOrder.transactionId}`}</p>
                                     <p>{tx("admin.orders.fulfillmentLabel")}: {translateFulfillment(selectedOrder.fulfillmentMode, tx)}</p>
                                     <p>
                                         {tx("admin.orders.paymentStatusLabel")}:{" "}

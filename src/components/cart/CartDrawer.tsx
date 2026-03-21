@@ -11,6 +11,7 @@ import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import { notify } from "@/utils/notify";
 import { parseApiError } from "@/utils/apiErrors";
+import { saveCheckoutDraft } from "@/utils/checkoutDraft";
 
 type CartDrawerProps = {
     open: boolean;
@@ -22,7 +23,7 @@ type CheckoutDraft = {
     itemIds: number[];
 };
 
-export const CHECKOUT_DRAFT_KEY = "CHECKOUT_DRAFT";
+export { CHECKOUT_DRAFT_KEY } from "@/utils/checkoutDraft";
 
 export default function CartDrawer({ open, onClose }: CartDrawerProps) {
     const { t } = useI18n();
@@ -125,9 +126,7 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
             branchId: branchIds[0],
             itemIds: selectedItems.map((item) => item.id),
         };
-        if (typeof window !== "undefined") {
-            window.localStorage.setItem(CHECKOUT_DRAFT_KEY, JSON.stringify(draft));
-        }
+        saveCheckoutDraft(draft);
         onClose();
         await router.push("/checkout");
     };

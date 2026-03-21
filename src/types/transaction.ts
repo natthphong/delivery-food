@@ -48,6 +48,7 @@ export type TransactionMethod = {
 
 export type TransactionSummary = {
     id: number;
+    referenceCode: string;
     userId: number;
     companyId: number;
     paymentMethodId: number;
@@ -83,6 +84,7 @@ export type OrderItem = {
 
 export type Order = {
     id: number;
+    referenceCode: string;
     userId: number;
     branchId: number;
     transactionId: number;

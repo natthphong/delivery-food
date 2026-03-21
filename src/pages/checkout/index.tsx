@@ -14,35 +14,13 @@ import { notify } from "@/utils/notify";
 import { setCart } from "@/store/cartSlice";
 import { setUser } from "@/store/authSlice";
 import type { MapConfirmValue } from "@/components/checkout/MapConfirm";
-import { CHECKOUT_DRAFT_KEY } from "@/components/cart/CartDrawer";
 import { fetchBranchMenu, fetchPaymentMethods } from "@/services/catalog";
 import { fetchCart } from "@/services/cart";
 import { checkout } from "@/services/payment";
 import { parseApiError } from "@/utils/apiErrors";
+import { type CheckoutDraft, clearCheckoutDraft, loadCheckoutDraft, reconcileCheckoutDraft, saveCheckoutDraft } from "@/utils/checkoutDraft";
 
 const MapConfirm = dynamic(() => import("@/components/checkout/MapConfirm"), { ssr: false });
-
-type CheckoutDraft = {
-    branchId: number;
-    itemIds: number[];
-};
-
-function parseDraft(): CheckoutDraft | null {
-    if (typeof window === "undefined") return null;
-    const raw = window.localStorage.getItem(CHECKOUT_DRAFT_KEY);
-    if (!raw) return null;
-    try {
-        return JSON.parse(raw) as CheckoutDraft;
-    } catch {
-        return null;
-    }
-}
-
-function clearDraft() {
-    if (typeof window !== "undefined") {
-        window.localStorage.removeItem(CHECKOUT_DRAFT_KEY);
-    }
-}
 
 export default function CheckoutPage() {
     const { t } = useI18n();
@@ -64,17 +42,23 @@ export default function CheckoutPage() {
     const previousLocationRef = useRef<MapConfirmValue | null>(null);
 
     useEffect(() => {
-        setDraft(parseDraft());
+        setDraft(loadCheckoutDraft());
     }, []);
 
     useEffect(() => {
         if (!draft) return;
-        const branchExists = cart.groups.some((group) => group.branchId === draft.branchId);
-        if (!branchExists) {
-            clearDraft();
+        const nextDraft = reconcileCheckoutDraft(cart, draft);
+        if (!nextDraft) {
+            clearCheckoutDraft();
             setDraft(null);
+            notify(t(I18N_KEYS.CART_SYNCED), "info");
+            return;
         }
-    }, [cart.groups, draft]);
+        if (nextDraft.itemIds.length !== draft.itemIds.length) {
+            saveCheckoutDraft(nextDraft);
+            setDraft(nextDraft);
+        }
+    }, [cart, draft, t]);
 
     const selectedGroup = useMemo<CartBranchGroup | null>(() => {
         if (!draft) return null;
@@ -91,7 +75,7 @@ export default function CheckoutPage() {
 
     useEffect(() => {
         if (!draft || selectedGroup) return;
-        clearDraft();
+        clearCheckoutDraft();
         setDraft(null);
         notify(t(I18N_KEYS.CART_SYNCED), "info");
     }, [draft, selectedGroup, t]);
@@ -189,7 +173,7 @@ export default function CheckoutPage() {
             if (result.user) {
                 dispatch(setUser(result.user));
             }
-            clearDraft();
+            clearCheckoutDraft();
             setDraft(null);
             if (result.method.methodType === "balance") {
                 notify(t(I18N_KEYS.PAYMENT_BALANCE_SUCCESS), "success");
@@ -200,16 +184,20 @@ export default function CheckoutPage() {
             void router.push(`/payment/${result.transaction.id}`);
         } catch (error: any) {
             const message = parseApiError(error, t(I18N_KEYS.PAYMENT_SUBMIT_ERROR)).message;
-            if (typeof error?.response?.status === "number" && (error.response.status === 404 || error.response.status === 409)) {
-                clearDraft();
-                setDraft(null);
-                fetchCart()
-                    .then((nextCart) => {
-                        dispatch(setCart(nextCart));
-                        notify(t(I18N_KEYS.CART_SYNCED), "info");
-                    })
-                    .catch(() => undefined);
-            }
+            fetchCart()
+                .then((nextCart) => {
+                    dispatch(setCart(nextCart));
+                    const nextDraft = reconcileCheckoutDraft(nextCart, draft);
+                    if (!nextDraft) {
+                        clearCheckoutDraft();
+                        setDraft(null);
+                    } else {
+                        saveCheckoutDraft(nextDraft);
+                        setDraft(nextDraft);
+                    }
+                    notify(t(I18N_KEYS.CART_SYNCED), "info");
+                })
+                .catch(() => undefined);
             notify(message, "error");
         } finally {
             setSubmitting(false);

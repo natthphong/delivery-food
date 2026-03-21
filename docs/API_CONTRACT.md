@@ -168,6 +168,7 @@ Contract notes:
 
 - cart `groups` is always an array
 - cart item `addOns` is always an array, never `null`
+- stale client-side cart item ids are treated as recoverable drift; update/remove flows should return current server cart truth instead of leaving the customer stuck on an old item id
 
 ### `POST /v1/cart/items`
 
@@ -219,6 +220,8 @@ Contract notes:
 
 - checkout returns normalized `cart`
 - when `order` is present, `order.items` and each item `addOns` are always arrays
+- checkout may still return a successful transaction/order result even when the post-commit detail/cart readback needs to fall back to the pre-checkout cart snapshot
+- `transaction.referenceCode` and `order.referenceCode` are business-facing identifiers in the `TXyyMMdd######` / `ODyyMMdd######` format
 
 ### `POST /v1/deposits`
 
@@ -247,6 +250,7 @@ Returns:
 
 Important transaction fields:
 
+- `referenceCode`
 - `expiresAt`
 - `providerStatus`
 - `paidAt`
@@ -319,6 +323,22 @@ Returns normalized admin session:
 ### Dashboard
 
 - `GET /v1/admin/dashboard`
+
+Query params:
+
+- `branchId` optional
+- `days` optional, defaults to `14`
+
+Response body includes:
+
+- operational counters
+- `salesSeries`
+- `branchSales`
+- `recentComplaints`
+- `recentOtRequests`
+- `staffCounts`
+- `workSchedule`
+- `appliedBranchId`
 
 ### Employees
 
@@ -419,6 +439,12 @@ Admin order responses are normalized for safe rendering:
 - `items` is always an array
 - each order item `addOns` collection is always an array
 - `allowedStatuses` lists valid next actions for the current actor and order state
+- `referenceCode` is the primary business-facing order identifier
+
+Admin payment responses now include:
+
+- transaction `referenceCode`
+- optional `orderReferenceCode`
 
 Current operational order states:
 

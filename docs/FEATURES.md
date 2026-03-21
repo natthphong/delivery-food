@@ -29,9 +29,11 @@
 - delivery fee support for rider delivery
 - wallet balance payment
 - Omise PromptPay gateway checkout
-- payment detail page with backend-driven QR rendering
+- payment detail page with backend-driven QR rendering and live expiry countdown
 - expired payment detection from `expires_at`
 - create-new-payment retry flow for expired/rejected transactions
+- order and transaction history show business reference codes instead of plain numeric ids
+- stale checkout drafts are reconciled against current server cart truth after checkout/payment errors
 - legacy manual QR/slip path kept as backend support only and hidden from active checkout
 
 ### Customer account
@@ -111,6 +113,7 @@ Role-aware menus exist in the frontend, but Go remains authoritative for access 
 - branch order queue view
 - safe order detail inspection with empty/fallback states
 - order status updates including kitchen `READY` handoff
+- role-aware operations dashboard with sales trend, complaints, OT queue, staffing trend, and schedule summary
 - rider job queue
 - rider claim and delivery status progression
 - payment records

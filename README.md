@@ -23,7 +23,10 @@ Start with [`AGENTS.md`](./AGENTS.md). It is the repository source of truth.
 - cart and checkout
 - pickup and rider delivery
 - wallet and Omise PromptPay payment flows
-- expired-payment retry flow and backend email verification
+- expiry-based payment countdown and retry flow
+- stale-checkout draft reconciliation after checkout/payment transitions
+- business reference codes for orders and transactions
+- backend email verification
 - dedicated `/login` and `/signup` screens with shared TH/EN locale switching
 - LINE callback handoff on `/web-hook-line` with a minimal auth shell and SSR-safe locale boot
 - shared localized error handling instead of raw backend error text in normal flows
@@ -40,6 +43,7 @@ Start with [`AGENTS.md`](./AGENTS.md). It is the repository source of truth.
 - modal-based branch product pricing, availability, add-on editing, and stock adjustments
 - stock adjustments
 - order queue management with kitchen-ready actions and safe detail rendering
+- role-aware operations dashboard with branch-scoped sales, complaints, OT, staffing, and schedule views
 - rider queue management
 - payment/provider/webhook visibility
 - admin locale switch with shared app i18n persistence
@@ -115,6 +119,7 @@ Current migration set:
 - `V7__admin_workflows_and_baan_seed.sql`
 - `V8__branch_add_on_controls.sql`
 - `V9__baan_json_preset_seed.sql`
+- `V10__payment_refs_cart_cleanup_and_dashboard.sql`
 
 Preset catalog generation:
 

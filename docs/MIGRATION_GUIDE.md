@@ -52,6 +52,7 @@ Extended with:
 - `READY` order state in `V7__admin_workflows_and_baan_seed.sql`
 - branch add-on override controls in `V8__branch_add_on_controls.sql`
 - BAAN JSON-driven preset catalog refresh in `V9__baan_json_preset_seed.sql`
+- daily business references, stale-cart cleanup SQL, and dashboard complaint/reference support in `V10__payment_refs_cart_cleanup_and_dashboard.sql`
 
 Existing transaction fields already cover:
 
@@ -74,6 +75,7 @@ npm run backend:migrate
 
 5. restart backend and frontend
 6. if you need the refreshed local/demo catalog, ensure `V8__branch_add_on_controls.sql` and `V9__baan_json_preset_seed.sql` have been applied
+7. apply `V10__payment_refs_cart_cleanup_and_dashboard.sql` before verifying payment references, stale-cart cleanup, or the new admin dashboard analytics
 
 ## Breaking/Important Behavioral Differences
 
@@ -82,6 +84,8 @@ npm run backend:migrate
 - branch add-on pricing/sellability is enforced by backend branch override state
 - admin order actions are gated by backend-computed valid transitions, including `READY`
 - checkout now includes fulfillment mode and can create rider jobs
+- order and transaction APIs now expose business-facing `referenceCode` values in the `ODyyMMdd######` / `TXyyMMdd######` format
+- stale cart cleanup has both runtime self-healing and DB cleanup support for already-broken rows
 - payment records can be provider-backed and include gateway payment actions
 - payroll data is computed from attendance + OT approvals instead of being implicit
 - branch creation can copy all or selected menu items from another branch through backend workflow rules
