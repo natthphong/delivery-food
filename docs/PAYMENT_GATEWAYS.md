@@ -30,9 +30,35 @@ Backend responsibilities:
 - create source/charge
 - normalize provider status
 - persist provider reference
+- persist expiry / paid / failure details through normalized transaction fields and `payment_action`
 - store safe frontend payment action payload
 - process webhooks
 - persist webhook events
+
+Normalized Omise fields surfaced to the frontend:
+
+- charge id
+- source id
+- provider status
+- paid / authorized flags
+- paid at
+- expires at
+- failure code / failure message
+- scannable QR image URL
+- authorize URL when present
+
+Status rules:
+
+- paid or successful -> `accepted`
+- pending and not yet expired -> `pending`
+- pending and `expires_at` in the past without payment -> `expired`
+- failed / cancelled -> `rejected`
+
+Retry rules:
+
+- expired or rejected payment transactions can create a new payment attempt through `POST /v1/transactions/{id}/retry`
+- the old transaction remains historical and is not re-used
+- the linked order is re-pointed to the new transaction
 
 ## Frontend Contract
 
@@ -42,6 +68,12 @@ Frontend should consume:
 - transaction status
 - provider status
 - `paymentAction`
+
+Active customer flow notes:
+
+- Omise PromptPay is the primary QR path
+- legacy manual-slip methods are filtered out from checkout through `scope=checkout`
+- frontend renders the provider QR URL directly from backend data and does not generate PromptPay payloads client-side
 
 Frontend should not:
 

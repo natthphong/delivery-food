@@ -7,6 +7,8 @@
 - slate neutrals
 - rounded app-like cards
 - clear, high-contrast CTA hierarchy
+- avoid dark marketing heroes on task screens
+- keep customer, admin, and rider surfaces visually related
 
 ## Customer App Rules
 
@@ -27,10 +29,11 @@ Guidelines:
 
 Key customer screens:
 
-- branch discovery should feel like an ordering app, not a marketing page
+- home/branch discovery should feel like an ordering app, not a marketing page
 - branch detail should surface fulfillment support and operational notes early
 - checkout should keep fulfillment, payment, and final total tightly grouped
-- payment detail should show the next action above the fold
+- payment detail should show QR, expiry, or retry action above the fold
+- account navigation should keep admin access inside the account menu instead of customer tabs
 
 ## Admin App Rules
 
@@ -46,6 +49,7 @@ Guidelines:
 - keep filters and forms readable without horizontal scroll
 - preserve mobile access by stacking sections cleanly
 - use status pills and compact summary cards for scanability
+- keep admin chrome light, practical, and consistent with the customer palette
 
 ## Component Standards
 

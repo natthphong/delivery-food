@@ -44,10 +44,11 @@ export function MethodPicker({ methods, selectedId, onSelect, loading, title, su
                 const isActive = selectedId === method.id;
                 const typeKey = METHOD_I18N[method.methodType];
                 const typeLabel = method.methodType === "gateway"
-                    ? "Gateway checkout"
+                    ? t(I18N_KEYS.PAYMENT_METHOD_GATEWAY)
                     : typeKey
                         ? t(typeKey)
                         : method.methodType;
+                const providerLabel = method.providerCode ? ` · ${method.providerCode}` : "";
                 return (
                     <button
                         key={method.id}
@@ -64,8 +65,7 @@ export function MethodPicker({ methods, selectedId, onSelect, loading, title, su
                                 <p className="text-sm font-semibold text-slate-900">{method.name}</p>
                                 <p className="text-xs text-slate-500">
                                     {typeLabel}
-                                    {method.providerCode ? ` · ${method.providerCode}` : ""}
-                                    {method.checkoutFlow ? ` · ${method.checkoutFlow}` : ""}
+                                    {providerLabel}
                                 </p>
                             </div>
                             <span

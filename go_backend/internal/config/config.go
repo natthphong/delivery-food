@@ -28,6 +28,11 @@ type Config struct {
 	SlipOKToken       string
 	OmiseSecretKey    string
 	OmisePublicKey    string
+	ResendAPIKey      string
+	EmailFrom         string
+	EmailNotifyTo     string
+	LineChannelSecret string
+	LineChannelToken  string
 	HTTPClientTimeout time.Duration
 }
 
@@ -50,6 +55,11 @@ func Load() (Config, error) {
 		SlipOKToken:       getEnv("SLIPOK_TOKEN", getEnv("NEXT_PUBLIC_SLIP_OK_TOKEN", "")),
 		OmiseSecretKey:    getEnv("OMISE_SECRET_KEY", ""),
 		OmisePublicKey:    getEnv("OMISE_PUBLIC_KEY", ""),
+		ResendAPIKey:      getEnv("RESEND_API_KEY", ""),
+		EmailFrom:         getEnv("EMAIL_FROM", "no-reply@tarcloud.win"),
+		EmailNotifyTo:     getEnv("EMAIL_NOTIFY_TO", ""),
+		LineChannelSecret: getEnv("LINE_CHANNEL_SECRET", ""),
+		LineChannelToken:  getEnv("LINE_CHANNEL_TOKEN", ""),
 		HTTPClientTimeout: 20 * time.Second,
 	}
 

@@ -19,7 +19,9 @@ npm run build
 - customer token, cart, config, and admin-session storage
 - cart selectors
 - cart drawer checkout-draft flow
+- navbar admin-entry visibility
 - payment method picker selection
+- payment detail expired/retry flow
 - role-aware admin navigation rendering
 - response envelope unwrapping
 
@@ -42,6 +44,8 @@ go test ./...
 - cart add-on/signature helpers
 - payroll calculation logic
 - Omise checkout mapping and webhook normalization
+- payment expiry normalization
+- notification service email/LINE fan-out
 
 ## Recommended verification flow
 
@@ -63,3 +67,4 @@ npm run verify
 - Go tests are pure unit tests and do not require a running server
 - if you change API types or session storage, rerun both `npm test` and `npm run build`
 - if you change backend DTOs or payment/operations logic, rerun `go test ./...`
+- if you change pages under `src/pages`, keep test files outside routable page folders so Next.js does not treat them as pages during build

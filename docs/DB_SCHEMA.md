@@ -61,12 +61,19 @@ Order records now also carry:
 
 Transaction records now also carry:
 
+- `expires_at`
 - `provider_id`
 - `provider_reference`
 - `provider_status`
 - `payment_action`
 - `paid_at`
 - `failed_reason`
+
+Current payment hardening reuses these existing fields:
+
+- `expires_at` drives normalized `expired` status
+- `payment_action` stores safe provider QR/authorize/source/failure metadata for the frontend
+- `provider_status`, `paid_at`, and `failed_reason` stay available for provider debugging and UI summary
 
 ### Payments and providers
 

@@ -7,24 +7,25 @@ import (
 	"strings"
 	"time"
 
-	backendauth "github.com/natthaohong/delivery-food/go_backend/internal/auth"
 	"github.com/natthaohong/delivery-food/go_backend/internal/apperror"
+	backendauth "github.com/natthaohong/delivery-food/go_backend/internal/auth"
 	"github.com/natthaohong/delivery-food/go_backend/internal/dto"
 	"github.com/natthaohong/delivery-food/go_backend/internal/model"
 	"github.com/natthaohong/delivery-food/go_backend/internal/repository"
 )
 
 type PayrollPeriodDetail struct {
-	Period model.PayrollPeriod  `json:"period"`
+	Period  model.PayrollPeriod  `json:"period"`
 	Entries []model.PayrollEntry `json:"entries"`
 }
 
 type OperationsService struct {
-	store *repository.Store
+	store    *repository.Store
+	notifier *NotificationService
 }
 
-func NewOperationsService(store *repository.Store) *OperationsService {
-	return &OperationsService{store: store}
+func NewOperationsService(store *repository.Store, notifier *NotificationService) *OperationsService {
+	return &OperationsService{store: store, notifier: notifier}
 }
 
 func (s *OperationsService) Dashboard(ctx context.Context, claims *backendauth.AccessClaims) (model.AdminDashboard, error) {
@@ -754,6 +755,13 @@ func (s *OperationsService) UpdateOrderStatus(ctx context.Context, claims *backe
 	if err := tx.Commit(ctx); err != nil {
 		return apperror.Internal("failed to commit order update", err)
 	}
+	if s.notifier != nil && request.Status == "COMPLETED" {
+		user, userErr := s.store.GetUserByID(ctx, target.UserID)
+		order, orderErr := s.store.GetOrderByTransaction(ctx, target.UserID, target.TransactionID)
+		if userErr == nil && orderErr == nil {
+			_ = s.notifier.NotifyOrderReady(ctx, user, order)
+		}
+	}
 	return nil
 }
 
@@ -811,6 +819,16 @@ func (s *OperationsService) ClaimDeliveryJob(ctx context.Context, claims *backen
 	if err := tx.Commit(ctx); err != nil {
 		return model.DeliveryJob{}, apperror.Internal("failed to commit rider claim", err)
 	}
+	if s.notifier != nil {
+		target, targetErr := s.store.GetAdminOrderByID(ctx, item.OrderID)
+		if targetErr == nil {
+			user, userErr := s.store.GetUserByID(ctx, target.UserID)
+			order, orderErr := s.store.GetOrderByTransaction(ctx, target.UserID, target.TransactionID)
+			if userErr == nil && orderErr == nil {
+				_ = s.notifier.NotifyRiderAssigned(ctx, user, order)
+			}
+		}
+	}
 	return item, nil
 }
 
@@ -851,6 +869,16 @@ func (s *OperationsService) UpdateDeliveryJobStatus(ctx context.Context, claims 
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return model.DeliveryJob{}, apperror.Internal("failed to commit rider update", err)
+	}
+	if s.notifier != nil && item.Status == "picked_up" {
+		target, targetErr := s.store.GetAdminOrderByID(ctx, item.OrderID)
+		if targetErr == nil {
+			user, userErr := s.store.GetUserByID(ctx, target.UserID)
+			order, orderErr := s.store.GetOrderByTransaction(ctx, target.UserID, target.TransactionID)
+			if userErr == nil && orderErr == nil {
+				_ = s.notifier.NotifyRiderOnTheWay(ctx, user, order)
+			}
+		}
 	}
 	return item, nil
 }

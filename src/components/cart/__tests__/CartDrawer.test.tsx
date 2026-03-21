@@ -121,7 +121,7 @@ describe("CartDrawer", () => {
         });
 
         await user.click(screen.getByRole("checkbox"));
-        await user.click(screen.getByRole("button", { name: /Proceed to checkout/i }));
+        await user.click(screen.getByRole("button", { name: "cart.proceedCheckout" }));
 
         await waitFor(() => expect(push).toHaveBeenCalledWith("/checkout"));
         expect(JSON.parse(window.localStorage.getItem(CHECKOUT_DRAFT_KEY) || "null")).toEqual({
@@ -193,9 +193,9 @@ describe("CartDrawer", () => {
         const checkboxes = screen.getAllByRole("checkbox");
         await user.click(checkboxes[0]);
         await user.click(checkboxes[1]);
-        await user.click(screen.getByRole("button", { name: /Proceed to checkout/i }));
+        await user.click(screen.getByRole("button", { name: "cart.proceedCheckout" }));
 
-        expect(notify).toHaveBeenCalledWith("Select items from a single branch before checkout.", "warning");
+        expect(notify).toHaveBeenCalledWith("cart.singleBranchWarning", "warning");
         expect(push).not.toHaveBeenCalled();
         expect(window.localStorage.getItem(CHECKOUT_DRAFT_KEY)).toBeNull();
     });

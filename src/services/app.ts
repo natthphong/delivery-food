@@ -32,3 +32,13 @@ export async function fetchOrders(limit = 50) {
     });
     return unwrapResponse(data).orders;
 }
+
+export async function sendVerificationEmail(locale: "th" | "en") {
+    const { data } = await axios.post<ApiResponse<{ sent: boolean }>>("/v1/account/email/verification", { locale });
+    return unwrapResponse(data).sent;
+}
+
+export async function verifyEmailToken(token: string) {
+    const { data } = await axios.post<ApiResponse<{ user: UserRecord; verified: boolean }>>("/v1/account/email/verify", { token });
+    return unwrapResponse(data);
+}

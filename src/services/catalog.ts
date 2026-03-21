@@ -38,9 +38,9 @@ export async function fetchFeaturedMenu(branchId: number | string) {
     return unwrapResponse(data);
 }
 
-export async function fetchPaymentMethods(companyId: number) {
+export async function fetchPaymentMethods(companyId: number, scope: "checkout" | "deposit" = "checkout") {
     const { data } = await axios.get<ApiResponse<{ methods: TransactionMethod[] }>>("/v1/payment-methods", {
-        params: { companyId },
+        params: { companyId, scope },
     });
     return unwrapResponse(data).methods;
 }

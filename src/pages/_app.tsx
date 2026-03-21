@@ -9,7 +9,7 @@ import AdminRequireAuth from "@/components/admin/AdminRequireAuth";
 
 
 export default function MyApp({ Component, pageProps, router }: AppProps) {
-    const PUBLIC_ROUTES = ["/login", "/web-hook-line", "/admin/login"];
+    const PUBLIC_ROUTES = ["/login", "/web-hook-line", "/admin/login", "/verify-email"];
     const isPublic = PUBLIC_ROUTES.includes(router.pathname);
     const isAdminRoute = router.pathname.startsWith("/admin");
     return (

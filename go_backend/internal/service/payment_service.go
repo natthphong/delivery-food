@@ -42,14 +42,16 @@ type PaymentService struct {
 	config     config.Config
 	httpClient *http.Client
 	gateways   map[string]PaymentGateway
+	notifier   *NotificationService
 }
 
-func NewPaymentService(store *repository.Store, cfg config.Config) *PaymentService {
+func NewPaymentService(store *repository.Store, cfg config.Config, notifier *NotificationService) *PaymentService {
 	client := &http.Client{Timeout: cfg.HTTPClientTimeout}
 	return &PaymentService{
 		store:      store,
 		config:     cfg,
 		httpClient: client,
+		notifier:   notifier,
 		gateways: map[string]PaymentGateway{
 			"OMISE": NewOmiseGateway(client, cfg),
 		},
@@ -100,7 +102,8 @@ func (s *PaymentService) Checkout(ctx context.Context, userID int64, request dto
 		return CheckoutResult{}, apperror.Internal("failed to load payment method", err)
 	}
 
-	items, cartID, err := s.store.GetCartItemsByIDs(ctx, userID, uniqueIDs(request.SelectedItemIDs))
+	selectedItemIDs := uniqueIDs(request.SelectedItemIDs)
+	items, _, err := s.store.GetCartItemsByIDs(ctx, userID, selectedItemIDs)
 	if err != nil {
 		if repository.IsNotFound(err) {
 			return CheckoutResult{}, apperror.NotFound("one or more selected cart items were not found")
@@ -186,6 +189,7 @@ func (s *PaymentService) Checkout(ctx context.Context, userID int64, request dto
 		providerID = &provider.ID
 		providerReference = &gatewayResult.ProviderReference
 		providerStatus = &gatewayResult.ProviderStatus
+		expiresAt = gatewayResult.ExpiresAt
 		paymentAction = gatewayResult.PaymentAction
 	} else {
 		return CheckoutResult{}, apperror.BadRequest("unsupported payment method")
@@ -197,18 +201,29 @@ func (s *PaymentService) Checkout(ctx context.Context, userID int64, request dto
 	}
 	defer tx.Rollback(ctx)
 
+	lockedItems, cartID, err := s.store.GetCartItemsByIDsForUpdate(ctx, tx, userID, selectedItemIDs)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return CheckoutResult{}, apperror.Conflict("selected cart items are no longer available")
+		}
+		return CheckoutResult{}, apperror.Internal("failed to lock selected cart items", err)
+	}
+	if len(lockedItems) != len(items) {
+		return CheckoutResult{}, apperror.Conflict("selected cart items changed before checkout completed")
+	}
+
 	transaction, err := s.store.CreateTransaction(ctx, tx, repository.CreateTransactionParams{
-		UserID:          userID,
-		CompanyID:       branch.CompanyID,
-		PaymentMethodID: method.ID,
-		TxnType:         "payment",
-		Amount:          totalAmount,
-		Status:          transactionStatus,
-		ExpiresAt:       expiresAt,
-		ProviderID:      providerID,
+		UserID:            userID,
+		CompanyID:         branch.CompanyID,
+		PaymentMethodID:   method.ID,
+		TxnType:           "payment",
+		Amount:            totalAmount,
+		Status:            transactionStatus,
+		ExpiresAt:         expiresAt,
+		ProviderID:        providerID,
 		ProviderReference: providerReference,
-		ProviderStatus:  providerStatus,
-		PaymentAction:   paymentAction,
+		ProviderStatus:    providerStatus,
+		PaymentAction:     paymentAction,
 	})
 	if err != nil {
 		return CheckoutResult{}, apperror.Internal("failed to create transaction", err)
@@ -225,7 +240,7 @@ func (s *PaymentService) Checkout(ctx context.Context, userID int64, request dto
 		DeliveryLat:        &request.DeliveryLat,
 		DeliveryLng:        &request.DeliveryLng,
 		DeliveryDistanceKM: &request.DeliveryDistance,
-		Items:              items,
+		Items:              lockedItems,
 	})
 	if err != nil {
 		return CheckoutResult{}, apperror.Internal("failed to create order", err)
@@ -242,7 +257,7 @@ func (s *PaymentService) Checkout(ctx context.Context, userID int64, request dto
 		}
 	}
 
-	if err := s.store.DeleteCartItemsByIDs(ctx, tx, cartID, uniqueIDs(request.SelectedItemIDs)); err != nil {
+	if err := s.store.DeleteCartItemsByIDs(ctx, tx, cartID, selectedItemIDs); err != nil {
 		return CheckoutResult{}, apperror.Internal("failed to remove checked-out cart items", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -269,6 +284,13 @@ func (s *PaymentService) Checkout(ctx context.Context, userID int64, request dto
 		if err == nil {
 			checkout.User = &freshUser
 		}
+	}
+	if checkout.Order != nil && s.notifier != nil {
+		notifyUser := user
+		if checkout.User != nil {
+			notifyUser = *checkout.User
+		}
+		_ = s.notifier.NotifyOrderPlaced(ctx, notifyUser, *checkout.Order)
 	}
 	return checkout, nil
 }
@@ -336,11 +358,19 @@ func (s *PaymentService) GetTransactionDetail(ctx context.Context, userID int64,
 		}
 		return TransactionDetailResult{}, apperror.Internal("failed to load transaction", err)
 	}
+	summary = normalizeTransactionSummary(summary)
+	if summary.Method != nil && summary.Method.MethodType == "gateway" && summary.ProviderReference != nil {
+		refreshed, err := s.syncGatewayTransaction(ctx, summary)
+		if err == nil {
+			summary = refreshed
+		}
+	}
 
 	var order *model.Order
 	if summary.OrderID != nil {
 		item, err := s.store.GetOrderByTransaction(ctx, userID, transactionID)
 		if err == nil {
+			item.Transaction = &summary
 			order = &item
 		}
 	}
@@ -349,6 +379,148 @@ func (s *PaymentService) GetTransactionDetail(ctx context.Context, userID int64,
 		Transaction: summary,
 		Order:       order,
 	}, nil
+}
+
+func (s *PaymentService) RetryPayment(ctx context.Context, userID int64, transactionID int64, paymentMethodID *int64) (TransactionDetailResult, error) {
+	detail, err := s.GetTransactionDetail(ctx, userID, transactionID)
+	if err != nil {
+		return TransactionDetailResult{}, err
+	}
+	if detail.Transaction.TxnType != "payment" {
+		return TransactionDetailResult{}, apperror.BadRequest("only payment transactions can be retried")
+	}
+	if detail.Transaction.Status == "accepted" {
+		return TransactionDetailResult{}, apperror.Conflict("payment is already completed")
+	}
+	if detail.Transaction.Status == "pending" && !detail.Transaction.IsExpired {
+		return TransactionDetailResult{}, apperror.Conflict("payment is still pending")
+	}
+	if detail.Order == nil {
+		return TransactionDetailResult{}, apperror.Conflict("this transaction is not linked to an order")
+	}
+
+	branch, err := s.store.GetBranchSummary(ctx, detail.Order.BranchID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return TransactionDetailResult{}, apperror.NotFound("branch not found")
+		}
+		return TransactionDetailResult{}, apperror.Internal("failed to load branch", err)
+	}
+
+	methodID := detail.Transaction.PaymentMethodID
+	if paymentMethodID != nil && *paymentMethodID > 0 {
+		methodID = *paymentMethodID
+	}
+	method, err := s.store.GetPaymentMethod(ctx, branch.CompanyID, methodID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return TransactionDetailResult{}, apperror.NotFound("payment method not available")
+		}
+		return TransactionDetailResult{}, apperror.Internal("failed to load payment method", err)
+	}
+
+	user, err := s.store.GetUserByID(ctx, userID)
+	if err != nil {
+		return TransactionDetailResult{}, apperror.Internal("failed to load user", err)
+	}
+
+	transactionStatus := "pending"
+	orderStatus := "PENDING"
+	var expiresAt *time.Time
+	var paymentAction map[string]any
+	var providerID *int64
+	var providerReference *string
+	var providerStatus *string
+	if method.MethodType == "balance" {
+		if user.WalletBalance < detail.Transaction.Amount {
+			return TransactionDetailResult{}, apperror.Conflict("wallet balance is insufficient")
+		}
+		transactionStatus = "accepted"
+		orderStatus = "PREPARE"
+	} else if method.MethodType == "gateway" {
+		if method.ProviderCode == nil {
+			return TransactionDetailResult{}, apperror.BadRequest("payment provider is not configured")
+		}
+		provider, err := s.store.GetPaymentProviderByCode(ctx, *method.ProviderCode)
+		if err != nil {
+			if repository.IsNotFound(err) {
+				return TransactionDetailResult{}, apperror.NotFound("payment provider not found")
+			}
+			return TransactionDetailResult{}, apperror.Internal("failed to load payment provider", err)
+		}
+		gateway, ok := s.gateways[strings.ToUpper(provider.Code)]
+		if !ok {
+			return TransactionDetailResult{}, apperror.BadRequest("payment provider is not supported")
+		}
+		gatewayResult, err := gateway.CreateCheckout(ctx, provider, method, GatewayCheckoutRequest{
+			Amount:      detail.Transaction.Amount,
+			Currency:    "THB",
+			BranchName:  branch.Name,
+			Description: fmt.Sprintf("Retry order #%d at %s", detail.Order.ID, branch.Name),
+		})
+		if err != nil {
+			return TransactionDetailResult{}, err
+		}
+		providerID = &provider.ID
+		providerReference = &gatewayResult.ProviderReference
+		providerStatus = &gatewayResult.ProviderStatus
+		expiresAt = gatewayResult.ExpiresAt
+		paymentAction = gatewayResult.PaymentAction
+	} else if method.MethodType == "qr" {
+		configs, err := loadConfigValues(ctx, s.store)
+		if err != nil {
+			return TransactionDetailResult{}, err
+		}
+		ttlSeconds := configInt(configs, "QR_PAYMENT_TTL_SECONDS", 900)
+		expires := time.Now().Add(time.Duration(ttlSeconds) * time.Second)
+		expiresAt = &expires
+		paymentAction = buildManualPaymentAction(method, detail.Transaction.Amount, expires)
+	} else {
+		return TransactionDetailResult{}, apperror.BadRequest("unsupported payment method")
+	}
+
+	tx, err := s.store.Begin(ctx)
+	if err != nil {
+		return TransactionDetailResult{}, apperror.Internal("failed to begin payment retry", err)
+	}
+	defer tx.Rollback(ctx)
+
+	transaction, err := s.store.CreateTransaction(ctx, tx, repository.CreateTransactionParams{
+		UserID:            userID,
+		CompanyID:         branch.CompanyID,
+		PaymentMethodID:   method.ID,
+		TxnType:           "payment",
+		Amount:            detail.Transaction.Amount,
+		Status:            transactionStatus,
+		ExpiresAt:         expiresAt,
+		ProviderID:        providerID,
+		ProviderReference: providerReference,
+		ProviderStatus:    providerStatus,
+		PaymentAction:     paymentAction,
+	})
+	if err != nil {
+		return TransactionDetailResult{}, apperror.Internal("failed to create retry transaction", err)
+	}
+	if err := s.store.UpdateOrderTransaction(ctx, tx, detail.Order.ID, transaction.ID); err != nil {
+		return TransactionDetailResult{}, apperror.Internal("failed to link retry transaction", err)
+	}
+	if err := s.store.UpdateOrderStatus(ctx, tx, detail.Order.ID, orderStatus); err != nil {
+		return TransactionDetailResult{}, apperror.Internal("failed to reset order status", err)
+	}
+	if method.MethodType == "balance" {
+		if _, err := s.store.AdjustWalletBalance(ctx, tx, userID, -detail.Transaction.Amount); err != nil {
+			return TransactionDetailResult{}, apperror.Conflict("wallet balance is insufficient")
+		}
+		if detail.Order.FulfillmentMode == "rider_delivery" && detail.Order.DeliveryJob == nil {
+			if _, err := s.store.CreateDeliveryJob(ctx, tx, detail.Order.ID, detail.Order.BranchID, detail.Order.DeliveryFee); err != nil {
+				return TransactionDetailResult{}, apperror.Internal("failed to create delivery job", err)
+			}
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return TransactionDetailResult{}, apperror.Internal("failed to commit payment retry", err)
+	}
+	return s.GetTransactionDetail(ctx, userID, transaction.ID)
 }
 
 func (s *PaymentService) SubmitSlip(
@@ -366,11 +538,11 @@ func (s *PaymentService) SubmitSlip(
 	if err != nil {
 		return TransactionDetailResult{}, err
 	}
-	if detail.Transaction.Status != "pending" {
-		return TransactionDetailResult{}, apperror.Conflict("transaction is no longer pending")
-	}
 	if detail.Transaction.IsExpired {
 		return TransactionDetailResult{}, apperror.Conflict("transaction has expired")
+	}
+	if detail.Transaction.Status != "pending" {
+		return TransactionDetailResult{}, apperror.Conflict("transaction is no longer pending")
 	}
 	if detail.Transaction.Method == nil || detail.Transaction.Method.MethodType != "qr" {
 		return TransactionDetailResult{}, apperror.BadRequest("transaction does not support slip upload")
@@ -480,11 +652,21 @@ func (s *PaymentService) HandleOmiseWebhook(ctx context.Context, headers http.He
 		return nil, apperror.Internal("failed to resolve transaction from provider reference", err)
 	}
 
-	if err := s.store.UpdateTransactionGatewayState(ctx, tx, record.TransactionID, webhook.Status, &webhook.ProviderStatus, nil, webhook.FailedReason, webhook.PaidAt); err != nil {
+	if err := s.store.UpdateTransactionGatewayState(
+		ctx,
+		tx,
+		record.TransactionID,
+		persistedGatewayStatus(webhook.Status),
+		&webhook.ProviderStatus,
+		webhook.PaymentAction,
+		webhook.FailedReason,
+		webhook.PaidAt,
+		webhook.ExpiresAt,
+	); err != nil {
 		return nil, apperror.Internal("failed to update transaction state", err)
 	}
 
-	if record.Status != webhook.Status {
+	if normalizeGatewayTransactionStatus(record.Status, nil) != webhook.Status {
 		switch webhook.Status {
 		case "accepted":
 			if record.TxnType == "deposit" {
@@ -530,6 +712,82 @@ func (s *PaymentService) HandleOmiseWebhook(ctx context.Context, headers http.He
 	}, nil
 }
 
+func (s *PaymentService) syncGatewayTransaction(ctx context.Context, summary model.TransactionSummary) (model.TransactionSummary, error) {
+	if summary.Method == nil || summary.Method.ProviderCode == nil || summary.ProviderReference == nil {
+		return summary, nil
+	}
+	gatewayCode := strings.ToUpper(strings.TrimSpace(*summary.Method.ProviderCode))
+	gateway, ok := s.gateways[gatewayCode]
+	if !ok {
+		return summary, nil
+	}
+	provider, err := s.store.GetPaymentProviderByCode(ctx, gatewayCode)
+	if err != nil {
+		return summary, err
+	}
+	statusResult, err := gateway.FetchStatus(ctx, provider, *summary.ProviderReference)
+	if err != nil {
+		return summary, err
+	}
+
+	tx, err := s.store.Begin(ctx)
+	if err != nil {
+		return summary, err
+	}
+	defer tx.Rollback(ctx)
+	if err := s.store.UpdateTransactionGatewayState(
+		ctx,
+		tx,
+		summary.ID,
+		persistedGatewayStatus(statusResult.Status),
+		&statusResult.ProviderStatus,
+		statusResult.PaymentAction,
+		statusResult.FailedReason,
+		statusResult.PaidAt,
+		statusResult.ExpiresAt,
+	); err != nil {
+		return summary, err
+	}
+	if normalizeGatewayTransactionStatus(summary.Status, summary.ExpiresAt) != statusResult.Status {
+		switch statusResult.Status {
+		case "accepted":
+			if summary.TxnType == "deposit" {
+				if _, err := s.store.AdjustWalletBalance(ctx, tx, summary.UserID, summary.Amount); err != nil {
+					return summary, err
+				}
+			}
+			if summary.OrderID != nil {
+				if err := s.store.UpdateOrderStatus(ctx, tx, *summary.OrderID, "PREPARE"); err != nil {
+					return summary, err
+				}
+				order, err := s.store.GetAdminOrderByID(ctx, *summary.OrderID)
+				if err == nil && order.FulfillmentMode == "rider_delivery" && order.DeliveryJob == nil {
+					if _, err := s.store.CreateDeliveryJob(ctx, tx, order.ID, order.BranchID, order.DeliveryFee); err != nil {
+						return summary, err
+					}
+				}
+			}
+		case "rejected":
+			if summary.OrderID != nil {
+				if err := s.store.UpdateOrderStatus(ctx, tx, *summary.OrderID, "REJECTED"); err != nil {
+					return summary, err
+				}
+				if err := s.store.CancelDeliveryJobByOrderID(ctx, tx, *summary.OrderID, statusResult.FailedReason); err != nil {
+					return summary, err
+				}
+			}
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return summary, err
+	}
+	refreshed, err := s.store.GetTransactionSummary(ctx, summary.UserID, summary.ID)
+	if err != nil {
+		return summary, err
+	}
+	return normalizeTransactionSummary(refreshed), nil
+}
+
 func (s *PaymentService) verifySlip(
 	ctx context.Context,
 	transaction model.TransactionSummary,
@@ -546,9 +804,9 @@ func (s *PaymentService) verifySlip(
 			SlipDate:      &slipDate,
 			SlipTimestamp: &slipTimestamp,
 			Metadata: map[string]any{
-				"mode":         "LOCAL",
-				"fileName":     fileName,
-				"acceptedAt":   now.Format(time.RFC3339),
+				"mode":          "LOCAL",
+				"fileName":      fileName,
+				"acceptedAt":    now.Format(time.RFC3339),
 				"transactionId": transaction.ID,
 			},
 		}, nil
@@ -729,4 +987,27 @@ func buildManualPaymentAction(method model.PaymentMethod, amount float64, expire
 		action["provider"] = *method.ProviderCode
 	}
 	return action
+}
+
+func normalizeTransactionSummary(summary model.TransactionSummary) model.TransactionSummary {
+	summary.IsExpired = normalizeGatewayTransactionStatus(summary.Status, summary.ExpiresAt) == "expired"
+	if summary.IsExpired {
+		summary.Status = "expired"
+		if summary.ProviderStatus == nil || strings.TrimSpace(*summary.ProviderStatus) == "" || strings.EqualFold(strings.TrimSpace(*summary.ProviderStatus), "pending") {
+			value := "expired"
+			summary.ProviderStatus = &value
+		}
+	}
+	return summary
+}
+
+func normalizeGatewayTransactionStatus(status string, expiresAt *time.Time) string {
+	return normalizeGatewayStatus(status, false, false, expiresAt)
+}
+
+func persistedGatewayStatus(status string) string {
+	if strings.EqualFold(strings.TrimSpace(status), "expired") {
+		return "pending"
+	}
+	return strings.TrimSpace(status)
 }

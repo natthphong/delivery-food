@@ -18,6 +18,7 @@ type AuthService struct {
 	tokenManager    *backendauth.TokenManager
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
+	notifier        *NotificationService
 }
 
 func NewAuthService(
@@ -26,6 +27,7 @@ func NewAuthService(
 	tokenManager *backendauth.TokenManager,
 	accessTokenTTL time.Duration,
 	refreshTokenTTL time.Duration,
+	notifier *NotificationService,
 ) *AuthService {
 	return &AuthService{
 		store:           store,
@@ -33,6 +35,7 @@ func NewAuthService(
 		tokenManager:    tokenManager,
 		accessTokenTTL:  accessTokenTTL,
 		refreshTokenTTL: refreshTokenTTL,
+		notifier:        notifier,
 	}
 }
 
@@ -73,6 +76,9 @@ func (s *AuthService) Login(
 	accessToken, refreshToken, err := s.issueTokens(ctx, user, userAgent, ipAddress)
 	if err != nil {
 		return dto.AuthTokensResponse{}, err
+	}
+	if authProvider != "firebase" && s.notifier != nil {
+		_ = s.notifier.SendProviderLoginEmail(ctx, user)
 	}
 
 	return dto.AuthTokensResponse{

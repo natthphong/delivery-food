@@ -20,6 +20,7 @@ Added and expanded:
 - stock and branch operations services
 - payment gateway abstraction
 - Omise integration + webhook processing
+- backend notification service for Resend + LINE
 - rider delivery workflows
 
 ### Frontend
@@ -30,6 +31,8 @@ Added and expanded:
 - separate admin token/session handling
 - improved customer checkout for pickup vs rider delivery
 - richer payment detail rendering from backend `paymentAction`
+- payment expiry + retry UX
+- account-driven admin entry instead of a customer navigation tab
 - responsive customer and admin surfaces
 
 ### Database
@@ -44,11 +47,21 @@ Extended with:
 - payment providers and webhook events
 - fulfillment mode and rider delivery tables/fields
 
+For the current UX/payment hardening pass, no new migration file was required.
+
+Existing transaction fields already cover:
+
+- `expires_at`
+- `provider_status`
+- `payment_action`
+- `paid_at`
+- `failed_reason`
+
 ## Upgrade Steps For Local Environments
 
 1. update frontend env from `.env.example`
 2. update backend env from `go_backend/.env.example`
-3. add admin credentials and Omise keys where needed
+3. add admin credentials, Omise keys, and notification credentials where needed
 4. run:
 
 ```bash

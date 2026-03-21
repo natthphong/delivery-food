@@ -30,6 +30,14 @@ type ProfilePatchRequest struct {
 	IsPhoneVerified *bool   `json:"isPhoneVerified"`
 }
 
+type VerificationEmailRequest struct {
+	Locale string `json:"locale"`
+}
+
+type VerifyEmailTokenRequest struct {
+	Token string `json:"token"`
+}
+
 type AddCartItemRequest struct {
 	BranchID  int64   `json:"branchId"`
 	ProductID int64   `json:"productId"`
@@ -56,4 +64,8 @@ type DepositRequest struct {
 	CompanyID       int64   `json:"companyId"`
 	PaymentMethodID int64   `json:"paymentMethodId"`
 	Amount          float64 `json:"amount"`
+}
+
+type RetryPaymentRequest struct {
+	PaymentMethodID *int64 `json:"paymentMethodId"`
 }

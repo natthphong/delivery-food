@@ -241,6 +241,16 @@ func (s *Store) CreateOrder(ctx context.Context, tx DBTX, params CreateOrderPara
 	return order, nil
 }
 
+func (s *Store) UpdateOrderTransaction(ctx context.Context, tx DBTX, orderID int64, transactionID int64) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE orders
+		SET transaction_id = $2,
+			updated_at = NOW()
+		WHERE id = $1
+	`, orderID, transactionID)
+	return err
+}
+
 func (s *Store) UpdateTransactionAccepted(ctx context.Context, tx DBTX, params SlipUpdateParams) (model.Transaction, error) {
 	metadata, err := json.Marshal(params.Metadata)
 	if err != nil {
@@ -351,28 +361,28 @@ func (s *Store) UpdateOrderStatusByTransaction(ctx context.Context, tx DBTX, tra
 
 func (s *Store) GetTransactionSummary(ctx context.Context, userID, transactionID int64) (model.TransactionSummary, error) {
 	var (
-		expiresAt          sql.NullTime
-		slipReference      sql.NullString
-		slipDate           sql.NullTime
-		slipTimestamp      sql.NullTime
-		methodID           sql.NullInt64
-		methodCode         sql.NullString
-		methodName         sql.NullString
-		methodType         sql.NullString
-		sortOrder          sql.NullInt32
-		promptPayID        sql.NullString
-		providerID         sql.NullInt64
-		providerReference  sql.NullString
-		providerStatus     sql.NullString
-		paymentActionJSON  []byte
-		paidAt             sql.NullTime
-		failedReason       sql.NullString
-		methodProviderCode sql.NullString
+		expiresAt             sql.NullTime
+		slipReference         sql.NullString
+		slipDate              sql.NullTime
+		slipTimestamp         sql.NullTime
+		methodID              sql.NullInt64
+		methodCode            sql.NullString
+		methodName            sql.NullString
+		methodType            sql.NullString
+		sortOrder             sql.NullInt32
+		promptPayID           sql.NullString
+		providerID            sql.NullInt64
+		providerReference     sql.NullString
+		providerStatus        sql.NullString
+		paymentActionJSON     []byte
+		paidAt                sql.NullTime
+		failedReason          sql.NullString
+		methodProviderCode    sql.NullString
 		methodProviderCodeRef sql.NullString
-		checkoutFlow       sql.NullString
-		methodMetadataJSON []byte
-		orderID            sql.NullInt64
-		summary            model.TransactionSummary
+		checkoutFlow          sql.NullString
+		methodMetadataJSON    []byte
+		orderID               sql.NullInt64
+		summary               model.TransactionSummary
 	)
 
 	err := s.Pool.QueryRow(ctx, `
@@ -422,30 +432,30 @@ func (s *Store) GetTransactionSummary(ctx context.Context, userID, transactionID
 		&summary.TxnType,
 		&summary.Amount,
 		&summary.Status,
-			&expiresAt,
-			&slipReference,
-			&slipDate,
-			&slipTimestamp,
-			&providerID,
-			&providerReference,
-			&providerStatus,
-			&paymentActionJSON,
-			&paidAt,
-			&failedReason,
-			&summary.CreatedAt,
-			&summary.UpdatedAt,
-			&methodID,
+		&expiresAt,
+		&slipReference,
+		&slipDate,
+		&slipTimestamp,
+		&providerID,
+		&providerReference,
+		&providerStatus,
+		&paymentActionJSON,
+		&paidAt,
+		&failedReason,
+		&summary.CreatedAt,
+		&summary.UpdatedAt,
+		&methodID,
 		&methodCode,
 		&methodName,
-			&methodType,
-			&sortOrder,
-			&promptPayID,
-			&methodProviderCode,
-			&methodProviderCodeRef,
-			&checkoutFlow,
-			&methodMetadataJSON,
-			&orderID,
-		)
+		&methodType,
+		&sortOrder,
+		&promptPayID,
+		&methodProviderCode,
+		&methodProviderCodeRef,
+		&checkoutFlow,
+		&methodMetadataJSON,
+		&orderID,
+	)
 	if err != nil {
 		return model.TransactionSummary{}, err
 	}
@@ -838,7 +848,9 @@ func (s *Store) attachOrderItems(ctx context.Context, orders []model.Order) erro
 	return addOnRows.Err()
 }
 
-func scanTransactionSummary(scanner interface{ Scan(dest ...interface{}) error }) (model.TransactionSummary, error) {
+func scanTransactionSummary(scanner interface {
+	Scan(dest ...interface{}) error
+}) (model.TransactionSummary, error) {
 	var (
 		expiresAt          sql.NullTime
 		slipReference      sql.NullString
@@ -935,51 +947,53 @@ func scanTransactionSummary(scanner interface{ Scan(dest ...interface{}) error }
 	return item, nil
 }
 
-func scanOrderHeader(scanner interface{ Scan(dest ...interface{}) error }) (model.Order, error) {
+func scanOrderHeader(scanner interface {
+	Scan(dest ...interface{}) error
+}) (model.Order, error) {
 	var (
-		customerNote         sql.NullString
-		deliveryLat          sql.NullFloat64
-		deliveryLng          sql.NullFloat64
-		deliveryDistanceKM   sql.NullFloat64
-		branchDescription    sql.NullString
-		branchImage          sql.NullString
-		branchAddress        sql.NullString
-		branchLat            sql.NullFloat64
-		branchLng            sql.NullFloat64
+		customerNote          sql.NullString
+		deliveryLat           sql.NullFloat64
+		deliveryLng           sql.NullFloat64
+		deliveryDistanceKM    sql.NullFloat64
+		branchDescription     sql.NullString
+		branchImage           sql.NullString
+		branchAddress         sql.NullString
+		branchLat             sql.NullFloat64
+		branchLng             sql.NullFloat64
 		branchOperationalNote sql.NullString
-		expiresAt            sql.NullTime
-		slipReference        sql.NullString
-		slipDate             sql.NullTime
-		slipTimestamp        sql.NullTime
-		providerID           sql.NullInt64
-		providerReference    sql.NullString
-		providerStatus       sql.NullString
-		paymentActionJSON    []byte
-		paidAt               sql.NullTime
-		failedReason         sql.NullString
-		methodID             sql.NullInt64
-		methodCode           sql.NullString
-		methodName           sql.NullString
-		methodType           sql.NullString
-		sortOrder            sql.NullInt32
-		promptPayID          sql.NullString
-		methodProviderCode   sql.NullString
-		methodProviderRef    sql.NullString
-		checkoutFlow         sql.NullString
-		methodMetadataJSON   []byte
-		deliveryJobID        sql.NullInt64
-		deliveryJobBranchID  sql.NullInt64
-		deliveryJobStatus    sql.NullString
-		deliveryJobFee       sql.NullFloat64
-		riderEmployeeID      sql.NullInt64
-		riderName            sql.NullString
-		claimedAt            sql.NullTime
-		pickedUpAt           sql.NullTime
-		deliveredAt          sql.NullTime
-		deliveryFailedReason sql.NullString
-		deliveryCreatedAt    sql.NullTime
-		deliveryUpdatedAt    sql.NullTime
-		order                model.Order
+		expiresAt             sql.NullTime
+		slipReference         sql.NullString
+		slipDate              sql.NullTime
+		slipTimestamp         sql.NullTime
+		providerID            sql.NullInt64
+		providerReference     sql.NullString
+		providerStatus        sql.NullString
+		paymentActionJSON     []byte
+		paidAt                sql.NullTime
+		failedReason          sql.NullString
+		methodID              sql.NullInt64
+		methodCode            sql.NullString
+		methodName            sql.NullString
+		methodType            sql.NullString
+		sortOrder             sql.NullInt32
+		promptPayID           sql.NullString
+		methodProviderCode    sql.NullString
+		methodProviderRef     sql.NullString
+		checkoutFlow          sql.NullString
+		methodMetadataJSON    []byte
+		deliveryJobID         sql.NullInt64
+		deliveryJobBranchID   sql.NullInt64
+		deliveryJobStatus     sql.NullString
+		deliveryJobFee        sql.NullFloat64
+		riderEmployeeID       sql.NullInt64
+		riderName             sql.NullString
+		claimedAt             sql.NullTime
+		pickedUpAt            sql.NullTime
+		deliveredAt           sql.NullTime
+		deliveryFailedReason  sql.NullString
+		deliveryCreatedAt     sql.NullTime
+		deliveryUpdatedAt     sql.NullTime
+		order                 model.Order
 	)
 	order.Branch = &model.BranchSummary{}
 	order.Transaction = &model.TransactionSummary{Method: &model.PaymentMethod{}}
@@ -1107,19 +1121,19 @@ func scanOrderHeader(scanner interface{ Scan(dest ...interface{}) error }) (mode
 	order.TotalAmount = order.DeliveryFee
 	if deliveryJobID.Valid {
 		order.DeliveryJob = &model.DeliveryJob{
-			ID:                     deliveryJobID.Int64,
-			OrderID:                order.ID,
-			BranchID:               deliveryJobBranchID.Int64,
-			Status:                 deliveryJobStatus.String,
-			DeliveryFee:            deliveryJobFee.Float64,
+			ID:                      deliveryJobID.Int64,
+			OrderID:                 order.ID,
+			BranchID:                deliveryJobBranchID.Int64,
+			Status:                  deliveryJobStatus.String,
+			DeliveryFee:             deliveryJobFee.Float64,
 			AssignedRiderEmployeeID: nullInt64(riderEmployeeID),
-			AssignedRiderName:      nullString(riderName),
-			ClaimedAt:              nullTime(claimedAt),
-			PickedUpAt:             nullTime(pickedUpAt),
-			DeliveredAt:            nullTime(deliveredAt),
-			FailedReason:           nullString(deliveryFailedReason),
-			CreatedAt:              deliveryCreatedAt.Time,
-			UpdatedAt:              deliveryUpdatedAt.Time,
+			AssignedRiderName:       nullString(riderName),
+			ClaimedAt:               nullTime(claimedAt),
+			PickedUpAt:              nullTime(pickedUpAt),
+			DeliveredAt:             nullTime(deliveredAt),
+			FailedReason:            nullString(deliveryFailedReason),
+			CreatedAt:               deliveryCreatedAt.Time,
+			UpdatedAt:               deliveryUpdatedAt.Time,
 		}
 		branchName := order.Branch.Name
 		order.DeliveryJob.BranchName = &branchName

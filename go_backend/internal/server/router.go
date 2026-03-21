@@ -13,13 +13,13 @@ import (
 )
 
 type Services struct {
-	Auth      *service.AuthService
-	AdminAuth *service.AdminAuthService
+	Auth       *service.AuthService
+	AdminAuth  *service.AdminAuthService
 	Operations *service.OperationsService
-	App       *service.AppService
-	Catalog   *service.CatalogService
-	Cart      *service.CartService
-	Payment   *service.PaymentService
+	App        *service.AppService
+	Catalog    *service.CatalogService
+	Cart       *service.CartService
+	Payment    *service.PaymentService
 }
 
 func NewRouter(cfg config.Config, tokenManager *backendauth.TokenManager, services Services) http.Handler {
@@ -65,6 +65,8 @@ func NewRouter(cfg config.Config, tokenManager *backendauth.TokenManager, servic
 	mux.HandleFunc("/v1/admin/payments/webhooks", middleware.RequireAdminAuth(tokenManager, operationsHandler.PaymentWebhooks))
 	mux.HandleFunc("GET /v1/bootstrap", middleware.RequireAuth(tokenManager, appHandler.Bootstrap))
 	mux.HandleFunc("PATCH /v1/account/profile", middleware.RequireAuth(tokenManager, appHandler.UpdateProfile))
+	mux.HandleFunc("POST /v1/account/email/verification", middleware.RequireAuth(tokenManager, appHandler.SendVerificationEmail))
+	mux.HandleFunc("POST /v1/account/email/verify", appHandler.VerifyEmail)
 	mux.HandleFunc("GET /v1/account/transactions", middleware.RequireAuth(tokenManager, appHandler.Transactions))
 	mux.HandleFunc("GET /v1/account/orders", middleware.RequireAuth(tokenManager, appHandler.Orders))
 	mux.HandleFunc("GET /v1/catalog/search", catalogHandler.Search)

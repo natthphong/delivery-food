@@ -16,6 +16,7 @@ import { setUser } from "@/store/authSlice";
 import type { MapConfirmValue } from "@/components/checkout/MapConfirm";
 import { CHECKOUT_DRAFT_KEY } from "@/components/cart/CartDrawer";
 import { fetchBranchMenu, fetchPaymentMethods } from "@/services/catalog";
+import { fetchCart } from "@/services/cart";
 import { checkout } from "@/services/payment";
 
 const MapConfirm = dynamic(() => import("@/components/checkout/MapConfirm"), { ssr: false });
@@ -33,6 +34,12 @@ function parseDraft(): CheckoutDraft | null {
         return JSON.parse(raw) as CheckoutDraft;
     } catch {
         return null;
+    }
+}
+
+function clearDraft() {
+    if (typeof window !== "undefined") {
+        window.localStorage.removeItem(CHECKOUT_DRAFT_KEY);
     }
 }
 
@@ -59,6 +66,15 @@ export default function CheckoutPage() {
         setDraft(parseDraft());
     }, []);
 
+    useEffect(() => {
+        if (!draft) return;
+        const branchExists = cart.groups.some((group) => group.branchId === draft.branchId);
+        if (!branchExists) {
+            clearDraft();
+            setDraft(null);
+        }
+    }, [cart.groups, draft]);
+
     const selectedGroup = useMemo<CartBranchGroup | null>(() => {
         if (!draft) return null;
         const group = cart.groups.find((item) => item.branchId === draft.branchId);
@@ -73,11 +89,18 @@ export default function CheckoutPage() {
     }, [cart.groups, draft]);
 
     useEffect(() => {
+        if (!draft || selectedGroup) return;
+        clearDraft();
+        setDraft(null);
+        notify(t(I18N_KEYS.CART_SYNCED), "info");
+    }, [draft, selectedGroup, t]);
+
+    useEffect(() => {
         if (!selectedGroup?.companyId) {
             setMethods([]);
             return;
         }
-        fetchPaymentMethods(selectedGroup.companyId)
+        fetchPaymentMethods(selectedGroup.companyId, "checkout")
             .then((items) => {
                 setMethods(items);
                 setSelectedMethodId(items[0]?.id ?? null);
@@ -165,18 +188,28 @@ export default function CheckoutPage() {
             if (result.user) {
                 dispatch(setUser(result.user));
             }
-            if (typeof window !== "undefined") {
-                window.localStorage.removeItem(CHECKOUT_DRAFT_KEY);
-            }
+            clearDraft();
+            setDraft(null);
             if (result.method.methodType === "balance") {
                 notify(t(I18N_KEYS.PAYMENT_BALANCE_SUCCESS), "success");
                 void router.push("/account?tab=orders");
                 return;
             }
-            notify("Payment created.", "success");
+            notify(t(I18N_KEYS.PAYMENT_CREATED_SUCCESS), "success");
             void router.push(`/payment/${result.transaction.id}`);
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || t(I18N_KEYS.PAYMENT_SUBMIT_ERROR), "error");
+            const message = error?.response?.data?.message || error?.message || t(I18N_KEYS.PAYMENT_SUBMIT_ERROR);
+            if (typeof error?.response?.status === "number" && (error.response.status === 404 || error.response.status === 409)) {
+                clearDraft();
+                setDraft(null);
+                fetchCart()
+                    .then((nextCart) => {
+                        dispatch(setCart(nextCart));
+                        notify(t(I18N_KEYS.CART_SYNCED), "info");
+                    })
+                    .catch(() => undefined);
+            }
+            notify(message, "error");
         } finally {
             setSubmitting(false);
         }
@@ -185,9 +218,9 @@ export default function CheckoutPage() {
     return (
         <Layout>
             <div className="mx-auto max-w-4xl space-y-6">
-                <header className="rounded-[2rem] bg-[linear-gradient(135deg,#064e3b_0%,#10b981_55%,#d1fae5_130%)] px-6 py-7 text-white shadow-xl">
-                    <h1 className="text-2xl font-semibold sm:text-3xl">{t(I18N_KEYS.CHECKOUT_TITLE)}</h1>
-                    <p className="mt-2 max-w-2xl text-sm text-emerald-50">{t(I18N_KEYS.CHECKOUT_SUBTITLE)}</p>
+                <header className="rounded-[2rem] border border-emerald-100 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.18),_transparent_42%),linear-gradient(180deg,#ffffff_0%,#f0fdf4_100%)] px-6 py-7 shadow-sm">
+                    <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">{t(I18N_KEYS.CHECKOUT_TITLE)}</h1>
+                    <p className="mt-2 max-w-2xl text-sm text-slate-600">{t(I18N_KEYS.CHECKOUT_SUBTITLE)}</p>
                 </header>
 
                 {!selectedGroup ? (
@@ -202,7 +235,9 @@ export default function CheckoutPage() {
                                 <div className="flex items-center justify-between gap-3">
                                     <div>
                                         <h2 className="text-base font-semibold text-slate-900">{selectedGroup.branchName}</h2>
-                                        <p className="text-sm text-slate-500">{selectedGroup.items.length} selected dishes</p>
+                                        <p className="text-sm text-slate-500">
+                                            {selectedGroup.items.length} {t(I18N_KEYS.CHECKOUT_SELECTED_DISHES)}
+                                        </p>
                                     </div>
                                     <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">
                                         {formatTHB(totalAmount)}
@@ -231,7 +266,9 @@ export default function CheckoutPage() {
                                                     </div>
                                                     <p className="text-sm font-semibold text-emerald-600">{formatTHB(item.lineTotal)}</p>
                                                 </div>
-                                                <p className="mt-2 text-xs text-slate-500">Qty {item.quantity}</p>
+                                                <p className="mt-2 text-xs text-slate-500">
+                                                    {t(I18N_KEYS.CHECKOUT_ITEM_QTY)} {item.quantity}
+                                                </p>
                                             </div>
                                         </li>
                                     ))}
@@ -241,8 +278,8 @@ export default function CheckoutPage() {
                             <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                                 <div className="flex flex-col gap-3">
                                     <div>
-                                        <h2 className="text-base font-semibold text-slate-900">Fulfillment</h2>
-                                        <p className="mt-1 text-sm text-slate-500">Choose pickup or local rider delivery before payment.</p>
+                                        <h2 className="text-base font-semibold text-slate-900">{t(I18N_KEYS.CHECKOUT_FULFILLMENT_TITLE)}</h2>
+                                        <p className="mt-1 text-sm text-slate-500">{t(I18N_KEYS.CHECKOUT_FULFILLMENT_SUBTITLE)}</p>
                                     </div>
                                     <div className="grid gap-3 sm:grid-cols-2">
                                         <button
@@ -255,8 +292,8 @@ export default function CheckoutPage() {
                                                     : "border-slate-200 bg-slate-50"
                                             } disabled:cursor-not-allowed disabled:opacity-50`}
                                         >
-                                            <p className="text-sm font-semibold text-slate-900">Pickup</p>
-                                            <p className="mt-1 text-xs text-slate-500">Collect at the branch with the fastest checkout path.</p>
+                                            <p className="text-sm font-semibold text-slate-900">{t(I18N_KEYS.CHECKOUT_PICKUP_TITLE)}</p>
+                                            <p className="mt-1 text-xs text-slate-500">{t(I18N_KEYS.CHECKOUT_PICKUP_SUBTITLE)}</p>
                                         </button>
                                         <button
                                             type="button"
@@ -268,9 +305,9 @@ export default function CheckoutPage() {
                                                     : "border-slate-200 bg-slate-50"
                                             } disabled:cursor-not-allowed disabled:opacity-50`}
                                         >
-                                            <p className="text-sm font-semibold text-slate-900">Rider delivery</p>
+                                            <p className="text-sm font-semibold text-slate-900">{t(I18N_KEYS.CHECKOUT_DELIVERY_TITLE)}</p>
                                             <p className="mt-1 text-xs text-slate-500">
-                                                Branch-local riders can claim this order for {formatTHB(branchInfo?.riderDeliveryFee ?? 0)}.
+                                                {t(I18N_KEYS.CHECKOUT_DELIVERY_SUBTITLE)} {formatTHB(branchInfo?.riderDeliveryFee ?? 0)}.
                                             </p>
                                         </button>
                                     </div>
@@ -290,12 +327,12 @@ export default function CheckoutPage() {
 
                             <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                                 <h2 className="text-base font-semibold text-slate-900">
-                                    {fulfillmentMode === "rider_delivery" ? t(I18N_KEYS.CHECKOUT_LOCATION_TITLE) : "Pickup notes"}
+                                    {fulfillmentMode === "rider_delivery" ? t(I18N_KEYS.CHECKOUT_NOTES_TITLE) : t(I18N_KEYS.CHECKOUT_PICKUP_NOTE_TITLE)}
                                 </h2>
                                 <p className="mt-1 text-sm text-slate-500">
                                     {fulfillmentMode === "rider_delivery"
-                                        ? t(I18N_KEYS.CHECKOUT_LOCATION_SUBTITLE)
-                                        : "Share any pickup or handoff instructions for the branch staff."}
+                                        ? t(I18N_KEYS.CHECKOUT_NOTES_SUBTITLE)
+                                        : t(I18N_KEYS.CHECKOUT_PICKUP_NOTE_SUBTITLE)}
                                 </p>
                                 {fulfillmentMode === "rider_delivery" ? (
                                     <div className="mt-4">
@@ -310,16 +347,18 @@ export default function CheckoutPage() {
                                     </div>
                                 ) : (
                                     <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                                        Pickup orders skip rider assignment and do not add delivery fees. We’ll send the order directly to branch preparation after payment succeeds.
+                                        {t(I18N_KEYS.CHECKOUT_PICKUP_SUBTITLE)}
                                     </div>
                                 )}
                                 <label className="mt-4 block">
-                                    <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Customer note</span>
+                                    <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                                        {t(I18N_KEYS.CHECKOUT_CUSTOMER_NOTE_LABEL)}
+                                    </span>
                                     <textarea
                                         value={customerNote}
                                         onChange={(event) => setCustomerNote(event.target.value)}
                                         rows={4}
-                                        placeholder="Spice level, pickup message, landmark, or rider note"
+                                        placeholder={t(I18N_KEYS.CHECKOUT_CUSTOMER_NOTE_PLACEHOLDER)}
                                         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
                                     />
                                 </label>
@@ -327,42 +366,44 @@ export default function CheckoutPage() {
                         </div>
 
                         <aside className="lg:sticky lg:top-24 lg:self-start">
-                            <div className="rounded-[2rem] bg-slate-950 p-5 text-white shadow-2xl">
-                                <p className="text-sm text-slate-300">Order summary</p>
+                            <div className="rounded-[2rem] border border-emerald-100 bg-white p-5 shadow-sm">
+                                <p className="text-sm text-slate-500">{t(I18N_KEYS.CHECKOUT_SUMMARY_TITLE)}</p>
                                 <div className="mt-4 space-y-3 text-sm">
                                     <div className="flex items-center justify-between">
-                                        <span className="text-slate-300">Items</span>
-                                        <span>{selectedGroup.items.length}</span>
+                                        <span className="text-slate-500">{t(I18N_KEYS.CHECKOUT_SUMMARY_ITEMS)}</span>
+                                        <span className="text-slate-900">{selectedGroup.items.length}</span>
                                     </div>
                                     <div className="flex items-center justify-between">
-                                        <span className="text-slate-300">Subtotal</span>
-                                        <span>{formatTHB(itemsTotal)}</span>
+                                        <span className="text-slate-500">{t(I18N_KEYS.CHECKOUT_SUMMARY_SUBTOTAL)}</span>
+                                        <span className="text-slate-900">{formatTHB(itemsTotal)}</span>
                                     </div>
                                     <div className="flex items-center justify-between">
-                                        <span className="text-slate-300">Fulfillment</span>
-                                        <span>{fulfillmentMode === "rider_delivery" ? "Rider delivery" : "Pickup"}</span>
+                                        <span className="text-slate-500">{t(I18N_KEYS.CHECKOUT_SUMMARY_FULFILLMENT)}</span>
+                                        <span className="text-slate-900">
+                                            {fulfillmentMode === "rider_delivery" ? t(I18N_KEYS.CHECKOUT_DELIVERY_TITLE) : t(I18N_KEYS.CHECKOUT_PICKUP_TITLE)}
+                                        </span>
                                     </div>
                                     <div className="flex items-center justify-between">
-                                        <span className="text-slate-300">Delivery fee</span>
-                                        <span>{formatTHB(deliveryFee)}</span>
+                                        <span className="text-slate-500">{t(I18N_KEYS.CHECKOUT_SUMMARY_DELIVERY_FEE)}</span>
+                                        <span className="text-slate-900">{formatTHB(deliveryFee)}</span>
                                     </div>
                                     {fulfillmentMode === "rider_delivery" && locationValue?.distanceKm ? (
                                         <div className="flex items-center justify-between">
-                                            <span className="text-slate-300">Delivery distance</span>
-                                            <span>{locationValue.distanceKm.toFixed(2)} km</span>
+                                            <span className="text-slate-500">{t(I18N_KEYS.CHECKOUT_SUMMARY_DISTANCE)}</span>
+                                            <span className="text-slate-900">{locationValue.distanceKm.toFixed(2)} km</span>
                                         </div>
                                     ) : null}
                                 </div>
-                                <div className="mt-5 border-t border-white/10 pt-5">
+                                <div className="mt-5 border-t border-slate-200 pt-5">
                                     <div className="flex items-center justify-between">
-                                        <span className="text-slate-300">Pay now</span>
-                                        <span className="text-2xl font-semibold">{formatTHB(totalAmount)}</span>
+                                        <span className="text-slate-500">{t(I18N_KEYS.CHECKOUT_SUMMARY_PAY_NOW)}</span>
+                                        <span className="text-2xl font-semibold text-slate-950">{formatTHB(totalAmount)}</span>
                                     </div>
                                     <button
                                         type="button"
                                         onClick={() => void handleSubmit()}
                                         disabled={submitting || !selectedMethodId || branchInfo?.acceptingOrders === false}
-                                        className="mt-5 inline-flex w-full items-center justify-center rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                        className="mt-5 inline-flex w-full items-center justify-center rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
                                     >
                                         {submitting ? t(I18N_KEYS.COMMON_PROCESSING) : t(I18N_KEYS.PAYMENT_SUBMIT_BUTTON)}
                                     </button>

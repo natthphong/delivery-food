@@ -17,25 +17,38 @@ type GatewayCheckoutRequest struct {
 }
 
 type GatewayCheckoutResult struct {
-	ProviderReference string
-	ProviderStatus    string
-	PaymentAction     map[string]any
+	ProviderReference       string
+	ProviderSourceReference *string
+	ProviderStatus          string
+	ProviderFailureCode     *string
+	ProviderFailureMessage  *string
+	PaymentAction           map[string]any
+	ExpiresAt               *time.Time
+	PaidAt                  *time.Time
 }
 
 type GatewayWebhookResult struct {
-	EventID          *string
-	EventType        string
-	ProviderCode     string
-	ProviderReference string
-	ProviderStatus   string
-	Status           string
-	PaidAt           *time.Time
-	FailedReason     *string
-	Payload          map[string]any
+	EventID                 *string
+	EventType               string
+	ProviderCode            string
+	ProviderReference       string
+	ProviderStatus          string
+	ProviderSourceReference *string
+	ProviderFailureCode     *string
+	ProviderFailureMessage  *string
+	Status                  string
+	PaidAt                  *time.Time
+	ExpiresAt               *time.Time
+	PaymentAction           map[string]any
+	FailedReason            *string
+	Payload                 map[string]any
 }
+
+type GatewayStatusResult = GatewayWebhookResult
 
 type PaymentGateway interface {
 	Code() string
 	CreateCheckout(ctx context.Context, provider model.PaymentProvider, method model.PaymentMethod, request GatewayCheckoutRequest) (GatewayCheckoutResult, error)
 	ParseWebhook(ctx context.Context, provider model.PaymentProvider, headers http.Header, body []byte) (GatewayWebhookResult, error)
+	FetchStatus(ctx context.Context, provider model.PaymentProvider, reference string) (GatewayStatusResult, error)
 }

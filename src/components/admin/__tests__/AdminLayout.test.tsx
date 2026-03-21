@@ -12,6 +12,16 @@ jest.mock("next/router", () => ({
     useRouter: () => ({
         pathname: "/admin",
         replace: jest.fn(),
+        query: {},
+        isReady: true,
+    }),
+}));
+
+jest.mock("@/utils/i18n", () => ({
+    useI18n: () => ({
+        locale: "en",
+        t: (key: string) => key,
+        setLocale: jest.fn(),
     }),
 }));
 
@@ -49,10 +59,10 @@ describe("AdminLayout", () => {
             </Provider>
         );
 
-        expect(screen.getByText("Overview")).toBeInTheDocument();
-        expect(screen.getByText("Orders")).toBeInTheDocument();
-        expect(screen.getByText("Riders")).toBeInTheDocument();
-        expect(screen.queryByText("Employees")).not.toBeInTheDocument();
-        expect(screen.queryByText("Payroll")).not.toBeInTheDocument();
+        expect(screen.getByText("admin.nav.overview")).toBeInTheDocument();
+        expect(screen.getByText("admin.nav.orders")).toBeInTheDocument();
+        expect(screen.getByText("admin.nav.riders")).toBeInTheDocument();
+        expect(screen.queryByText("admin.nav.employees")).not.toBeInTheDocument();
+        expect(screen.queryByText("admin.nav.payroll")).not.toBeInTheDocument();
     });
 });

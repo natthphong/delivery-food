@@ -83,7 +83,7 @@ func (h *CatalogHandler) PaymentMethods(w http.ResponseWriter, r *http.Request) 
 		httpapi.WriteError(w, apperror.BadRequest("companyId is required"))
 		return
 	}
-	items, err := h.service.PaymentMethods(r.Context(), *companyID)
+	items, err := h.service.PaymentMethods(r.Context(), *companyID, r.URL.Query().Get("scope"))
 	if err != nil {
 		httpapi.WriteError(w, err)
 		return

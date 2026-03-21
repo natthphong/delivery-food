@@ -87,10 +87,14 @@ const BranchCard: React.FC<BranchCardProps> = ({ branch, onView }) => {
                         </p>
                     )}
                     <div className="flex flex-wrap gap-2 text-xs font-medium text-slate-600">
-                        {branch.supportsPickup ? <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">Pickup</span> : null}
+                        {branch.supportsPickup ? (
+                            <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">
+                                {t(I18N_KEYS.BRANCH_PICKUP_READY)}
+                            </span>
+                        ) : null}
                         {branch.supportsRiderDelivery ? (
                             <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
-                                Rider delivery {branch.riderDeliveryFee ? formatTHB(branch.riderDeliveryFee) : ""}
+                                {t(I18N_KEYS.BRANCH_RIDER_DELIVERY)} {branch.riderDeliveryFee ? formatTHB(branch.riderDeliveryFee) : ""}
                             </span>
                         ) : null}
                     </div>

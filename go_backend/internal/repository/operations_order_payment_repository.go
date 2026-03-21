@@ -17,10 +17,10 @@ type AdminOrderListFilter struct {
 }
 
 type DeliveryJobListFilter struct {
-	BranchIDs         []int64
+	BranchIDs          []int64
 	AssignedEmployeeID *int64
-	Status            string
-	Limit             int
+	Status             string
+	Limit              int
 }
 
 type PaymentRecordListFilter struct {
@@ -30,18 +30,18 @@ type PaymentRecordListFilter struct {
 }
 
 type ProviderTransactionRecord struct {
-	TransactionID      int64
-	UserID             int64
-	CompanyID          int64
-	TxnType            string
-	Amount             float64
-	Status             string
-	ProviderID         *int64
-	ProviderReference  *string
-	ProviderStatus     *string
-	PaymentMethodID    int64
-	OrderID            *int64
-	OrderStatus        *string
+	TransactionID     int64
+	UserID            int64
+	CompanyID         int64
+	TxnType           string
+	Amount            float64
+	Status            string
+	ProviderID        *int64
+	ProviderReference *string
+	ProviderStatus    *string
+	PaymentMethodID   int64
+	OrderID           *int64
+	OrderStatus       *string
 }
 
 func (s *Store) GetAdminOrderByID(ctx context.Context, orderID int64) (model.AdminOrder, error) {
@@ -130,16 +130,16 @@ func (s *Store) ListAdminOrders(ctx context.Context, filter AdminOrderListFilter
 	items := make([]model.AdminOrder, 0)
 	for rows.Next() {
 		var (
-			customerName sql.NullString
-			customerPhone sql.NullString
-			customerNote sql.NullString
-			branchName sql.NullString
-			branchImage sql.NullString
+			customerName      sql.NullString
+			customerPhone     sql.NullString
+			customerNote      sql.NullString
+			branchName        sql.NullString
+			branchImage       sql.NullString
 			paymentMethodName sql.NullString
-			deliveryJobID sql.NullInt64
+			deliveryJobID     sql.NullInt64
 			deliveryJobStatus sql.NullString
-			riderName sql.NullString
-			item model.AdminOrder
+			riderName         sql.NullString
+			item              model.AdminOrder
 		)
 		item.Branch = &model.BranchSummary{}
 		item.Transaction = &model.TransactionSummary{}
@@ -365,9 +365,9 @@ func (s *Store) ListPaymentProviders(ctx context.Context) ([]model.PaymentProvid
 	items := make([]model.PaymentProvider, 0)
 	for rows.Next() {
 		var (
-			publicKey sql.NullString
+			publicKey    sql.NullString
 			settingsJSON []byte
-			item model.PaymentProvider
+			item         model.PaymentProvider
 		)
 		if err := rows.Scan(&item.ID, &item.Code, &item.Name, &item.IsActive, &publicKey, &settingsJSON, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
@@ -385,9 +385,9 @@ func (s *Store) ListPaymentProviders(ctx context.Context) ([]model.PaymentProvid
 
 func (s *Store) GetPaymentProviderByCode(ctx context.Context, code string) (model.PaymentProvider, error) {
 	var (
-		publicKey sql.NullString
+		publicKey    sql.NullString
 		settingsJSON []byte
-		item model.PaymentProvider
+		item         model.PaymentProvider
 	)
 	err := s.Pool.QueryRow(ctx, `
 		SELECT id, code, name, is_active, public_key, settings, created_at, updated_at
@@ -447,15 +447,15 @@ func (s *Store) ListAdminPayments(ctx context.Context, filter PaymentRecordListF
 	items := make([]model.AdminPaymentRecord, 0)
 	for rows.Next() {
 		var (
-			customerName sql.NullString
-			branchID sql.NullInt64
-			branchName sql.NullString
-			orderID sql.NullInt64
-			methodName sql.NullString
-			providerCode sql.NullString
+			customerName   sql.NullString
+			branchID       sql.NullInt64
+			branchName     sql.NullString
+			orderID        sql.NullInt64
+			methodName     sql.NullString
+			providerCode   sql.NullString
 			providerStatus sql.NullString
-			paidAt sql.NullTime
-			item model.AdminPaymentRecord
+			paidAt         sql.NullTime
+			item           model.AdminPaymentRecord
 		)
 		if err := rows.Scan(
 			&item.ID,
@@ -507,10 +507,10 @@ func (s *Store) ListPaymentWebhookEvents(ctx context.Context, limit int) ([]mode
 	for rows.Next() {
 		var (
 			externalEventID sql.NullString
-			payloadJSON []byte
-			errorMessage sql.NullString
-			processedAt sql.NullTime
-			item model.PaymentWebhookEvent
+			payloadJSON     []byte
+			errorMessage    sql.NullString
+			processedAt     sql.NullTime
+			item            model.PaymentWebhookEvent
 		)
 		if err := rows.Scan(&item.ID, &item.ProviderID, &externalEventID, &item.EventType, &payloadJSON, &item.Status, &errorMessage, &item.ReceivedAt, &processedAt); err != nil {
 			return nil, err
@@ -530,8 +530,8 @@ func (s *Store) ListPaymentWebhookEvents(ctx context.Context, limit int) ([]mode
 
 func (s *Store) InsertPaymentWebhookEvent(ctx context.Context, tx DBTX, providerID int64, externalEventID *string, eventType string, payload map[string]any) (int64, error) {
 	var (
-		eventID sql.NullInt64
-		externalID sql.NullString
+		eventID     sql.NullInt64
+		externalID  sql.NullString
 		payloadJSON []byte
 	)
 	if externalEventID != nil {
@@ -574,12 +574,12 @@ func (s *Store) UpdatePaymentWebhookEventStatus(ctx context.Context, tx DBTX, ev
 
 func (s *Store) GetTransactionByProviderReference(ctx context.Context, providerReference string) (ProviderTransactionRecord, error) {
 	var (
-		providerID sql.NullInt64
+		providerID     sql.NullInt64
 		providerStatus sql.NullString
-		reference sql.NullString
-		orderID sql.NullInt64
-		orderStatus sql.NullString
-		item ProviderTransactionRecord
+		reference      sql.NullString
+		orderID        sql.NullInt64
+		orderStatus    sql.NullString
+		item           ProviderTransactionRecord
 	)
 	err := s.Pool.QueryRow(ctx, `
 		SELECT
@@ -632,12 +632,14 @@ func (s *Store) UpdateTransactionGatewayState(
 	paymentAction map[string]any,
 	failedReason *string,
 	paidAt *time.Time,
+	expiresAt *time.Time,
 ) error {
 	var (
 		providerStatusValue sql.NullString
-		failedReasonValue sql.NullString
-		paidAtValue sql.NullTime
-		payloadJSON []byte
+		failedReasonValue   sql.NullString
+		paidAtValue         sql.NullTime
+		expiresAtValue      sql.NullTime
+		payloadJSON         []byte
 	)
 	if providerStatus != nil {
 		providerStatusValue = sql.NullString{String: strings.TrimSpace(*providerStatus), Valid: strings.TrimSpace(*providerStatus) != ""}
@@ -647,6 +649,9 @@ func (s *Store) UpdateTransactionGatewayState(
 	}
 	if paidAt != nil {
 		paidAtValue = sql.NullTime{Time: *paidAt, Valid: true}
+	}
+	if expiresAt != nil {
+		expiresAtValue = sql.NullTime{Time: *expiresAt, Valid: true}
 	}
 	if paymentAction != nil {
 		bytes, err := json.Marshal(paymentAction)
@@ -665,13 +670,16 @@ func (s *Store) UpdateTransactionGatewayState(
 			payment_action = CASE WHEN $4::jsonb = '{}'::jsonb THEN payment_action ELSE $4::jsonb END,
 			failed_reason = COALESCE($5, failed_reason),
 			paid_at = COALESCE($6, paid_at),
+			expires_at = COALESCE($7, expires_at),
 			updated_at = NOW()
 		WHERE id = $1
-	`, transactionID, strings.TrimSpace(status), providerStatusValue, string(payloadJSON), failedReasonValue, paidAtValue)
+	`, transactionID, strings.TrimSpace(status), providerStatusValue, string(payloadJSON), failedReasonValue, paidAtValue, expiresAtValue)
 	return err
 }
 
-func scanDeliveryJob(scanner interface{ Scan(dest ...interface{}) error }) (model.DeliveryJob, error) {
+func scanDeliveryJob(scanner interface {
+	Scan(dest ...interface{}) error
+}) (model.DeliveryJob, error) {
 	var (
 		assignedEmployeeID sql.NullInt64
 		branchName         sql.NullString

@@ -14,6 +14,8 @@ The platform supports:
 - mobile-first customer ordering
 - branch discovery and menu browsing
 - cart, checkout, payment, and order history
+- backend email verification and provider-login notification email
+- LINE notifications for LINE-linked customer order events
 - admin login with backend-owned sessions
 - employee, attendance, OT, payroll, and branch operations
 - stock-aware menu availability
@@ -93,6 +95,7 @@ Rules:
 - `/payment/[txnId]`
 - `/account`
 - `/login`
+- `/verify-email`
 - `/web-hook-line`
 
 ### Admin routes
@@ -122,8 +125,10 @@ Customer and admin auth/session state are intentionally separate.
 - menu browsing with stock-aware and branch-aware availability
 - add-ons and normalized cart
 - pickup or rider-delivery checkout
-- wallet, manual QR/slip, and Omise PromptPay flows
-- payment detail with provider/manual actions
+- wallet and Omise PromptPay flows in the active checkout experience
+- legacy manual QR/slip support kept backend-side but hidden from customer checkout
+- payment detail with provider-backed QR rendering, expiry handling, and retry flow
+- logout, backend email verification, and order/provider notification delivery
 - profile, order history, and transaction history
 
 ### Admin / operations
@@ -159,9 +164,18 @@ Payment logic is backend-owned.
 
 - frontend receives payment DTOs and `paymentAction`
 - backend normalizes payment method type, provider state, and webhook events
+- backend refreshes gateway-backed transaction state and derives `expired` from `expires_at`
+- checkout payment-method discovery uses API scope so legacy manual QR methods stay hidden from active customer checkout
 - payment gateway logic is abstracted behind `PaymentGateway`
 - Omise is the first provider implementation
 - another provider should be added by implementing the interface and registering it in `PaymentService`
+
+Notification delivery is also backend-owned.
+
+- `NotificationService` wraps email + LINE delivery
+- Resend is used through the `Mailer` abstraction
+- LINE bot push is used through the `LineMessenger` abstraction
+- frontend never sees provider secrets or notification credentials
 
 ## Rider Delivery Model
 
@@ -220,6 +234,11 @@ npm run build
 npm test
 ```
 
+Notes:
+
+- `npm run dev` uses Next.js 16 dev server
+- `npm run build` uses `next build --webpack` for stable production builds on the current repo
+
 Backend:
 
 ```bash
@@ -251,5 +270,6 @@ npm run verify
 - [`docs/ADMIN_MODE.md`](./docs/ADMIN_MODE.md)
 - [`docs/EMPLOYEE_PAYROLL.md`](./docs/EMPLOYEE_PAYROLL.md)
 - [`docs/PAYMENT_GATEWAYS.md`](./docs/PAYMENT_GATEWAYS.md)
+- [`docs/NOTIFICATIONS.md`](./docs/NOTIFICATIONS.md)
 - [`docs/RIDER_DELIVERY.md`](./docs/RIDER_DELIVERY.md)
 - [`docs/ROLE_PERMISSION_MATRIX.md`](./docs/ROLE_PERMISSION_MATRIX.md)

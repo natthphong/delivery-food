@@ -8,6 +8,8 @@
 - LINE LIFF login
 - access token + refresh token session flow
 - bootstrap hydration from `/v1/bootstrap`
+- backend email verification link flow
+- provider-login notification email
 
 ### Branch discovery and ordering
 
@@ -24,9 +26,11 @@
 - pickup or rider-delivery fulfillment mode
 - delivery fee support for rider delivery
 - wallet balance payment
-- manual QR/slip payment
 - Omise PromptPay gateway checkout
-- payment detail page with provider/manual action rendering
+- payment detail page with backend-driven QR rendering
+- expired payment detection from `expires_at`
+- create-new-payment retry flow for expired/rejected transactions
+- legacy manual QR/slip path kept as backend support only and hidden from active checkout
 
 ### Customer account
 
@@ -34,6 +38,7 @@
 - wallet balance display
 - transaction history
 - order history with fulfillment and rider status detail
+- logout from the account menu and account page
 
 ## Admin / Operations
 
@@ -101,6 +106,7 @@ Role-aware menus exist in the frontend, but Go remains authoritative for access 
 - payment records
 - payment providers
 - webhook event visibility
+- customer/admin notification fan-out by email and LINE
 
 ## Seeded Local Data
 

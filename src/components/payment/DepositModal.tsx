@@ -49,7 +49,7 @@ export default function DepositModal({ open, onClose, defaultBranchId, defaultCo
         }
 
         setLoadingMethods(true);
-        fetchPaymentMethods(defaultCompanyId)
+        fetchPaymentMethods(defaultCompanyId, "deposit")
             .then((list) => {
                 const qrMethods = list.filter((item) => item.methodType === "qr");
                 setMethods(qrMethods);
@@ -172,7 +172,7 @@ export default function DepositModal({ open, onClose, defaultBranchId, defaultCo
                                             aria-pressed={checked}
                                         >
                                             <p className="text-sm font-semibold">{method.name}</p>
-                                            <p className="text-xs text-slate-500">{method.methodType.toUpperCase()}</p>
+                                            <p className="text-xs text-slate-500">{method.providerCode ?? method.methodType}</p>
                                         </button>
                                     </li>
                                 );

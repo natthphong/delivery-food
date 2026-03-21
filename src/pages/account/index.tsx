@@ -1,21 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { useSelector } from "react-redux";
-import { auth } from "@/utils/firebaseClient";
-import { sendEmailVerification, signOut } from "firebase/auth";
 import Layout from "@components/Layout";
 import type { RootState } from "@/store";
 import { useAppDispatch } from "@/store";
-import { logout, setUser } from "@/store/authSlice";
-import { clearCart as clearCartState, setCart } from "@/store/cartSlice";
-import { clearConfig as clearConfigState } from "@/store/configSlice";
-import { clearCart, clearConfig, clearTokens, clearUser } from "@/utils/tokenStorage";
+import { setUser } from "@/store/authSlice";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import { notify } from "@/utils/notify";
 import { formatTHB } from "@/utils/currency";
-import { fetchOrders, fetchTransactions, updateProfile } from "@/services/app";
+import { fetchOrders, fetchTransactions, sendVerificationEmail, updateProfile } from "@/services/app";
 import type { Order, TransactionSummary } from "@/types/transaction";
+import { logoutCustomer } from "@/utils/logout";
 
 type TabKey = "profile" | "transactions" | "orders";
 
@@ -30,6 +26,7 @@ export default function AccountPage() {
     const [email, setEmail] = useState(user?.email ?? "");
     const [phone, setPhone] = useState(user?.phone ?? "");
     const [saving, setSaving] = useState(false);
+    const [sendingVerification, setSendingVerification] = useState(false);
     const [transactions, setTransactions] = useState<TransactionSummary[]>([]);
     const [orders, setOrders] = useState<Order[]>([]);
 
@@ -55,16 +52,24 @@ export default function AccountPage() {
         }
     }, [tab]);
 
-    const cartSummary = useMemo(() => `${cart.totalQuantity} items in basket`, [cart.totalQuantity]);
+    const cartSummary = useMemo(
+        () => t(I18N_KEYS.ACCOUNT_CART_SUMMARY, { count: cart.totalQuantity }),
+        [cart.totalQuantity, t]
+    );
+
+    const walletSummary = useMemo(
+        () => t(I18N_KEYS.ACCOUNT_WALLET_SUMMARY, { amount: formatTHB(user?.walletBalance ?? 0) }),
+        [t, user?.walletBalance]
+    );
 
     const handleSave = async () => {
         try {
             setSaving(true);
             const nextUser = await updateProfile({ displayName, email, phone });
             dispatch(setUser(nextUser));
-            notify("Profile updated.", "success");
+            notify(t(I18N_KEYS.ACCOUNT_PROFILE_UPDATED), "success");
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || "Unable to update profile.", "error");
+            notify(error?.response?.data?.message || error?.message || t(I18N_KEYS.ACCOUNT_ERROR_UPDATE_FAILED), "error");
         } finally {
             setSaving(false);
         }
@@ -72,34 +77,14 @@ export default function AccountPage() {
 
     const handleVerifyEmail = async () => {
         try {
-            if (!auth.currentUser) {
-                notify(t(I18N_KEYS.ACCOUNT_ERROR_NO_SESSION), "warning");
-                return;
-            }
-            if (auth.currentUser.emailVerified) {
-                const nextUser = await updateProfile({ isEmailVerified: true });
-                dispatch(setUser(nextUser));
-                notify(t(I18N_KEYS.ACCOUNT_MESSAGE_EMAIL_VERIFIED), "success");
-                return;
-            }
-            await sendEmailVerification(auth.currentUser);
+            setSendingVerification(true);
+            await sendVerificationEmail(locale);
             notify(t(I18N_KEYS.ACCOUNT_MESSAGE_VERIFICATION_SENT), "info");
         } catch (error: any) {
-            notify(error?.message || t(I18N_KEYS.ACCOUNT_ERROR_VERIFY_EMAIL), "error");
+            notify(error?.response?.data?.message || error?.message || t(I18N_KEYS.ACCOUNT_ERROR_VERIFY_EMAIL), "error");
+        } finally {
+            setSendingVerification(false);
         }
-    };
-
-    const handleLogout = async () => {
-        await signOut(auth).catch(() => undefined);
-        dispatch(logout());
-        dispatch(clearCartState());
-        dispatch(clearConfigState());
-        dispatch(setCart({ groups: [], totalAmount: 0, totalItems: 0, totalQuantity: 0, lastSyncedAt: new Date(0).toISOString() }));
-        clearTokens();
-        clearUser();
-        clearCart();
-        clearConfig();
-        void router.replace("/login");
     };
 
     const formatDate = (value: string) =>
@@ -108,22 +93,63 @@ export default function AccountPage() {
             timeStyle: "short",
         }).format(new Date(value));
 
+    const transactionTypeLabel = (type: "payment" | "deposit") =>
+        type === "deposit" ? t(I18N_KEYS.PAYMENT_TYPE_DEPOSIT) : t(I18N_KEYS.PAYMENT_TYPE_PAYMENT);
+
+    const transactionStatusLabel = (status: TransactionSummary["status"]) => {
+        switch (status) {
+        case "accepted":
+            return t(I18N_KEYS.PAYMENT_STATUS_ACCEPTED);
+        case "rejected":
+            return t(I18N_KEYS.PAYMENT_STATUS_REJECTED);
+        case "expired":
+            return t(I18N_KEYS.PAYMENT_STATUS_EXPIRED);
+        default:
+            return t(I18N_KEYS.PAYMENT_STATUS_PENDING);
+        }
+    };
+
+    const orderStatusLabel = (status: Order["status"]) => {
+        switch (status) {
+        case "PREPARE":
+            return t(I18N_KEYS.ORDER_STATUS_PREPARE);
+        case "DELIVERY":
+            return t(I18N_KEYS.ORDER_STATUS_DELIVERY);
+        case "COMPLETED":
+            return t(I18N_KEYS.ORDER_STATUS_COMPLETED);
+        case "REJECTED":
+            return t(I18N_KEYS.ORDER_STATUS_REJECTED);
+        default:
+            return t(I18N_KEYS.ORDER_STATUS_PENDING);
+        }
+    };
+
+    const tabs: Array<{ key: TabKey; label: string }> = [
+        { key: "profile", label: t(I18N_KEYS.ACCOUNT_TAB_PROFILE) },
+        { key: "transactions", label: t(I18N_KEYS.ACCOUNT_TAB_TRANSACTIONS) },
+        { key: "orders", label: t(I18N_KEYS.ACCOUNT_TAB_ORDERS) },
+    ];
+
     return (
         <Layout>
             <div className="mx-auto max-w-6xl space-y-6">
-                <section className="rounded-[2rem] bg-[linear-gradient(135deg,#0f172a_0%,#065f46_50%,#d1fae5_125%)] px-6 py-8 text-white shadow-xl">
+                <section className="rounded-[2rem] border border-emerald-100 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.18),_transparent_44%),linear-gradient(180deg,#ffffff_0%,#f0fdf4_100%)] px-6 py-8 shadow-sm">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                         <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-200">Account center</p>
-                            <h1 className="mt-3 text-3xl font-semibold">{user?.displayName || user?.email || "Your account"}</h1>
-                            <p className="mt-2 text-sm text-emerald-50/85">
-                                Wallet {formatTHB(user?.walletBalance ?? 0)} · {cartSummary}
+                            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">
+                                {t(I18N_KEYS.ACCOUNT_CENTER_EYEBROW)}
+                            </p>
+                            <h1 className="mt-3 text-3xl font-semibold text-slate-950">
+                                {user?.displayName || user?.email || t(I18N_KEYS.ACCOUNT_DEFAULT_NAME)}
+                            </h1>
+                            <p className="mt-2 text-sm text-slate-600">
+                                {walletSummary} · {cartSummary}
                             </p>
                         </div>
                         <button
                             type="button"
-                            onClick={() => void handleLogout()}
-                            className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/15"
+                            onClick={() => void logoutCustomer(dispatch, router)}
+                            className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                         >
                             {t(I18N_KEYS.ACCOUNT_LOGOUT)}
                         </button>
@@ -131,16 +157,16 @@ export default function AccountPage() {
                 </section>
 
                 <div className="flex flex-wrap gap-3">
-                    {(["profile", "transactions", "orders"] as TabKey[]).map((item) => (
+                    {tabs.map((item) => (
                         <button
-                            key={item}
+                            key={item.key}
                             type="button"
-                            onClick={() => setTab(item)}
+                            onClick={() => setTab(item.key)}
                             className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                                tab === item ? "bg-slate-950 text-white" : "bg-white text-slate-600 shadow-sm"
+                                tab === item.key ? "bg-emerald-500 text-slate-950" : "bg-white text-slate-600 shadow-sm"
                             }`}
                         >
-                            {item === "profile" ? "Profile" : item === "transactions" ? "Transactions" : "Orders"}
+                            {item.label}
                         </button>
                     ))}
                 </div>
@@ -148,10 +174,10 @@ export default function AccountPage() {
                 {tab === "profile" ? (
                     <section className="grid gap-6 lg:grid-cols-[1fr_0.82fr]">
                         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                            <h2 className="text-lg font-semibold text-slate-900">Profile details</h2>
+                            <h2 className="text-lg font-semibold text-slate-900">{t(I18N_KEYS.ACCOUNT_PROFILE_DETAILS)}</h2>
                             <div className="mt-5 grid gap-4 sm:grid-cols-2">
                                 <label className="space-y-2">
-                                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Display name</span>
+                                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t(I18N_KEYS.ACCOUNT_DISPLAY_NAME)}</span>
                                     <input
                                         value={displayName}
                                         onChange={(event) => setDisplayName(event.target.value)}
@@ -159,7 +185,7 @@ export default function AccountPage() {
                                     />
                                 </label>
                                 <label className="space-y-2">
-                                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Email</span>
+                                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t(I18N_KEYS.ACCOUNT_EMAIL)}</span>
                                     <input
                                         type="email"
                                         value={email}
@@ -168,7 +194,7 @@ export default function AccountPage() {
                                     />
                                 </label>
                                 <label className="space-y-2">
-                                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Phone</span>
+                                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t(I18N_KEYS.ACCOUNT_PHONE)}</span>
                                     <input
                                         type="tel"
                                         value={phone}
@@ -184,33 +210,39 @@ export default function AccountPage() {
                                     disabled={saving}
                                     className="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-60"
                                 >
-                                    {saving ? t(I18N_KEYS.COMMON_UPDATING) : "Save profile"}
+                                    {saving ? t(I18N_KEYS.COMMON_UPDATING) : t(I18N_KEYS.ACCOUNT_SAVE_PROFILE)}
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => void handleVerifyEmail()}
-                                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                                    disabled={sendingVerification}
+                                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                                 >
-                                    {user?.isEmailVerified ? "Refresh email verification" : "Send verification email"}
+                                    {sendingVerification
+                                        ? t(I18N_KEYS.COMMON_SENDING)
+                                        : user?.isEmailVerified
+                                            ? t(I18N_KEYS.ACCOUNT_REFRESH_EMAIL)
+                                            : t(I18N_KEYS.ACCOUNT_SEND_EMAIL)}
                                 </button>
                             </div>
                         </div>
 
                         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                            <h2 className="text-lg font-semibold text-slate-900">Session and wallet</h2>
+                            <h2 className="text-lg font-semibold text-slate-900">{t(I18N_KEYS.ACCOUNT_SESSION_WALLET)}</h2>
                             <div className="mt-5 space-y-4 text-sm">
                                 <div className="rounded-2xl bg-slate-50 p-4">
-                                    <p className="text-slate-500">Provider</p>
+                                    <p className="text-slate-500">{t(I18N_KEYS.ACCOUNT_PROVIDER_LABEL)}</p>
                                     <p className="mt-1 font-semibold text-slate-900">{user?.providerLabel || user?.authProvider || "-"}</p>
                                 </div>
                                 <div className="rounded-2xl bg-slate-50 p-4">
-                                    <p className="text-slate-500">Wallet balance</p>
+                                    <p className="text-slate-500">{t(I18N_KEYS.ACCOUNT_WALLET_BALANCE)}</p>
                                     <p className="mt-1 text-2xl font-semibold text-slate-900">{formatTHB(user?.walletBalance ?? 0)}</p>
                                 </div>
                                 <div className="rounded-2xl bg-slate-50 p-4">
-                                    <p className="text-slate-500">Verification</p>
+                                    <p className="text-slate-500">{t(I18N_KEYS.ACCOUNT_VERIFICATION_STATUS)}</p>
                                     <p className="mt-1 font-semibold text-slate-900">
-                                        Email {user?.isEmailVerified ? "verified" : "pending"} · Phone {user?.isPhoneVerified ? "verified" : "pending"}
+                                        {t(I18N_KEYS.ACCOUNT_EMAIL)} {user?.isEmailVerified ? t(I18N_KEYS.ACCOUNT_VERIFIED) : t(I18N_KEYS.ACCOUNT_STATUS_PENDING)} ·{" "}
+                                        {t(I18N_KEYS.ACCOUNT_PHONE)} {user?.isPhoneVerified ? t(I18N_KEYS.ACCOUNT_VERIFIED) : t(I18N_KEYS.ACCOUNT_STATUS_PENDING)}
                                     </p>
                                 </div>
                             </div>
@@ -220,10 +252,10 @@ export default function AccountPage() {
 
                 {tab === "transactions" ? (
                     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                        <h2 className="text-lg font-semibold text-slate-900">Transactions</h2>
+                        <h2 className="text-lg font-semibold text-slate-900">{t(I18N_KEYS.ACCOUNT_TAB_TRANSACTIONS)}</h2>
                         <div className="mt-5 space-y-3">
                             {transactions.length === 0 ? (
-                                <p className="text-sm text-slate-500">No transactions yet.</p>
+                                <p className="text-sm text-slate-500">{t(I18N_KEYS.ACCOUNT_TRANSACTIONS_EMPTY)}</p>
                             ) : (
                                 transactions.map((transaction) => (
                                     <button
@@ -234,14 +266,14 @@ export default function AccountPage() {
                                     >
                                         <div>
                                             <p className="text-sm font-semibold text-slate-900">
-                                                {transaction.txnType.toUpperCase()} · {transaction.method?.name ?? "Method"}
+                                                {transactionTypeLabel(transaction.txnType)} · {transaction.method?.name ?? "-"}
                                             </p>
                                             <p className="mt-1 text-xs text-slate-500">{formatDate(transaction.createdAt)}</p>
                                         </div>
                                         <div className="text-right">
                                             <p className="text-sm font-semibold text-slate-900">{formatTHB(transaction.amount)}</p>
                                             <p className="mt-1 text-xs text-slate-500">
-                                                {transaction.status.toUpperCase()}
+                                                {transactionStatusLabel(transaction.status)}
                                                 {transaction.providerStatus ? ` · ${transaction.providerStatus}` : ""}
                                             </p>
                                         </div>
@@ -254,10 +286,10 @@ export default function AccountPage() {
 
                 {tab === "orders" ? (
                     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                        <h2 className="text-lg font-semibold text-slate-900">Orders</h2>
+                        <h2 className="text-lg font-semibold text-slate-900">{t(I18N_KEYS.ACCOUNT_TAB_ORDERS)}</h2>
                         <div className="mt-5 space-y-3">
                             {orders.length === 0 ? (
-                                <p className="text-sm text-slate-500">No orders yet.</p>
+                                <p className="text-sm text-slate-500">{t(I18N_KEYS.ACCOUNT_ORDERS_EMPTY)}</p>
                             ) : (
                                 orders.map((order) => (
                                     <button
@@ -269,13 +301,15 @@ export default function AccountPage() {
                                         <div className="flex items-start justify-between gap-3">
                                             <div>
                                                 <p className="text-sm font-semibold text-slate-900">
-                                                    Order #{order.id} · {order.branch?.name ?? "Branch"}
+                                                    {t(I18N_KEYS.PAYMENT_ORDER_NUMBER)} #{order.id} · {order.branch?.name ?? t(I18N_KEYS.PAYMENT_ORDER_FALLBACK_BRANCH)}
                                                 </p>
                                                 <p className="mt-1 text-xs text-slate-500">
-                                                    {formatDate(order.createdAt)} · {order.fulfillmentMode.replace("_", " ")}
+                                                    {formatDate(order.createdAt)} · {order.fulfillmentMode === "rider_delivery" ? t(I18N_KEYS.CHECKOUT_DELIVERY_TITLE) : t(I18N_KEYS.CHECKOUT_PICKUP_TITLE)}
                                                 </p>
                                             </div>
-                                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{order.status}</span>
+                                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                                                {orderStatusLabel(order.status)}
+                                            </span>
                                         </div>
                                         <div className="mt-3 flex flex-wrap gap-2">
                                             {order.items.slice(0, 3).map((item) => (
@@ -285,8 +319,8 @@ export default function AccountPage() {
                                             ))}
                                         </div>
                                         <div className="mt-3 grid gap-1 text-xs text-slate-500 sm:grid-cols-2">
-                                            <p>Delivery fee: {formatTHB(order.deliveryFee || 0)}</p>
-                                            <p>Rider job: {order.deliveryJob?.status || "not assigned"}</p>
+                                            <p>{t(I18N_KEYS.PAYMENT_DELIVERY_FEE)}: {formatTHB(order.deliveryFee || 0)}</p>
+                                            <p>{t(I18N_KEYS.PAYMENT_RIDER_JOB)}: {order.deliveryJob?.status || t(I18N_KEYS.PAYMENT_RIDER_UNASSIGNED)}</p>
                                         </div>
                                     </button>
                                 ))

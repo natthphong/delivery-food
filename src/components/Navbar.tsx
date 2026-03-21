@@ -5,12 +5,14 @@ import { useSelector } from "react-redux";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import { useI18n } from "@/utils/i18n";
 import { formatTHB } from "@/utils/currency";
-import type { RootState } from "@/store";
+import { useAppDispatch, type RootState } from "@/store";
+import { logoutCustomer } from "@/utils/logout";
 
 const MENU_TRANSITION_CLASSES = "transition hover:bg-slate-100";
 
 const Navbar: React.FC = () => {
     const { t } = useI18n();
+    const dispatch = useAppDispatch();
     const router = useRouter();
     const user = useSelector((state: RootState) => state.auth.user);
     const adminSession = useSelector((state: RootState) => state.adminAuth.session);
@@ -46,8 +48,13 @@ const Navbar: React.FC = () => {
         router.push(href);
     };
 
+    const handleLogout = async () => {
+        setOpen(false);
+        await logoutCustomer(dispatch, router);
+    };
+
     return (
-        <nav className="sticky top-0 z-40 border-b border-white/70 bg-white/90 backdrop-blur">
+        <nav className="sticky top-0 z-40 border-b border-emerald-100 bg-white/95 backdrop-blur">
             <div className="mx-auto flex min-h-16 max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
                 <div className="flex items-center gap-3">
                     <Link href="/" className="text-lg font-semibold text-emerald-700">
@@ -55,16 +62,10 @@ const Navbar: React.FC = () => {
                     </Link>
                     <div className="hidden items-center gap-2 md:flex">
                         <Link href="/" className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
-                            Discover
+                            {t(I18N_KEYS.NAV_HOME)}
                         </Link>
                         <Link href="/account?tab=orders" className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
-                            Orders
-                        </Link>
-                        <Link
-                            href={adminSession ? "/admin" : "/admin/login"}
-                            className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white"
-                        >
-                            Admin mode
+                            {t(I18N_KEYS.NAV_ACCOUNT_ORDERS)}
                         </Link>
                     </div>
                 </div>
@@ -135,6 +136,22 @@ const Navbar: React.FC = () => {
                                     className={`${MENU_TRANSITION_CLASSES} mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-slate-700`}
                                 >
                                     {t(I18N_KEYS.NAV_ACCOUNT_TRANSACTIONS)}
+                                </button>
+                                {adminSession ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleNavigate("/admin")}
+                                        className={`${MENU_TRANSITION_CLASSES} mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-slate-700`}
+                                    >
+                                        {t(I18N_KEYS.ADMIN_ENTRY)}
+                                    </button>
+                                ) : null}
+                                <button
+                                    type="button"
+                                    onClick={() => void handleLogout()}
+                                    className="mt-1 w-full rounded-xl bg-emerald-500 px-3 py-2 text-left text-sm font-medium text-slate-950 transition hover:bg-emerald-400"
+                                >
+                                    {t(I18N_KEYS.ACCOUNT_LOGOUT)}
                                 </button>
                             </div>
                         )}

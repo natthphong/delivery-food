@@ -36,15 +36,16 @@ func main() {
 	store := repository.New(pool)
 	tokenManager := backendauth.NewTokenManager(cfg.JWTSecret)
 	verifier := backendauth.NewFirebaseLookupVerifier(cfg.FirebaseAPIKey, cfg.HTTPClientTimeout)
+	notifier := service.NewNotificationService(cfg, tokenManager)
 
 	services := backendserver.Services{
-		Auth:      service.NewAuthService(store, verifier, tokenManager, cfg.AccessTokenTTL, cfg.RefreshTokenTTL),
-		AdminAuth: service.NewAdminAuthService(store, cfg, tokenManager, cfg.AccessTokenTTL, cfg.RefreshTokenTTL),
-		Operations: service.NewOperationsService(store),
-		App:       service.NewAppService(store),
-		Catalog:   service.NewCatalogService(store),
-		Cart:      service.NewCartService(store),
-		Payment:   service.NewPaymentService(store, cfg),
+		Auth:       service.NewAuthService(store, verifier, tokenManager, cfg.AccessTokenTTL, cfg.RefreshTokenTTL, notifier),
+		AdminAuth:  service.NewAdminAuthService(store, cfg, tokenManager, cfg.AccessTokenTTL, cfg.RefreshTokenTTL),
+		Operations: service.NewOperationsService(store, notifier),
+		App:        service.NewAppService(store, notifier),
+		Catalog:    service.NewCatalogService(store),
+		Cart:       service.NewCartService(store),
+		Payment:    service.NewPaymentService(store, cfg, notifier),
 	}
 
 	httpServer := &http.Server{

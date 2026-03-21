@@ -59,7 +59,7 @@ const AddToCartModal: React.FC<Props> = ({
                     <div>
                         <p className="text-lg font-semibold text-slate-900">{formatTHB(product.price)}</p>
                         <p className="text-sm text-slate-500">
-                            {product.isTemporarilyClosed ? "Temporarily unavailable" : t(availabilityKey)}
+                            {product.isTemporarilyClosed ? t(I18N_KEYS.COMMON_CURRENTLY_UNAVAILABLE) : t(availabilityKey)}
                         </p>
                         {product.stockQty != null && (
                             <p className="text-xs text-slate-500">

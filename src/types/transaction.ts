@@ -1,7 +1,7 @@
 import type { BranchSummary, CartAddOn, UserRecord } from "@/types";
 import type { DeliveryJob } from "@/types/admin";
 
-export type TxnStatus = "pending" | "accepted" | "rejected";
+export type TxnStatus = "pending" | "accepted" | "rejected" | "expired";
 export type TxnType = "deposit" | "payment";
 export type TxnMethodType = "qr" | "balance" | "gateway";
 export type OrderStatus = "PENDING" | "PREPARE" | "DELIVERY" | "COMPLETED" | "REJECTED";
@@ -18,6 +18,13 @@ export type PaymentAction = {
     qrImageUrl?: string;
     authorizeUri?: string;
     providerStatus?: string;
+    status?: string | null;
+    sourceChargeStatus?: string | null;
+    paid?: boolean;
+    authorized?: boolean;
+    paidAt?: string | null;
+    failureCode?: string | null;
+    failureMessage?: string | null;
     sourceId?: string;
     chargeId?: string;
     branchName?: string;

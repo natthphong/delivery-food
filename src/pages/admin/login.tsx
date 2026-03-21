@@ -6,10 +6,13 @@ import { adminLogin } from "@/services/adminAuth";
 import { notify } from "@/utils/notify";
 import { saveAdminSession, saveAdminTokens } from "@/utils/tokenStorage";
 import { adminButtonPrimaryClass, adminInputClass } from "@/components/admin/ui";
+import { useI18n } from "@/utils/i18n";
+import { I18N_KEYS } from "@/constants/i18nKeys";
 
 export default function AdminLoginPage() {
     const router = useRouter();
     const dispatch = useAppDispatch();
+    const { t } = useI18n();
     const session = useAppSelector((state) => state.adminAuth.session);
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
@@ -30,10 +33,10 @@ export default function AdminLoginPage() {
             dispatch(setAdminSession(payload.session));
             saveAdminTokens({ accessToken: payload.accessToken, refreshToken: payload.refreshToken });
             saveAdminSession(payload.session);
-            notify("Admin session ready.", "success");
+            notify(t(I18N_KEYS.ADMIN_LOGIN_SUCCESS), "success");
             await router.replace("/admin");
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || "Unable to sign in to admin mode.", "error");
+            notify(error?.response?.data?.message || error?.message || t(I18N_KEYS.ADMIN_LOGIN_ERROR), "error");
         } finally {
             setSubmitting(false);
         }
@@ -42,32 +45,32 @@ export default function AdminLoginPage() {
     return (
         <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.16),_transparent_35%),linear-gradient(180deg,#f8fafc_0%,#ecfdf5_100%)] px-4 py-10">
             <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1.05fr_0.95fr]">
-                <section className="rounded-[2.5rem] bg-[linear-gradient(135deg,#052e2b_0%,#0f766e_52%,#d1fae5_130%)] px-8 py-10 text-white shadow-2xl">
-                    <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-100">Owner and staff</p>
-                    <h1 className="mt-5 text-4xl font-semibold tracking-tight">Run branches, teams, payroll, and delivery from one control room.</h1>
-                    <p className="mt-4 max-w-2xl text-base text-emerald-50/85">
-                        Admin mode is backed by the Go API and PostgreSQL operations schema. Use your bootstrap owner credentials or a staff account created from employee management.
+                <section className="rounded-[2.5rem] border border-emerald-100 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.18),_transparent_42%),linear-gradient(180deg,#ffffff_0%,#d1fae5_130%)] px-8 py-10 shadow-sm">
+                    <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-700">{t(I18N_KEYS.ADMIN_LOGIN_EYEBROW)}</p>
+                    <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-950">{t(I18N_KEYS.ADMIN_LOGIN_TITLE)}</h1>
+                    <p className="mt-4 max-w-2xl text-base text-slate-600">
+                        {t(I18N_KEYS.ADMIN_LOGIN_SUBTITLE)}
                     </p>
                     <div className="mt-8 grid gap-4 sm:grid-cols-2">
-                        <div className="rounded-[1.75rem] border border-white/10 bg-white/10 p-4">
-                            <p className="text-sm font-semibold">Operations scope</p>
-                            <p className="mt-2 text-sm text-emerald-50/85">Employees, attendance, payroll, branches, orders, riders, and payment observability.</p>
+                        <div className="rounded-[1.75rem] border border-white bg-white/80 p-4">
+                            <p className="text-sm font-semibold text-slate-900">{t(I18N_KEYS.ADMIN_LOGIN_SCOPE_TITLE)}</p>
+                            <p className="mt-2 text-sm text-slate-600">{t(I18N_KEYS.ADMIN_LOGIN_SCOPE_BODY)}</p>
                         </div>
-                        <div className="rounded-[1.75rem] border border-white/10 bg-white/10 p-4">
-                            <p className="text-sm font-semibold">Access model</p>
-                            <p className="mt-2 text-sm text-emerald-50/85">Role-aware sessions, branch scope, and backend-enforced permissions.</p>
+                        <div className="rounded-[1.75rem] border border-white bg-white/80 p-4">
+                            <p className="text-sm font-semibold text-slate-900">{t(I18N_KEYS.ADMIN_LOGIN_ACCESS_TITLE)}</p>
+                            <p className="mt-2 text-sm text-slate-600">{t(I18N_KEYS.ADMIN_LOGIN_ACCESS_BODY)}</p>
                         </div>
                     </div>
                 </section>
 
                 <section className="rounded-[2.5rem] border border-slate-200 bg-white p-8 shadow-xl">
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Admin sign in</p>
-                    <h2 className="mt-3 text-3xl font-semibold text-slate-950">Management console</h2>
-                    <p className="mt-2 text-sm text-slate-500">Sign in with `ADMIN_USERNAME` / `ADMIN_PASSWORD` or a staff account provisioned in employee management.</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">{t(I18N_KEYS.ADMIN_LOGIN_FORM_EYEBROW)}</p>
+                    <h2 className="mt-3 text-3xl font-semibold text-slate-950">{t(I18N_KEYS.ADMIN_LOGIN_FORM_TITLE)}</h2>
+                    <p className="mt-2 text-sm text-slate-500">{t(I18N_KEYS.ADMIN_LOGIN_FORM_SUBTITLE)}</p>
 
                     <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
                         <label className="block space-y-2">
-                            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Username</span>
+                            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{t(I18N_KEYS.ADMIN_LOGIN_USERNAME)}</span>
                             <input
                                 value={username}
                                 onChange={(event) => setUsername(event.target.value)}
@@ -76,7 +79,7 @@ export default function AdminLoginPage() {
                             />
                         </label>
                         <label className="block space-y-2">
-                            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Password</span>
+                            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{t(I18N_KEYS.ADMIN_LOGIN_PASSWORD)}</span>
                             <input
                                 type="password"
                                 value={password}
@@ -86,7 +89,7 @@ export default function AdminLoginPage() {
                             />
                         </label>
                         <button type="submit" disabled={submitting} className={`${adminButtonPrimaryClass} w-full`}>
-                            {submitting ? "Signing in..." : "Enter admin mode"}
+                            {submitting ? t(I18N_KEYS.ADMIN_LOGIN_SUBMITTING) : t(I18N_KEYS.ADMIN_LOGIN_SUBMIT)}
                         </button>
                     </form>
                 </section>

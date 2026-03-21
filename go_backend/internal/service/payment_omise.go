@@ -57,10 +57,6 @@ func (g *OmiseGateway) CreateCheckout(ctx context.Context, provider model.Paymen
 	if !ok || sourceID == "" {
 		return GatewayCheckoutResult{}, apperror.Internal("Omise source response did not include an id", nil)
 	}
-	qrImageURL, _ := pickNestedString(sourceBody, "scannable_code", "image", "download_uri")
-	if qrImageURL == "" {
-		qrImageURL, _ = pickNestedString(sourceBody, "scannable_code", "download_uri")
-	}
 
 	chargeBody, err := g.postForm(ctx, "/charges", url.Values{
 		"amount":      {fmt.Sprintf("%d", amountSatang)},
@@ -76,29 +72,50 @@ func (g *OmiseGateway) CreateCheckout(ctx context.Context, provider model.Paymen
 	if !ok || chargeID == "" {
 		return GatewayCheckoutResult{}, apperror.Internal("Omise charge response did not include an id", nil)
 	}
-	chargeStatus, _ := pickString(chargeBody, "status")
-	authorizeURI, _ := pickString(chargeBody, "authorize_uri")
+	mapped := mapOmiseCharge(sourceBody, chargeBody)
+	sourceReference := sourceID
 
 	action := map[string]any{
-		"type":              "gateway_qr",
-		"provider":          g.Code(),
-		"providerName":      provider.Name,
-		"publicKey":         g.public,
-		"checkoutFlow":      method.CheckoutFlow,
-		"amount":            request.Amount,
-		"currency":          "THB",
-		"sourceId":          sourceID,
-		"chargeId":          chargeID,
-		"providerStatus":    chargeStatus,
-		"branchName":        request.BranchName,
-		"qrImageUrl":        qrImageURL,
-		"authorizeUri":      authorizeURI,
-		"paymentMethodCode": method.ProviderMethodCode,
+		"type":               "gateway_qr",
+		"provider":           g.Code(),
+		"providerName":       provider.Name,
+		"publicKey":          g.public,
+		"checkoutFlow":       method.CheckoutFlow,
+		"amount":             request.Amount,
+		"currency":           "THB",
+		"sourceId":           sourceID,
+		"chargeId":           chargeID,
+		"providerStatus":     mapped.ProviderStatus,
+		"branchName":         request.BranchName,
+		"qrImageUrl":         mapped.QRImageURL,
+		"authorizeUri":       mapped.AuthorizeURI,
+		"paymentMethodCode":  method.ProviderMethodCode,
+		"sourceChargeStatus": mapped.SourceChargeStatus,
+		"status":             mapped.ProviderStatus,
+		"paid":               mapped.Paid,
+		"authorized":         mapped.Authorized,
+	}
+	if mapped.PaidAt != nil {
+		action["paidAt"] = mapped.PaidAt.Format(time.RFC3339)
+	}
+	if mapped.ExpiresAt != nil {
+		action["expiresAt"] = mapped.ExpiresAt.Format(time.RFC3339)
+	}
+	if mapped.FailureCode != nil {
+		action["failureCode"] = *mapped.FailureCode
+	}
+	if mapped.FailureMessage != nil {
+		action["failureMessage"] = *mapped.FailureMessage
 	}
 	return GatewayCheckoutResult{
-		ProviderReference: chargeID,
-		ProviderStatus:    defaultString(chargeStatus, "pending"),
-		PaymentAction:     action,
+		ProviderReference:       chargeID,
+		ProviderSourceReference: &sourceReference,
+		ProviderStatus:          mapped.ProviderStatus,
+		ProviderFailureCode:     mapped.FailureCode,
+		ProviderFailureMessage:  mapped.FailureMessage,
+		PaymentAction:           action,
+		ExpiresAt:               mapped.ExpiresAt,
+		PaidAt:                  mapped.PaidAt,
 	}, nil
 }
 
@@ -121,31 +138,49 @@ func (g *OmiseGateway) ParseWebhook(ctx context.Context, provider model.PaymentP
 	if eventType == "" {
 		eventType, _ = pickString(data, "status")
 	}
-	reference, _ := pickString(data, "id")
-	providerStatus, _ := pickString(data, "status")
-	paidAt, _ := parseTimeField(data, "paid_at")
-	failureCode, _ := pickString(data, "failure_code")
-	failureMessage, _ := pickString(data, "failure_message")
-	failedReason := combineFailureReason(failureCode, failureMessage)
-
-	status := "pending"
-	switch {
-	case strings.Contains(eventType, "successful") || providerStatus == "successful":
-		status = "accepted"
-	case strings.Contains(eventType, "failed") || providerStatus == "failed":
-		status = "rejected"
-	}
+	mapped := mapOmiseCharge(nil, data)
+	failedReason := combineFailureReason(stringValue(mapped.FailureCode), stringValue(mapped.FailureMessage))
+	status := normalizeGatewayStatus(mapped.ProviderStatus, mapped.Paid, mapped.Authorized, mapped.ExpiresAt)
+	sourceReference := optionalString(mapped.SourceReference)
 
 	return GatewayWebhookResult{
-		EventID:           optionalString(eventID),
-		EventType:         defaultString(eventType, "omise.unknown"),
-		ProviderCode:      g.Code(),
-		ProviderReference: reference,
-		ProviderStatus:    defaultString(providerStatus, "pending"),
-		Status:            status,
-		PaidAt:            paidAt,
-		FailedReason:      failedReason,
-		Payload:           payload,
+		EventID:                 optionalString(eventID),
+		EventType:               defaultString(eventType, "omise.unknown"),
+		ProviderCode:            g.Code(),
+		ProviderReference:       mapped.Reference,
+		ProviderStatus:          mapped.ProviderStatus,
+		ProviderSourceReference: sourceReference,
+		ProviderFailureCode:     mapped.FailureCode,
+		ProviderFailureMessage:  mapped.FailureMessage,
+		Status:                  status,
+		PaidAt:                  mapped.PaidAt,
+		ExpiresAt:               mapped.ExpiresAt,
+		PaymentAction:           mapped.PaymentAction(),
+		FailedReason:            failedReason,
+		Payload:                 payload,
+	}, nil
+}
+
+func (g *OmiseGateway) FetchStatus(ctx context.Context, provider model.PaymentProvider, reference string) (GatewayStatusResult, error) {
+	body, err := g.getJSON(ctx, "/charges/"+strings.TrimSpace(reference))
+	if err != nil {
+		return GatewayStatusResult{}, err
+	}
+	mapped := mapOmiseCharge(nil, body)
+	return GatewayStatusResult{
+		EventType:               "charge.status",
+		ProviderCode:            g.Code(),
+		ProviderReference:       mapped.Reference,
+		ProviderStatus:          mapped.ProviderStatus,
+		ProviderSourceReference: optionalString(mapped.SourceReference),
+		ProviderFailureCode:     mapped.FailureCode,
+		ProviderFailureMessage:  mapped.FailureMessage,
+		Status:                  normalizeGatewayStatus(mapped.ProviderStatus, mapped.Paid, mapped.Authorized, mapped.ExpiresAt),
+		PaidAt:                  mapped.PaidAt,
+		ExpiresAt:               mapped.ExpiresAt,
+		PaymentAction:           mapped.PaymentAction(),
+		FailedReason:            combineFailureReason(stringValue(mapped.FailureCode), stringValue(mapped.FailureMessage)),
+		Payload:                 body,
 	}, nil
 }
 
@@ -265,6 +300,135 @@ func parseTimeField(source map[string]any, key string) (*time.Time, bool) {
 		return nil, false
 	}
 	return &parsed, true
+}
+
+func pickBool(source map[string]any, key string) (bool, bool) {
+	value, ok := source[key]
+	if !ok || value == nil {
+		return false, false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "1", "yes":
+			return true, true
+		case "false", "0", "no":
+			return false, true
+		}
+	}
+	return false, false
+}
+
+type omiseChargeMapping struct {
+	Reference          string
+	SourceReference    string
+	ProviderStatus     string
+	SourceChargeStatus string
+	QRImageURL         string
+	AuthorizeURI       string
+	FailureCode        *string
+	FailureMessage     *string
+	ExpiresAt          *time.Time
+	PaidAt             *time.Time
+	Paid               bool
+	Authorized         bool
+}
+
+func (m omiseChargeMapping) PaymentAction() map[string]any {
+	action := map[string]any{
+		"type":               "gateway_qr",
+		"provider":           "OMISE",
+		"providerStatus":     m.ProviderStatus,
+		"sourceChargeStatus": m.SourceChargeStatus,
+		"qrImageUrl":         m.QRImageURL,
+		"authorizeUri":       m.AuthorizeURI,
+		"sourceId":           m.SourceReference,
+		"chargeId":           m.Reference,
+		"paid":               m.Paid,
+		"authorized":         m.Authorized,
+	}
+	if m.ExpiresAt != nil {
+		action["expiresAt"] = m.ExpiresAt.Format(time.RFC3339)
+	}
+	if m.PaidAt != nil {
+		action["paidAt"] = m.PaidAt.Format(time.RFC3339)
+	}
+	if m.FailureCode != nil {
+		action["failureCode"] = *m.FailureCode
+	}
+	if m.FailureMessage != nil {
+		action["failureMessage"] = *m.FailureMessage
+	}
+	return action
+}
+
+func mapOmiseCharge(sourceBody map[string]any, chargeBody map[string]any) omiseChargeMapping {
+	source := sourceBody
+	if len(source) == 0 {
+		source = mapValue(chargeBody, "source")
+	}
+	reference, _ := pickString(chargeBody, "id")
+	sourceReference, _ := pickString(source, "id")
+	providerStatus, _ := pickString(chargeBody, "status")
+	sourceChargeStatus, _ := pickString(source, "charge_status")
+	qrImageURL, _ := pickNestedString(chargeBody, "source", "scannable_code", "image", "download_uri")
+	if qrImageURL == "" {
+		qrImageURL, _ = pickNestedString(chargeBody, "source", "scannable_code", "download_uri")
+	}
+	if qrImageURL == "" {
+		qrImageURL, _ = pickNestedString(source, "scannable_code", "image", "download_uri")
+	}
+	if qrImageURL == "" {
+		qrImageURL, _ = pickNestedString(source, "scannable_code", "download_uri")
+	}
+	authorizeURI, _ := pickString(chargeBody, "authorize_uri")
+	paidAt, _ := parseTimeField(chargeBody, "paid_at")
+	expiresAt, ok := parseTimeField(chargeBody, "expires_at")
+	if !ok {
+		expiresAt, _ = parseTimeField(source, "expires_at")
+	}
+	paid, _ := pickBool(chargeBody, "paid")
+	authorized, _ := pickBool(chargeBody, "authorized")
+	failureCode := optionalString(pickStringValue(chargeBody, "failure_code"))
+	failureMessage := optionalString(pickStringValue(chargeBody, "failure_message"))
+	if providerStatus == "" {
+		providerStatus = defaultString(sourceChargeStatus, "pending")
+	}
+	return omiseChargeMapping{
+		Reference:          reference,
+		SourceReference:    sourceReference,
+		ProviderStatus:     providerStatus,
+		SourceChargeStatus: defaultString(sourceChargeStatus, providerStatus),
+		QRImageURL:         qrImageURL,
+		AuthorizeURI:       authorizeURI,
+		FailureCode:        failureCode,
+		FailureMessage:     failureMessage,
+		ExpiresAt:          expiresAt,
+		PaidAt:             paidAt,
+		Paid:               paid,
+		Authorized:         authorized,
+	}
+}
+
+func pickStringValue(source map[string]any, key string) string {
+	value, _ := pickString(source, key)
+	return value
+}
+
+func normalizeGatewayStatus(providerStatus string, paid bool, authorized bool, expiresAt *time.Time) string {
+	status := strings.ToLower(strings.TrimSpace(providerStatus))
+	switch {
+	case paid || authorized || status == "successful":
+		return "accepted"
+	case status == "failed" || status == "canceled" || status == "cancelled":
+		return "rejected"
+	case expiresAt != nil && expiresAt.Before(time.Now()):
+		return "expired"
+	default:
+		return "pending"
+	}
 }
 
 func combineFailureReason(code string, message string) *string {

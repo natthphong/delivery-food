@@ -61,6 +61,35 @@ Patchable fields:
 - `isEmailVerified`
 - `isPhoneVerified`
 
+### `POST /v1/account/email/verification`
+
+Bearer auth required.
+
+Request:
+
+```json
+{ "locale": "th" }
+```
+
+Response body:
+
+- `sent`
+
+### `POST /v1/account/email/verify`
+
+Public endpoint used by the verification-link landing page.
+
+Request:
+
+```json
+{ "token": "..." }
+```
+
+Response body:
+
+- `verified`
+- `user`
+
 ### `GET /v1/account/transactions`
 
 ### `GET /v1/account/orders`
@@ -99,7 +128,7 @@ Returns:
 
 ### `GET /v1/catalog/branches/{id}/featured`
 
-### `GET /v1/payment-methods?companyId={id}`
+### `GET /v1/payment-methods?companyId={id}&scope={checkout|deposit}`
 
 Returns normalized payment methods including:
 
@@ -108,6 +137,11 @@ Returns normalized payment methods including:
 - `providerMethodCode`
 - `checkoutFlow`
 - `metadata`
+
+Behavior notes:
+
+- `scope=checkout` hides legacy manual-slip methods from the active customer checkout flow
+- `scope=deposit` keeps deposit-specific methods available
 
 ## Cart
 
@@ -177,9 +211,47 @@ Returns:
 - `order`
 - optional `user`
 
+`transaction.status` is normalized for the frontend and may be:
+
+- `pending`
+- `accepted`
+- `rejected`
+- `expired`
+
+Important transaction fields:
+
+- `expiresAt`
+- `providerStatus`
+- `paidAt`
+- `failedReason`
+- `paymentAction.qrImageUrl`
+- `paymentAction.authorizeUri`
+- `paymentAction.sourceId`
+- `paymentAction.chargeId`
+- `paymentAction.failureCode`
+- `paymentAction.failureMessage`
+
 ### `POST /v1/transactions/{id}/slip`
 
-Multipart upload with `file`.
+Legacy/manual QR endpoint. Backend still supports it, but the active customer checkout flow no longer exposes it.
+
+### `POST /v1/transactions/{id}/retry`
+
+Bearer auth required.
+
+Creates a new payment attempt for an expired or rejected order-linked payment transaction.
+
+Request:
+
+```json
+{ "paymentMethodId": 9 }
+```
+
+Response body:
+
+- `transaction`
+- `order`
+- optional `user`
 
 ### `POST /v1/payments/webhooks/omise`
 

@@ -6,6 +6,12 @@ Split-architecture food ordering platform with:
 - Go backend API
 - PostgreSQL migrations in `sql/`
 
+Current framework/runtime baseline:
+
+- Next.js `16.2.1`
+- React `19`
+- Node.js `20+` recommended
+
 Start with [`AGENTS.md`](./AGENTS.md). It is the repository source of truth.
 
 ## What This Repo Includes
@@ -16,7 +22,8 @@ Start with [`AGENTS.md`](./AGENTS.md). It is the repository source of truth.
 - menu browsing with stock-aware availability
 - cart and checkout
 - pickup and rider delivery
-- wallet, manual QR/slip, and Omise PromptPay payment flows
+- wallet and Omise PromptPay payment flows
+- expired-payment retry flow and backend email verification
 - account, order history, and transaction history
 
 ### Admin / operations
@@ -31,6 +38,7 @@ Start with [`AGENTS.md`](./AGENTS.md). It is the repository source of truth.
 - order queue management
 - rider queue management
 - payment/provider/webhook visibility
+- Resend email notifications and LINE order notifications
 
 ## Architecture
 
@@ -75,6 +83,11 @@ Important vars:
 - `FIREBASE_API_KEY`
 - `OMISE_SECRET_KEY`
 - `OMISE_PUBLIC_KEY`
+- `RESEND_API_KEY`
+- `EMAIL_FROM`
+- `EMAIL_NOTIFY_TO`
+- `LINE_CHANNEL_SECRET`
+- `LINE_CHANNEL_TOKEN`
 - `SLIPOK_*` when using remote slip verification
 
 ## Migrations
@@ -128,6 +141,11 @@ Frontend production build:
 npm run build
 ```
 
+Notes:
+
+- `npm run dev` runs the Next.js 16 dev server
+- `npm run build` uses `next build --webpack` for the current repository
+
 Backend tests:
 
 ```bash
@@ -153,5 +171,6 @@ npm run verify
 - [`docs/ADMIN_MODE.md`](./docs/ADMIN_MODE.md)
 - [`docs/EMPLOYEE_PAYROLL.md`](./docs/EMPLOYEE_PAYROLL.md)
 - [`docs/PAYMENT_GATEWAYS.md`](./docs/PAYMENT_GATEWAYS.md)
+- [`docs/NOTIFICATIONS.md`](./docs/NOTIFICATIONS.md)
 - [`docs/RIDER_DELIVERY.md`](./docs/RIDER_DELIVERY.md)
 - [`docs/ROLE_PERMISSION_MATRIX.md`](./docs/ROLE_PERMISSION_MATRIX.md)

@@ -146,3 +146,55 @@ func TestOmiseGatewayParseWebhookFailure(t *testing.T) {
 		t.Fatalf("FailedReason = %v, want combined failure reason", result.FailedReason)
 	}
 }
+
+func TestOmiseGatewayFetchStatusMapsExpiredPendingCharge(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			payload := map[string]any{
+				"id":         "chrg_expired",
+				"status":     "pending",
+				"paid":       false,
+				"authorized": false,
+				"expires_at": "2026-03-21T08:00:00Z",
+				"source": map[string]any{
+					"id":            "src_promptpay",
+					"charge_status": "pending",
+					"scannable_code": map[string]any{
+						"image": map[string]any{
+							"download_uri": "https://example.com/expired-qr.png",
+						},
+					},
+				},
+			}
+			body, err := json.Marshal(payload)
+			if err != nil {
+				return nil, err
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(string(body))),
+			}, nil
+		}),
+	}
+
+	gateway := NewOmiseGateway(client, config.Config{OmiseSecretKey: "secret"})
+	gateway.baseURL = "https://omise.test"
+
+	result, err := gateway.FetchStatus(context.Background(), model.PaymentProvider{
+		Code: "OMISE",
+		Name: "Omise",
+	}, "chrg_expired")
+	if err != nil {
+		t.Fatalf("FetchStatus() error = %v", err)
+	}
+	if result.Status != "expired" {
+		t.Fatalf("Status = %q, want expired", result.Status)
+	}
+	if result.ExpiresAt == nil {
+		t.Fatal("ExpiresAt = nil, want parsed timestamp")
+	}
+	if got := result.PaymentAction["qrImageUrl"]; got != "https://example.com/expired-qr.png" {
+		t.Fatalf("PaymentAction[qrImageUrl] = %v, want QR image url", got)
+	}
+}

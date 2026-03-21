@@ -43,3 +43,8 @@ export async function submitTransactionSlip(transactionId: number, file: File) {
     });
     return unwrapResponse(data);
 }
+
+export async function retryTransactionPayment(transactionId: number, payload: { paymentMethodId?: number | null } = {}) {
+    const { data } = await axios.post<ApiResponse<TransactionDetail>>(`/v1/transactions/${transactionId}/retry`, payload);
+    return unwrapResponse(data);
+}

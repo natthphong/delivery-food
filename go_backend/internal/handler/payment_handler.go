@@ -86,6 +86,18 @@ func (h *PaymentHandler) TransactionRoutes(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		httpapi.WriteOK(w, result)
+	case r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "retry":
+		var request dto.RetryPaymentRequest
+		if err := httpapi.DecodeJSON(r, &request); err != nil {
+			httpapi.WriteError(w, err)
+			return
+		}
+		result, err := h.service.RetryPayment(r.Context(), claims.UserID, transactionID, request.PaymentMethodID)
+		if err != nil {
+			httpapi.WriteError(w, err)
+			return
+		}
+		httpapi.WriteOK(w, result)
 	case r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "slip":
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
 			httpapi.WriteError(w, apperror.BadRequest("invalid multipart payload"))

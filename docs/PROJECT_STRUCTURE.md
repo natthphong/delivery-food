@@ -8,6 +8,7 @@
 - `sql/`: versioned PostgreSQL migrations
 - `go_backend/`: Go API service
 - `src/`: Next.js frontend
+- `src/app/`: minimal App Router support used for framework-required root layout/error scaffolding
 - `tests/`: Node-runner tests
 - `scripts/run-tests.js`: combined frontend test harness
 
@@ -24,6 +25,7 @@ Customer routes:
 - `src/pages/payment/[txnId].tsx`
 - `src/pages/account/index.tsx`
 - `src/pages/login.tsx`
+- `src/pages/verify-email.tsx`
 - `src/pages/web-hook-line.tsx`
 
 Admin routes:
@@ -57,6 +59,7 @@ Admin routes:
 - `src/utils/apiClient.tsx`: customer axios client with refresh
 - `src/utils/adminApiClient.tsx`: admin axios client with separate refresh flow
 - `src/utils/tokenStorage.ts`: persisted customer/admin session helpers
+- `src/utils/logout.ts`: shared customer logout/reset helper
 
 ## Backend
 
@@ -108,5 +111,6 @@ Legacy SQL under `sql/migrations/` is not the current source of truth.
 ## Tests
 
 - `tests/*.test.ts`: Node-runner utility/storage tests
+- `src/__tests__/*.test.ts?(x)`: page-level Jest tests kept outside routable page folders
 - `src/**/__tests__/*.test.ts?(x)`: Jest tests for components and selectors
 - `go_backend/**/*_test.go`: Go unit tests

@@ -17,6 +17,7 @@ The repository preserves a strict split:
 - presentation logic
 - local persistence
 - role-aware navigation
+- customer/admin layout separation
 - API consumption through `src/services`
 
 ### Backend owns
@@ -50,6 +51,11 @@ Two auth clients exist:
 - admin API client
 
 They intentionally use separate stored tokens and separate refresh flows.
+
+Navigation rule:
+
+- admin is not rendered as a normal customer tab
+- admin entry appears only inside the account menu and only when an admin session exists
 
 ## Backend Request Flow
 
@@ -94,6 +100,7 @@ Core pieces:
 - `OmiseGateway`
 - payment provider tables
 - webhook event persistence
+- retry-payment endpoint for expired/rejected order payments
 
 Frontend receives normalized:
 
@@ -101,6 +108,23 @@ Frontend receives normalized:
 - transaction statuses
 - payment actions
 - provider metadata already safe for UI usage
+
+Payment rules:
+
+- frontend does not infer Omise state client-side
+- backend treats `pending + expires_at < now + not paid` as `expired`
+- checkout hides legacy manual-slip methods through payment-method scope filtering
+- payment detail renders Omise QR from backend-provided `paymentAction.qrImageUrl`
+
+## Notification Architecture
+
+Notifications are backend-owned through `NotificationService`.
+
+- `Mailer` abstraction -> Resend implementation
+- `LineMessenger` abstraction -> LINE Bot push implementation
+- email verification and provider-login notices are sent from Go only
+- order placed / ready / rider-assigned / on-the-way notifications can fan out by email and LINE
+- frontend only shows local UI notices and never receives mail or LINE credentials
 
 ## Query and Transaction Strategy
 

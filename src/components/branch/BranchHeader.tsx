@@ -57,11 +57,13 @@ const BranchHeader: React.FC<Props> = ({
                 </div>
                 <div className="flex flex-wrap gap-2">
                     {supportsPickup ? (
-                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Pickup ready</span>
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                            {t(I18N_KEYS.BRANCH_PICKUP_READY)}
+                        </span>
                     ) : null}
                     {supportsRiderDelivery ? (
                         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                            Rider delivery {typeof riderDeliveryFee === "number" ? `available` : ""}
+                            {t(I18N_KEYS.BRANCH_RIDER_DELIVERY)}
                         </span>
                     ) : null}
                 </div>
