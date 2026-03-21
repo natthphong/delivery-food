@@ -31,7 +31,7 @@ bot-line-project
 go.work
 
 frontend
-
+goapp
 ### Go Patch ###
 /vendor/
 /Godeps/
