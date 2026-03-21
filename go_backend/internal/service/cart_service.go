@@ -49,7 +49,7 @@ func (s *CartService) AddItem(ctx context.Context, userID int64, request dto.Add
 		return model.Cart{}, apperror.Internal("failed to load product", err)
 	}
 
-	addOns, err := s.store.GetProductAddOns(ctx, request.ProductID, request.AddOnIDs)
+	addOns, err := s.store.GetProductAddOns(ctx, request.BranchID, request.ProductID, request.AddOnIDs)
 	if err != nil {
 		return model.Cart{}, apperror.Internal("failed to load add-ons", err)
 	}

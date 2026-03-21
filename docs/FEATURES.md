@@ -99,7 +99,9 @@ Role-aware menus exist in the frontend, but Go remains authoritative for access 
 - rider delivery fee configuration
 - create branch with copy-all or copy-selected menu flow from another branch
 - branch product enable/disable
+- branch product price override editing
 - temporary product closure
+- branch add-on price and sellability editing
 - stock quantity and reorder level
 - stock movement recording
 - cleaner branch/product editing through modal workflows
@@ -122,7 +124,8 @@ Preset data includes:
 
 - demo company
 - demo catalog and branches
-- BAAN-menu-inspired categories, products, images, and branch menu availability
+- BAAN JSON-driven categories, products, inferred add-ons, images, and branch menu availability
+- BAAN Phuket branch presets with sample branch add-on overrides
 - role and permission matrix
 - payroll defaults
 - Omise payment provider

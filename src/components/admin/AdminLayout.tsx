@@ -95,61 +95,71 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return (
         <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.12),_transparent_28%),linear-gradient(180deg,#fbfefc_0%,#f8fafc_100%)]">
             <div className="mx-auto flex min-h-screen max-w-[1640px] flex-col lg:flex-row">
-                <aside className="border-b border-slate-200 bg-white/95 px-4 py-5 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:w-[22rem] lg:border-b-0 lg:border-r lg:px-6">
-                    <div className="flex items-start justify-between gap-3">
-                        <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">{t(I18N_KEYS.ADMIN_MODE)}</p>
-                            <h1 className="mt-2 text-xl font-semibold text-slate-950">{t(I18N_KEYS.ADMIN_CONSOLE_TITLE)}</h1>
-                            <p className="mt-2 text-sm text-slate-500">{session?.actorLabel || t(I18N_KEYS.ADMIN_CONSOLE_FALLBACK)}</p>
+                <aside className="border-b border-slate-200 bg-white/95 px-4 py-5 backdrop-blur lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-[22rem] lg:flex-col lg:overflow-hidden lg:border-b-0 lg:border-r lg:px-6">
+                    <div className="shrink-0">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">{t(I18N_KEYS.ADMIN_MODE)}</p>
+                                <h1 className="mt-2 text-xl font-semibold text-slate-950">{t(I18N_KEYS.ADMIN_CONSOLE_TITLE)}</h1>
+                                <p className="mt-2 text-sm text-slate-500">{session?.actorLabel || t(I18N_KEYS.ADMIN_CONSOLE_FALLBACK)}</p>
+                            </div>
+                            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-right">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{t(I18N_KEYS.ADMIN_BRANCHES)}</p>
+                                <p className="mt-1 text-sm font-semibold text-slate-900">
+                                    {session?.branchIds?.length ? `${session.branchIds.length}` : t(I18N_KEYS.ADMIN_ALL_BRANCHES)}
+                                </p>
+                            </div>
                         </div>
+
+                        <div className="mt-5 rounded-[1.5rem] border border-emerald-100 bg-emerald-50 p-4 text-slate-900">
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{t(I18N_KEYS.ADMIN_ROLES)}</p>
+                            <p className="mt-2 text-sm font-medium leading-6">{session?.roles.join(", ") || "-"}</p>
+                        </div>
+                    </div>
+
+                    <div className="mt-6 min-h-0 flex-1 overflow-hidden">
+                        <nav
+                            data-testid="admin-sidebar-scroll"
+                            className="flex h-full flex-col gap-5 overflow-x-auto pb-2 lg:overflow-y-auto lg:overflow-x-hidden lg:pr-2"
+                        >
+                            {navSections.map((section) => (
+                                <div key={section.groupKey} className="min-w-max lg:min-w-0">
+                                    <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                                        {t(section.groupKey as any)}
+                                    </p>
+                                    <div className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
+                                        {section.items.map((item) => {
+                                            const active = router.pathname === item.href;
+                                            return (
+                                                <Link
+                                                    key={item.href}
+                                                    href={item.href}
+                                                    className={`inline-flex min-w-max items-center rounded-2xl px-4 py-3 text-sm font-medium transition lg:min-w-0 lg:whitespace-normal ${
+                                                        active
+                                                            ? "bg-emerald-500 text-slate-950 shadow-sm"
+                                                            : "bg-white text-slate-600 hover:bg-slate-100"
+                                                    }`}
+                                                >
+                                                    {t(item.labelKey)}
+                                                </Link>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ))}
+                        </nav>
+                    </div>
+
+                    <div className="mt-5 shrink-0 space-y-3 border-t border-slate-100 pt-4">
+                        <LocaleSwitcher />
                         <button
                             type="button"
                             onClick={() => void handleLogout()}
-                            className="rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50"
+                            className="inline-flex w-full items-center justify-center rounded-2xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
                         >
                             {t(I18N_KEYS.ACCOUNT_LOGOUT)}
                         </button>
                     </div>
-
-                    <div className="mt-5 space-y-3">
-                        <div className="rounded-[1.5rem] border border-emerald-100 bg-emerald-50 p-4 text-slate-900">
-                            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{t(I18N_KEYS.ADMIN_ROLES)}</p>
-                            <p className="mt-2 text-sm font-medium">{session?.roles.join(", ") || "-"}</p>
-                            <p className="mt-4 text-xs uppercase tracking-[0.2em] text-slate-500">{t(I18N_KEYS.ADMIN_BRANCHES)}</p>
-                            <p className="mt-2 text-sm font-medium">
-                                {session?.branchIds?.length ? `${session.branchIds.length}` : t(I18N_KEYS.ADMIN_ALL_BRANCHES)}
-                            </p>
-                        </div>
-                        <LocaleSwitcher />
-                    </div>
-
-                    <nav className="mt-6 space-y-5">
-                        {navSections.map((section) => (
-                            <div key={section.groupKey}>
-                                <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                                    {t(section.groupKey as any)}
-                                </p>
-                                <div className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
-                                    {section.items.map((item) => {
-                                        const active = router.pathname === item.href;
-                                        return (
-                                            <Link
-                                                key={item.href}
-                                                href={item.href}
-                                                className={`inline-flex min-w-max items-center rounded-2xl px-4 py-3 text-sm font-medium transition ${
-                                                    active
-                                                        ? "bg-emerald-500 text-slate-950 shadow-sm"
-                                                        : "bg-white text-slate-600 hover:bg-slate-100"
-                                                }`}
-                                            >
-                                                {t(item.labelKey)}
-                                            </Link>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        ))}
-                    </nav>
                 </aside>
 
                 <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>

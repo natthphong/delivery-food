@@ -1,5 +1,5 @@
 import type { BranchSummary, Cart, CartBranchGroup, CartItem } from "@/types";
-import type { AdminBranchProduct } from "@/types/admin";
+import type { AdminBranchProduct, AdminBranchProductAddOn } from "@/types/admin";
 import type { AdminOrder } from "@/types/adminOrder";
 import type { Order, OrderItem } from "@/types/transaction";
 
@@ -68,9 +68,18 @@ export function normalizeAdminOrder(order: AdminOrder): AdminOrder {
     };
 }
 
+function normalizeAdminBranchProductAddOn(addOn: AdminBranchProductAddOn): AdminBranchProductAddOn {
+    return {
+        ...addOn,
+        basePrice: typeof addOn.basePrice === "number" ? addOn.basePrice : addOn.price,
+    };
+}
+
 export function normalizeAdminBranchProduct(product: AdminBranchProduct): AdminBranchProduct {
     return {
         ...product,
+        basePrice: typeof product.basePrice === "number" ? product.basePrice : product.price,
         categories: Array.isArray(product.categories) ? product.categories : [],
+        addOns: Array.isArray(product.addOns) ? product.addOns.map(normalizeAdminBranchProductAddOn) : [],
     };
 }

@@ -11,6 +11,7 @@
 - `src/app/`: minimal App Router support used for framework-required root layout/error scaffolding
 - `tests/`: Node-runner tests
 - `scripts/run-tests.js`: combined frontend test harness
+- `scripts/generate-baan-seed.js`: deterministic BAAN JSON -> SQL preset generator
 
 ## Frontend
 
@@ -56,7 +57,7 @@ Admin routes:
 ### Frontend data and state
 
 - `src/services`: customer and admin API clients
-- `src/services/normalizers.ts`: defensive response shaping for orders and admin product payloads
+- `src/services/normalizers.ts`: defensive response shaping for orders and admin product/add-on payloads
 - `src/store`: `auth`, `adminAuth`, `cart`, `config`, `notifications`
 - `src/types`: customer, transaction, and admin payload types
 - `src/utils/apiClient.tsx`: customer axios client with refresh
@@ -110,6 +111,8 @@ Current migration set:
 - `V5__operations_preset_data.sql`
 - `V6__operations_indexes.sql`
 - `V7__admin_workflows_and_baan_seed.sql`
+- `V8__branch_add_on_controls.sql`
+- `V9__baan_json_preset_seed.sql`
 
 Legacy SQL under `sql/migrations/` is not the current source of truth.
 

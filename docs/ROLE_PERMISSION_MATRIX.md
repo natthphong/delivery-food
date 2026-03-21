@@ -29,7 +29,9 @@
 - attendance read/manage
 - payroll read
 - OT review
-- branch and stock management
+- branch open/close and fulfillment control management inside assigned branch scope
+- branch and stock management inside assigned branch scope
+- branch product/add-on price and sellability overrides inside assigned branch scope
 - order management
 - rider queue read
 - payment read
@@ -38,6 +40,7 @@
 ### `manager`
 
 - manager_branch capabilities across broader scope
+- branch open/close, fulfillment controls, and branch product/add-on overrides across broader scope
 - branch creation and branch menu-copy workflow
 
 ### `owner`
@@ -47,6 +50,7 @@
 - payroll manage
 - payments manage
 - settings manage
+- branch open/close, fulfillment controls, and branch product/add-on overrides across broader scope
 - branch creation and branch menu-copy workflow
 
 ## Source Of Truth
@@ -61,4 +65,5 @@ Additional service-level rules:
 
 - frontend navigation hides unavailable actions for convenience only
 - backend validates branch scope before reads/writes
+- backend validates branch scope before branch, product, and add-on override writes
 - backend validates order status transitions and returns only allowed next actions to the admin UI

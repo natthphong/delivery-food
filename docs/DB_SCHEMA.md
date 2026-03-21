@@ -10,6 +10,8 @@
 - `V5__operations_preset_data.sql`
 - `V6__operations_indexes.sql`
 - `V7__admin_workflows_and_baan_seed.sql`
+- `V8__branch_add_on_controls.sql`
+- `V9__baan_json_preset_seed.sql`
 
 ## Domain Groups
 
@@ -25,6 +27,7 @@
 - `products`
 - `product_categories`
 - `product_add_ons`
+- `branch_product_add_ons`
 - `branches`
 - `branch_operating_hours`
 - `branch_products`
@@ -42,6 +45,13 @@ Branch product records now also carry:
 - `is_temporarily_closed`
 - `availability_note`
 - `reorder_level`
+
+Branch add-on override records carry:
+
+- `is_enabled`
+- `is_temporarily_closed`
+- `price_override`
+- `availability_note`
 
 ### Cart and ordering
 
@@ -113,6 +123,7 @@ Current payment hardening reuses these existing fields:
 - `employees 1:n ot_requests`
 - `payroll_periods 1:n payroll_entries`
 - `branches 1:n branch_products`
+- `branches 1:n branch_product_add_ons`
 - `branches 1:n delivery_jobs`
 - `orders 0..1:1 delivery_jobs`
 - `payment_providers 1:n payment_methods`
@@ -137,7 +148,9 @@ Preset migrations provide:
 
 - demo catalog + branches
 - BAAN-menu-inspired category/product/add-on refresh for local development
+- BAAN Phuket branch presets driven from committed JSON source files
 - per-branch menu availability and stock presets for the seeded branches
+- per-branch add-on pricing/sellability presets
 - operational configs
 - role and permission matrix
 - payroll default settings

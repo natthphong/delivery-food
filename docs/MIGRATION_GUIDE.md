@@ -49,7 +49,9 @@ Extended with:
 - branch stock movements
 - payment providers and webhook events
 - fulfillment mode and rider delivery tables/fields
-- `READY` order state and refreshed BAAN-menu-inspired preset catalog data in `V7__admin_workflows_and_baan_seed.sql`
+- `READY` order state in `V7__admin_workflows_and_baan_seed.sql`
+- branch add-on override controls in `V8__branch_add_on_controls.sql`
+- BAAN JSON-driven preset catalog refresh in `V9__baan_json_preset_seed.sql`
 
 Existing transaction fields already cover:
 
@@ -71,12 +73,13 @@ npm run backend:migrate
 ```
 
 5. restart backend and frontend
-6. if you need the refreshed local/demo catalog, ensure `V7__admin_workflows_and_baan_seed.sql` has been applied
+6. if you need the refreshed local/demo catalog, ensure `V8__branch_add_on_controls.sql` and `V9__baan_json_preset_seed.sql` have been applied
 
 ## Breaking/Important Behavioral Differences
 
 - admin auth is separate from customer auth
 - branch/product availability is enforced by backend operations state
+- branch add-on pricing/sellability is enforced by backend branch override state
 - admin order actions are gated by backend-computed valid transitions, including `READY`
 - checkout now includes fulfillment mode and can create rider jobs
 - payment records can be provider-backed and include gateway payment actions
@@ -87,4 +90,5 @@ npm run backend:migrate
 
 - do not add backend-heavy logic back into Next.js routes
 - do not change schema outside versioned SQL
+- regenerate BAAN preset SQL through `scripts/generate-baan-seed.js` instead of hand-editing local/demo seed rows
 - update AGENTS and docs whenever schema/API/feature behavior changes

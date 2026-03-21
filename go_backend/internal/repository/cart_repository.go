@@ -112,16 +112,28 @@ func (s *Store) GetSellableProduct(ctx context.Context, branchID, productID int6
 	return product, nil
 }
 
-func (s *Store) GetProductAddOns(ctx context.Context, productID int64, addOnIDs []int64) ([]model.ProductAddOn, error) {
+func (s *Store) GetProductAddOns(ctx context.Context, branchID int64, productID int64, addOnIDs []int64) ([]model.ProductAddOn, error) {
 	if len(addOnIDs) == 0 {
 		return []model.ProductAddOn{}, nil
 	}
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, group_name, name, price::double precision, is_required, sort_order
-		FROM product_add_ons
-		WHERE product_id = $1 AND id = ANY($2)
+		SELECT
+			pa.id,
+			pa.group_name,
+			pa.name,
+			COALESCE(bpa.price_override, pa.price)::double precision,
+			pa.is_required,
+			pa.sort_order
+		FROM product_add_ons pa
+		LEFT JOIN branch_product_add_ons bpa
+			ON bpa.branch_id = $1
+			AND bpa.product_add_on_id = pa.id
+		WHERE pa.product_id = $2
+			AND pa.id = ANY($3)
+			AND COALESCE(bpa.is_enabled, TRUE) = TRUE
+			AND COALESCE(bpa.is_temporarily_closed, FALSE) = FALSE
 		ORDER BY sort_order, id
-	`, productID, addOnIDs)
+	`, branchID, productID, addOnIDs)
 	if err != nil {
 		return nil, err
 	}

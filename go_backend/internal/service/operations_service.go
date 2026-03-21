@@ -778,6 +778,7 @@ func (s *OperationsService) UpdateBranch(ctx context.Context, claims *backendaut
 		SupportsRiderDelivery: request.SupportsRiderDelivery,
 		RiderDeliveryFee:      request.RiderDeliveryFee,
 		OperationalNote:       request.OperationalNote,
+		ClearOperationalNote:  request.ClearOperationalNote,
 	}); err != nil {
 		return model.BranchSummary{}, apperror.Internal("failed to update branch", err)
 	}
@@ -822,22 +823,66 @@ func (s *OperationsService) UpdateBranchProduct(ctx context.Context, claims *bac
 			"reorderLevel": "Reorder level cannot be negative.",
 		})
 	}
+	if request.PriceOverride != nil && *request.PriceOverride < 0 {
+		return nil, apperror.Validation("Please review the product override.", map[string]string{
+			"priceOverride": "Branch price cannot be negative.",
+		})
+	}
 	tx, err := s.store.Begin(ctx)
 	if err != nil {
 		return nil, apperror.Internal("failed to begin stock update", err)
 	}
 	defer tx.Rollback(ctx)
 	if err := s.store.UpdateBranchProductOperations(ctx, tx, branchID, productID, repository.BranchProductOperationsUpdateParams{
-		IsEnabled:           request.IsEnabled,
-		IsTemporarilyClosed: request.IsTemporarilyClosed,
-		StockQty:            request.StockQty,
-		ReorderLevel:        request.ReorderLevel,
-		AvailabilityNote:    request.AvailabilityNote,
+		IsEnabled:             request.IsEnabled,
+		IsTemporarilyClosed:   request.IsTemporarilyClosed,
+		StockQty:              request.StockQty,
+		ReorderLevel:          request.ReorderLevel,
+		AvailabilityNote:      request.AvailabilityNote,
+		ClearAvailabilityNote: request.ClearAvailabilityNote,
+		PriceOverride:         request.PriceOverride,
+		ClearPriceOverride:    request.ClearPriceOverride,
 	}); err != nil {
 		return nil, apperror.Internal("failed to update branch product", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, apperror.Internal("failed to commit stock update", err)
+	}
+	return s.ListBranchProducts(ctx, claims, branchID)
+}
+
+func (s *OperationsService) UpdateBranchProductAddOn(ctx context.Context, claims *backendauth.AccessClaims, branchID int64, productID int64, addOnID int64, request dto.BranchProductAddOnOperationsUpdateRequest) ([]model.AdminBranchProduct, error) {
+	if !hasPermission(claims, "stock.manage") {
+		return nil, apperror.Forbidden("stock management is not allowed")
+	}
+	if _, err := scopedBranchIDs(claims, []int64{branchID}); err != nil {
+		return nil, err
+	}
+	if request.PriceOverride != nil && *request.PriceOverride < 0 {
+		return nil, apperror.Validation("Please review the add-on override.", map[string]string{
+			"priceOverride": "Add-on price cannot be negative.",
+		})
+	}
+	tx, err := s.store.Begin(ctx)
+	if err != nil {
+		return nil, apperror.Internal("failed to begin add-on update", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := s.store.UpdateBranchProductAddOnOperations(ctx, tx, branchID, productID, addOnID, repository.BranchProductAddOnOperationsUpdateParams{
+		IsEnabled:             request.IsEnabled,
+		IsTemporarilyClosed:   request.IsTemporarilyClosed,
+		AvailabilityNote:      request.AvailabilityNote,
+		ClearAvailabilityNote: request.ClearAvailabilityNote,
+		PriceOverride:         request.PriceOverride,
+		ClearPriceOverride:    request.ClearPriceOverride,
+	}); err != nil {
+		if repository.IsNotFound(err) || err == sql.ErrNoRows {
+			return nil, apperror.NotFound("add-on not found in this branch product")
+		}
+		return nil, apperror.Internal("failed to update branch add-on", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, apperror.Internal("failed to commit add-on update", err)
 	}
 	return s.ListBranchProducts(ctx, claims, branchID)
 }

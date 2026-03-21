@@ -150,12 +150,30 @@ type AdminBranchProductCategory struct {
 	Name string `json:"name"`
 }
 
+type AdminBranchProductAddOn struct {
+	BranchID            int64    `json:"branchId"`
+	ProductID           int64    `json:"productId"`
+	AddOnID             int64    `json:"addOnId"`
+	GroupName           string   `json:"groupName"`
+	Name                string   `json:"name"`
+	Price               float64  `json:"price"`
+	BasePrice           float64  `json:"basePrice"`
+	PriceOverride       *float64 `json:"priceOverride,omitempty"`
+	IsEnabled           bool     `json:"isEnabled"`
+	IsTemporarilyClosed bool     `json:"isTemporarilyClosed"`
+	AvailabilityNote    *string  `json:"availabilityNote,omitempty"`
+	IsRequired          bool     `json:"isRequired"`
+	SortOrder           int      `json:"sortOrder"`
+}
+
 type AdminBranchProduct struct {
 	BranchID            int64                        `json:"branchId"`
 	ProductID           int64                        `json:"productId"`
 	ProductName         string                       `json:"productName"`
 	ImageURL            *string                      `json:"imageUrl,omitempty"`
 	Price               float64                      `json:"price"`
+	BasePrice           float64                      `json:"basePrice"`
+	PriceOverride       *float64                     `json:"priceOverride,omitempty"`
 	StockQty            *int                         `json:"stockQty,omitempty"`
 	IsEnabled           bool                         `json:"isEnabled"`
 	IsTemporarilyClosed bool                         `json:"isTemporarilyClosed"`
@@ -163,6 +181,7 @@ type AdminBranchProduct struct {
 	ReorderLevel        *int                         `json:"reorderLevel,omitempty"`
 	IsLowStock          bool                         `json:"isLowStock"`
 	Categories          []AdminBranchProductCategory `json:"categories"`
+	AddOns              []AdminBranchProductAddOn    `json:"addOns"`
 }
 
 type PaymentProvider struct {

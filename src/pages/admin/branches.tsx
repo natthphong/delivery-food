@@ -25,11 +25,14 @@ import {
     fetchBranchProducts,
     updateAdminBranch,
     updateBranchProduct,
+    updateBranchProductAddOn,
 } from "@/services/admin";
 import type { BranchSummary } from "@/types";
 import type {
+    AdminBranchProductAddOn,
     AdminBranchProduct,
     BranchCreateRequest,
+    BranchProductAddOnOperationsUpdateRequest,
     BranchOperationsUpdateRequest,
     BranchProductOperationsUpdateRequest,
     StockAdjustmentRequest,
@@ -72,6 +75,16 @@ type ProductFormState = {
     stockQty: string;
     reorderLevel: string;
     availabilityNote: string;
+    priceMode: "base" | "override";
+    priceOverride: string;
+};
+
+type AddOnFormState = {
+    isEnabled: boolean;
+    isTemporarilyClosed: boolean;
+    availabilityNote: string;
+    priceMode: "base" | "override";
+    priceOverride: string;
 };
 
 type StockFormState = {
@@ -122,6 +135,18 @@ function mapProductToForm(product: AdminBranchProduct): ProductFormState {
         stockQty: product.stockQty != null ? String(product.stockQty) : "",
         reorderLevel: product.reorderLevel != null ? String(product.reorderLevel) : "",
         availabilityNote: product.availabilityNote || "",
+        priceMode: product.priceOverride != null ? "override" : "base",
+        priceOverride: product.priceOverride != null ? String(product.priceOverride) : String(product.price),
+    };
+}
+
+function mapAddOnToForm(addOn: AdminBranchProductAddOn): AddOnFormState {
+    return {
+        isEnabled: addOn.isEnabled,
+        isTemporarilyClosed: addOn.isTemporarilyClosed,
+        availabilityNote: addOn.availabilityNote || "",
+        priceMode: addOn.priceOverride != null ? "override" : "base",
+        priceOverride: addOn.priceOverride != null ? String(addOn.priceOverride) : String(addOn.price),
     };
 }
 
@@ -136,6 +161,10 @@ function parseOptionalNumber(value: string): number | null {
 function parseRequiredNumber(value: string): number {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isInvalidNumberInput(value: string) {
+    return value.trim() !== "" && parseOptionalNumber(value) == null;
 }
 
 function Field({
@@ -168,6 +197,16 @@ function statusLabel(product: AdminBranchProduct, tx: (key: string, params?: Rec
     return tx("admin.branches.product.sellable");
 }
 
+function addOnStatusLabel(addOn: AdminBranchProductAddOn, tx: (key: string, params?: Record<string, string | number>) => string) {
+    if (!addOn.isEnabled) {
+        return tx("admin.branches.addOn.hidden");
+    }
+    if (addOn.isTemporarilyClosed) {
+        return tx("admin.branches.addOn.paused");
+    }
+    return tx("admin.branches.addOn.sellable");
+}
+
 function copyModeButtonClass(active: boolean) {
     return active
         ? "rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 shadow-sm"
@@ -188,6 +227,7 @@ export default function AdminBranchesPage() {
     const [products, setProducts] = useState<AdminBranchProduct[]>([]);
     const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
     const [productSearch, setProductSearch] = useState("");
+    const [productCategoryId, setProductCategoryId] = useState<number | "all">("all");
     const [branchLoading, setBranchLoading] = useState(false);
     const [productLoading, setProductLoading] = useState(false);
     const [listError, setListError] = useState("");
@@ -211,6 +251,11 @@ export default function AdminBranchesPage() {
     const [productFieldErrors, setProductFieldErrors] = useState<FieldErrors>({});
     const [productSubmitError, setProductSubmitError] = useState("");
     const [productSaving, setProductSaving] = useState(false);
+    const [addOnModalAddOnId, setAddOnModalAddOnId] = useState<number | null>(null);
+    const [addOnForm, setAddOnForm] = useState<AddOnFormState | null>(null);
+    const [addOnFieldErrors, setAddOnFieldErrors] = useState<FieldErrors>({});
+    const [addOnSubmitError, setAddOnSubmitError] = useState("");
+    const [addOnSaving, setAddOnSaving] = useState(false);
 
     const [stockModalOpen, setStockModalOpen] = useState(false);
     const [stockForm, setStockForm] = useState<StockFormState>({
@@ -233,6 +278,11 @@ export default function AdminBranchesPage() {
         [productModalProductId, products]
     );
 
+    const selectedAddOn = useMemo(
+        () => selectedProduct?.addOns.find((addOn) => addOn.addOnId === addOnModalAddOnId) || null,
+        [addOnModalAddOnId, selectedProduct]
+    );
+
     const sourceCategories = useMemo(() => {
         const categoryMap = new Map<number, string>();
         sourceProducts.forEach((product) => {
@@ -245,22 +295,38 @@ export default function AdminBranchesPage() {
             .sort((left, right) => left.name.localeCompare(right.name));
     }, [sourceProducts]);
 
+    const productCategories = useMemo(() => {
+        const categoryMap = new Map<number, string>();
+        products.forEach((product) => {
+            product.categories.forEach((category) => categoryMap.set(category.id, category.name));
+        });
+        return Array.from(categoryMap.entries())
+            .map(([id, name]) => ({ id, name }))
+            .sort((left, right) => left.name.localeCompare(right.name));
+    }, [products]);
+
     const filteredProducts = useMemo(() => {
         const query = productSearch.trim().toLowerCase();
         if (!query) {
-            return products;
+            return products.filter((product) =>
+                productCategoryId === "all" ? true : product.categories.some((category) => category.id === productCategoryId)
+            );
         }
         return products.filter((product) => {
+            if (productCategoryId !== "all" && !product.categories.some((category) => category.id === productCategoryId)) {
+                return false;
+            }
             const haystack = `${product.productName} ${product.categories.map((category) => category.name).join(" ")}`.toLowerCase();
             return haystack.includes(query);
         });
-    }, [productSearch, products]);
+    }, [productCategoryId, productSearch, products]);
 
     const branchStats = useMemo(() => {
         return {
             sellableCount: products.filter((product) => product.isEnabled && !product.isTemporarilyClosed).length,
             hiddenCount: products.filter((product) => !product.isEnabled || product.isTemporarilyClosed).length,
             lowStockCount: products.filter((product) => product.isLowStock).length,
+            addOnCount: products.reduce((total, product) => total + product.addOns.length, 0),
         };
     }, [products]);
 
@@ -317,6 +383,19 @@ export default function AdminBranchesPage() {
     }, [reloadProducts, selectedBranchId]);
 
     useEffect(() => {
+        setProductSearch("");
+        setProductCategoryId("all");
+        closeProductModal();
+        closeStockModal();
+    }, [selectedBranchId]);
+
+    useEffect(() => {
+        if (productCategoryId !== "all" && !productCategories.some((category) => category.id === productCategoryId)) {
+            setProductCategoryId("all");
+        }
+    }, [productCategories, productCategoryId]);
+
+    useEffect(() => {
         if (!createModalOpen || createForm.copyMode === "none" || !createForm.copyFromBranchId) {
             setSourceProducts([]);
             setSourceProductsLoading(false);
@@ -361,6 +440,7 @@ export default function AdminBranchesPage() {
     };
 
     const openProductModal = (product: AdminBranchProduct) => {
+        closeAddOnModal();
         setProductModalProductId(product.productId);
         setProductForm(mapProductToForm(product));
         setProductFieldErrors({});
@@ -373,6 +453,22 @@ export default function AdminBranchesPage() {
         setProductFieldErrors({});
         setProductSubmitError("");
         setProductSaving(false);
+        closeAddOnModal();
+    };
+
+    const openAddOnModal = (addOn: AdminBranchProductAddOn) => {
+        setAddOnModalAddOnId(addOn.addOnId);
+        setAddOnForm(mapAddOnToForm(addOn));
+        setAddOnFieldErrors({});
+        setAddOnSubmitError("");
+    };
+
+    const closeAddOnModal = () => {
+        setAddOnModalAddOnId(null);
+        setAddOnForm(null);
+        setAddOnFieldErrors({});
+        setAddOnSubmitError("");
+        setAddOnSaving(false);
     };
 
     const openStockModal = (product?: AdminBranchProduct) => {
@@ -467,6 +563,7 @@ export default function AdminBranchesPage() {
                 supportsRiderDelivery: editForm.supportsRiderDelivery,
                 riderDeliveryFee: parseRequiredNumber(editForm.riderDeliveryFee),
                 operationalNote: editForm.operationalNote.trim() || null,
+                clearOperationalNote: !editForm.operationalNote.trim(),
             };
             const branch = await updateAdminBranch(selectedBranchId, payload);
             setBranches((current) => current.map((item) => (item.id === branch.id ? branch : item)));
@@ -484,6 +581,21 @@ export default function AdminBranchesPage() {
     const handleSaveProduct = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         if (!selectedBranchId || !selectedProduct || !productForm || !canManageStock) return;
+        const nextFieldErrors: FieldErrors = {};
+        if (isInvalidNumberInput(productForm.stockQty)) {
+            nextFieldErrors.stockQty = tx("admin.branches.validation.number");
+        }
+        if (isInvalidNumberInput(productForm.reorderLevel)) {
+            nextFieldErrors.reorderLevel = tx("admin.branches.validation.number");
+        }
+        if (productForm.priceMode === "override" && parseOptionalNumber(productForm.priceOverride) == null) {
+            nextFieldErrors.priceOverride = tx("admin.branches.validation.priceRequired");
+        }
+        if (Object.keys(nextFieldErrors).length > 0) {
+            setProductFieldErrors(nextFieldErrors);
+            setProductSubmitError(tx("admin.branches.validation.summary"));
+            return;
+        }
         setProductSaving(true);
         setProductFieldErrors({});
         setProductSubmitError("");
@@ -494,6 +606,9 @@ export default function AdminBranchesPage() {
                 stockQty: parseOptionalNumber(productForm.stockQty),
                 reorderLevel: parseOptionalNumber(productForm.reorderLevel),
                 availabilityNote: productForm.availabilityNote.trim() || null,
+                clearAvailabilityNote: !productForm.availabilityNote.trim(),
+                priceOverride: productForm.priceMode === "override" ? parseOptionalNumber(productForm.priceOverride) : null,
+                clearPriceOverride: productForm.priceMode === "base",
             };
             const nextProducts = await updateBranchProduct(selectedBranchId, selectedProduct.productId, payload);
             setProducts(nextProducts);
@@ -505,6 +620,43 @@ export default function AdminBranchesPage() {
             setProductSubmitError(parsed.message);
         } finally {
             setProductSaving(false);
+        }
+    };
+
+    const handleSaveAddOn = async (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        if (!selectedBranchId || !selectedProduct || !selectedAddOn || !addOnForm || !canManageStock) return;
+        const nextFieldErrors: FieldErrors = {};
+        if (addOnForm.priceMode === "override" && parseOptionalNumber(addOnForm.priceOverride) == null) {
+            nextFieldErrors.priceOverride = tx("admin.branches.validation.priceRequired");
+        }
+        if (Object.keys(nextFieldErrors).length > 0) {
+            setAddOnFieldErrors(nextFieldErrors);
+            setAddOnSubmitError(tx("admin.branches.validation.summary"));
+            return;
+        }
+        setAddOnSaving(true);
+        setAddOnFieldErrors({});
+        setAddOnSubmitError("");
+        try {
+            const payload: BranchProductAddOnOperationsUpdateRequest = {
+                isEnabled: addOnForm.isEnabled,
+                isTemporarilyClosed: addOnForm.isTemporarilyClosed,
+                availabilityNote: addOnForm.availabilityNote.trim() || null,
+                clearAvailabilityNote: !addOnForm.availabilityNote.trim(),
+                priceOverride: addOnForm.priceMode === "override" ? parseOptionalNumber(addOnForm.priceOverride) : null,
+                clearPriceOverride: addOnForm.priceMode === "base",
+            };
+            const nextProducts = await updateBranchProductAddOn(selectedBranchId, selectedProduct.productId, selectedAddOn.addOnId, payload);
+            setProducts(nextProducts);
+            notify(tx("admin.branches.addOnSaveSuccess"), "success");
+            closeAddOnModal();
+        } catch (error: any) {
+            const parsed = parseApiError(error, tx("admin.branches.addOnSaveError"));
+            setAddOnFieldErrors(parsed.fieldErrors);
+            setAddOnSubmitError(parsed.message);
+        } finally {
+            setAddOnSaving(false);
         }
     };
 
@@ -646,7 +798,7 @@ export default function AdminBranchesPage() {
                                             ) : null}
                                         </div>
                                     </div>
-                                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                                         <div className="rounded-[1.25rem] bg-white p-4">
                                             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{tx("admin.branches.stat.sellable")}</p>
                                             <p className="mt-2 text-2xl font-semibold text-slate-950">{branchStats.sellableCount}</p>
@@ -658,6 +810,10 @@ export default function AdminBranchesPage() {
                                         <div className="rounded-[1.25rem] bg-white p-4">
                                             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{tx("admin.branches.stat.lowStock")}</p>
                                             <p className="mt-2 text-2xl font-semibold text-slate-950">{branchStats.lowStockCount}</p>
+                                        </div>
+                                        <div className="rounded-[1.25rem] bg-white p-4">
+                                            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{tx("admin.branches.stat.addOns")}</p>
+                                            <p className="mt-2 text-2xl font-semibold text-slate-950">{branchStats.addOnCount}</p>
                                         </div>
                                     </div>
                                     <div className="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-2">
@@ -692,13 +848,34 @@ export default function AdminBranchesPage() {
                     title={tx("admin.branches.productsTitle")}
                     description={tx("admin.branches.productsDescription")}
                     actions={
-                        <div className="w-full sm:w-72">
-                            <input
-                                value={productSearch}
-                                onChange={(event) => setProductSearch(event.target.value)}
-                                placeholder={tx("admin.branches.productSearchPlaceholder")}
-                                className={getAdminFieldClass()}
-                            />
+                        <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center xl:justify-end">
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setProductCategoryId("all")}
+                                    className={copyModeButtonClass(productCategoryId === "all")}
+                                >
+                                    {tx("admin.branches.filter.all")}
+                                </button>
+                                {productCategories.map((category) => (
+                                    <button
+                                        key={category.id}
+                                        type="button"
+                                        onClick={() => setProductCategoryId(category.id)}
+                                        className={copyModeButtonClass(productCategoryId === category.id)}
+                                    >
+                                        {category.name}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="w-full xl:w-72">
+                                <input
+                                    value={productSearch}
+                                    onChange={(event) => setProductSearch(event.target.value)}
+                                    placeholder={tx("admin.branches.productSearchPlaceholder")}
+                                    className={getAdminFieldClass()}
+                                />
+                            </div>
                         </div>
                     }
                 >
@@ -717,7 +894,16 @@ export default function AdminBranchesPage() {
                                     <div className="flex items-start justify-between gap-3">
                                         <div>
                                             <p className="text-sm font-semibold text-slate-900">{product.productName}</p>
-                                            <p className="mt-1 text-sm text-slate-500">{formatTHB(product.price)}</p>
+                                            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
+                                                <span className="font-semibold text-slate-900">{formatTHB(product.price)}</span>
+                                                {product.priceOverride != null ? (
+                                                    <span className="text-slate-500">
+                                                        {tx("admin.branches.basePriceLabel")} {formatTHB(product.basePrice)}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-slate-500">{tx("admin.branches.usingBasePrice")}</span>
+                                                )}
+                                            </div>
                                         </div>
                                         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusTone(product.isEnabled && !product.isTemporarilyClosed ? "open" : "closed")}`}>
                                             {statusLabel(product, tx)}
@@ -736,6 +922,31 @@ export default function AdminBranchesPage() {
                                         <p>{tx("admin.branches.stockLabel")}: {product.stockQty ?? "-"}</p>
                                         <p>{tx("admin.branches.reorderLabel")}: {product.reorderLevel ?? "-"}</p>
                                         <p>{tx("admin.branches.lowStockLabel")}: {product.isLowStock ? tx("admin.branches.yes") : tx("admin.branches.no")}</p>
+                                    </div>
+
+                                    <div className="mt-4 rounded-[1.25rem] bg-slate-50 p-3">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <p className="text-sm font-medium text-slate-700">{tx("admin.branches.addOnSummaryTitle")}</p>
+                                            <span className="text-xs font-semibold text-slate-500">
+                                                {tx("admin.branches.addOnCount", { count: product.addOns.length })}
+                                            </span>
+                                        </div>
+                                        {product.addOns.length > 0 ? (
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                {product.addOns.slice(0, 4).map((addOn) => (
+                                                    <span key={addOn.addOnId} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
+                                                        {addOn.name}
+                                                    </span>
+                                                ))}
+                                                {product.addOns.length > 4 ? (
+                                                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
+                                                        {tx("admin.branches.addOnMore", { count: product.addOns.length - 4 })}
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                        ) : (
+                                            <p className="mt-2 text-sm text-slate-500">{tx("admin.branches.addOnEmpty")}</p>
+                                        )}
                                     </div>
 
                                     {product.availabilityNote ? (
@@ -1022,7 +1233,7 @@ export default function AdminBranchesPage() {
                     open={selectedProduct != null && productForm != null}
                     onClose={closeProductModal}
                     title={tx("admin.branches.productModalTitle")}
-                    size="md"
+                    size="lg"
                     footer={
                         <div className="flex flex-wrap items-center justify-end gap-3">
                             <button type="button" onClick={closeProductModal} className={adminButtonSecondaryClass}>
@@ -1046,7 +1257,10 @@ export default function AdminBranchesPage() {
                                 <div className="flex items-start justify-between gap-3">
                                     <div>
                                         <p className="text-base font-semibold text-slate-900">{selectedProduct.productName}</p>
-                                        <p className="mt-1 text-sm text-slate-500">{formatTHB(selectedProduct.price)}</p>
+                                        <div className="mt-1 space-y-1 text-sm text-slate-500">
+                                            <p>{tx("admin.branches.basePriceLabel")} {formatTHB(selectedProduct.basePrice)}</p>
+                                            <p>{tx("admin.branches.effectivePriceLabel")} {formatTHB(selectedProduct.price)}</p>
+                                        </div>
                                     </div>
                                     <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusTone(selectedProduct.isEnabled && !selectedProduct.isTemporarilyClosed ? "open" : "closed")}`}>
                                         {statusLabel(selectedProduct, tx)}
@@ -1054,28 +1268,209 @@ export default function AdminBranchesPage() {
                                 </div>
                             </div>
 
+                            <section className="space-y-4">
+                                <div>
+                                    <h3 className="text-base font-semibold text-slate-900">{tx("admin.branches.productSectionSellability")}</h3>
+                                    <p className={adminFieldHelperClass}>{tx("admin.branches.productSectionSellabilityDescription")}</p>
+                                </div>
+
+                                <div className="grid gap-3 md:grid-cols-2">
+                                    <label className="flex items-center gap-3 rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3">
+                                        <input type="checkbox" checked={productForm.isEnabled} onChange={(event) => setProductForm((current) => current ? { ...current, isEnabled: event.target.checked } : current)} />
+                                        <span className="text-sm font-medium text-slate-700">{tx("admin.branches.field.productEnabled")}</span>
+                                    </label>
+                                    <label className="flex items-center gap-3 rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3">
+                                        <input type="checkbox" checked={productForm.isTemporarilyClosed} onChange={(event) => setProductForm((current) => current ? { ...current, isTemporarilyClosed: event.target.checked } : current)} />
+                                        <span className="text-sm font-medium text-slate-700">{tx("admin.branches.field.productTemporarilyClosed")}</span>
+                                    </label>
+                                </div>
+                            </section>
+
+                            <section className="space-y-4">
+                                <div>
+                                    <h3 className="text-base font-semibold text-slate-900">{tx("admin.branches.productSectionPricing")}</h3>
+                                    <p className={adminFieldHelperClass}>{tx("admin.branches.productSectionPricingDescription")}</p>
+                                </div>
+
+                                <div className="flex flex-wrap gap-3">
+                                    {(["base", "override"] as const).map((mode) => (
+                                        <button
+                                            key={mode}
+                                            type="button"
+                                            onClick={() => setProductForm((current) => current ? { ...current, priceMode: mode } : current)}
+                                            className={copyModeButtonClass(productForm.priceMode === mode)}
+                                        >
+                                            {tx(`admin.branches.priceMode.${mode}`)}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {productForm.priceMode === "override" ? (
+                                    <Field label={tx("admin.branches.field.priceOverride")} error={productFieldErrors.priceOverride} helper={tx("admin.branches.priceOverrideHelper")}>
+                                        <input
+                                            value={productForm.priceOverride}
+                                            onChange={(event) => setProductForm((current) => current ? { ...current, priceOverride: event.target.value } : current)}
+                                            className={getAdminFieldClass(!!productFieldErrors.priceOverride)}
+                                        />
+                                    </Field>
+                                ) : (
+                                    <p className="rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+                                        {tx("admin.branches.usingBasePriceValue", { price: formatTHB(selectedProduct.basePrice) })}
+                                    </p>
+                                )}
+                            </section>
+
+                            <section className="space-y-4">
+                                <div>
+                                    <h3 className="text-base font-semibold text-slate-900">{tx("admin.branches.productSectionStock")}</h3>
+                                    <p className={adminFieldHelperClass}>{tx("admin.branches.productSectionStockDescription")}</p>
+                                </div>
+
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <Field label={tx("admin.branches.field.stockQty")} error={productFieldErrors.stockQty}>
+                                        <input value={productForm.stockQty} onChange={(event) => setProductForm((current) => current ? { ...current, stockQty: event.target.value } : current)} className={getAdminFieldClass(!!productFieldErrors.stockQty)} />
+                                    </Field>
+                                    <Field label={tx("admin.branches.field.reorderLevel")} error={productFieldErrors.reorderLevel}>
+                                        <input value={productForm.reorderLevel} onChange={(event) => setProductForm((current) => current ? { ...current, reorderLevel: event.target.value } : current)} className={getAdminFieldClass(!!productFieldErrors.reorderLevel)} />
+                                    </Field>
+                                </div>
+
+                                <Field label={tx("admin.branches.field.availabilityNote")} helper={tx("admin.branches.availabilityNoteHelper")} error={productFieldErrors.availabilityNote}>
+                                    <textarea value={productForm.availabilityNote} onChange={(event) => setProductForm((current) => current ? { ...current, availabilityNote: event.target.value } : current)} rows={3} className={getAdminFieldClass(!!productFieldErrors.availabilityNote)} />
+                                </Field>
+                            </section>
+
+                            <section className="space-y-4">
+                                <div>
+                                    <h3 className="text-base font-semibold text-slate-900">{tx("admin.branches.productSectionAddOns")}</h3>
+                                    <p className={adminFieldHelperClass}>{tx("admin.branches.productSectionAddOnsDescription")}</p>
+                                </div>
+
+                                {selectedProduct.addOns.length === 0 ? (
+                                    <p className="rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                                        {tx("admin.branches.addOnEmpty")}
+                                    </p>
+                                ) : (
+                                    <div className="grid gap-3">
+                                        {selectedProduct.addOns.map((addOn) => (
+                                            <div key={addOn.addOnId} className="rounded-[1.25rem] border border-slate-200 bg-white p-4">
+                                                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                                    <div>
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <p className="text-sm font-semibold text-slate-900">{addOn.name}</p>
+                                                            <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                                                {addOn.groupName}
+                                                            </span>
+                                                        </div>
+                                                        <div className="mt-2 space-y-1 text-sm text-slate-500">
+                                                            <p>{tx("admin.branches.basePriceLabel")} {formatTHB(addOn.basePrice)}</p>
+                                                            <p>{tx("admin.branches.effectivePriceLabel")} {formatTHB(addOn.price)}</p>
+                                                        </div>
+                                                        {addOn.availabilityNote ? <p className="mt-2 text-sm text-slate-500">{addOn.availabilityNote}</p> : null}
+                                                    </div>
+                                                    <div className="flex flex-col items-start gap-3 md:items-end">
+                                                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusTone(addOn.isEnabled && !addOn.isTemporarilyClosed ? "open" : "closed")}`}>
+                                                            {addOnStatusLabel(addOn, tx)}
+                                                        </span>
+                                                        <button type="button" onClick={() => openAddOnModal(addOn)} className={adminButtonSecondaryClass}>
+                                                            {tx("admin.branches.addOnEditAction")}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </section>
+                        </form>
+                    ) : null}
+                </Modal>
+
+                <Modal
+                    open={selectedAddOn != null && addOnForm != null}
+                    onClose={closeAddOnModal}
+                    title={tx("admin.branches.addOnModalTitle")}
+                    size="md"
+                    footer={
+                        <div className="flex flex-wrap items-center justify-end gap-3">
+                            <button type="button" onClick={closeAddOnModal} className={adminButtonSecondaryClass}>
+                                {tx("common.cancel")}
+                            </button>
+                            <button type="submit" form="add-on-override-form" disabled={addOnSaving} className={adminButtonPrimaryClass}>
+                                {addOnSaving ? tx("common.updating") : tx("admin.branches.addOnSaveAction")}
+                            </button>
+                        </div>
+                    }
+                >
+                    {selectedAddOn && addOnForm ? (
+                        <form id="add-on-override-form" className="space-y-5" onSubmit={handleSaveAddOn}>
+                            {addOnSubmitError ? (
+                                <div className="rounded-[1.5rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                                    {addOnSubmitError}
+                                </div>
+                            ) : null}
+
+                            <div className={adminSurfaceMutedClass}>
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <p className="text-base font-semibold text-slate-900">{selectedAddOn.name}</p>
+                                        <p className="mt-1 text-sm text-slate-500">{selectedProduct?.productName}</p>
+                                    </div>
+                                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusTone(selectedAddOn.isEnabled && !selectedAddOn.isTemporarilyClosed ? "open" : "closed")}`}>
+                                        {addOnStatusLabel(selectedAddOn, tx)}
+                                    </span>
+                                </div>
+                                <div className="mt-3 space-y-1 text-sm text-slate-500">
+                                    <p>{tx("admin.branches.basePriceLabel")} {formatTHB(selectedAddOn.basePrice)}</p>
+                                    <p>{tx("admin.branches.effectivePriceLabel")} {formatTHB(selectedAddOn.price)}</p>
+                                </div>
+                            </div>
+
                             <div className="grid gap-3 md:grid-cols-2">
                                 <label className="flex items-center gap-3 rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3">
-                                    <input type="checkbox" checked={productForm.isEnabled} onChange={(event) => setProductForm((current) => current ? { ...current, isEnabled: event.target.checked } : current)} />
-                                    <span className="text-sm font-medium text-slate-700">{tx("admin.branches.field.productEnabled")}</span>
+                                    <input type="checkbox" checked={addOnForm.isEnabled} onChange={(event) => setAddOnForm((current) => current ? { ...current, isEnabled: event.target.checked } : current)} />
+                                    <span className="text-sm font-medium text-slate-700">{tx("admin.branches.field.addOnEnabled")}</span>
                                 </label>
                                 <label className="flex items-center gap-3 rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3">
-                                    <input type="checkbox" checked={productForm.isTemporarilyClosed} onChange={(event) => setProductForm((current) => current ? { ...current, isTemporarilyClosed: event.target.checked } : current)} />
-                                    <span className="text-sm font-medium text-slate-700">{tx("admin.branches.field.productTemporarilyClosed")}</span>
+                                    <input type="checkbox" checked={addOnForm.isTemporarilyClosed} onChange={(event) => setAddOnForm((current) => current ? { ...current, isTemporarilyClosed: event.target.checked } : current)} />
+                                    <span className="text-sm font-medium text-slate-700">{tx("admin.branches.field.addOnTemporarilyClosed")}</span>
                                 </label>
                             </div>
 
-                            <div className="grid gap-4 md:grid-cols-2">
-                                <Field label={tx("admin.branches.field.stockQty")} error={productFieldErrors.stockQty}>
-                                    <input value={productForm.stockQty} onChange={(event) => setProductForm((current) => current ? { ...current, stockQty: event.target.value } : current)} className={getAdminFieldClass(!!productFieldErrors.stockQty)} />
-                                </Field>
-                                <Field label={tx("admin.branches.field.reorderLevel")} error={productFieldErrors.reorderLevel}>
-                                    <input value={productForm.reorderLevel} onChange={(event) => setProductForm((current) => current ? { ...current, reorderLevel: event.target.value } : current)} className={getAdminFieldClass(!!productFieldErrors.reorderLevel)} />
-                                </Field>
+                            <div className="flex flex-wrap gap-3">
+                                {(["base", "override"] as const).map((mode) => (
+                                    <button
+                                        key={mode}
+                                        type="button"
+                                        onClick={() => setAddOnForm((current) => current ? { ...current, priceMode: mode } : current)}
+                                        className={copyModeButtonClass(addOnForm.priceMode === mode)}
+                                    >
+                                        {tx(`admin.branches.priceMode.${mode}`)}
+                                    </button>
+                                ))}
                             </div>
 
-                            <Field label={tx("admin.branches.field.availabilityNote")} helper={tx("admin.branches.availabilityNoteHelper")}>
-                                <textarea value={productForm.availabilityNote} onChange={(event) => setProductForm((current) => current ? { ...current, availabilityNote: event.target.value } : current)} rows={3} className={getAdminFieldClass(!!productFieldErrors.availabilityNote)} />
+                            {addOnForm.priceMode === "override" ? (
+                                <Field label={tx("admin.branches.field.addOnPriceOverride")} error={addOnFieldErrors.priceOverride} helper={tx("admin.branches.addOnPriceOverrideHelper")}>
+                                    <input
+                                        value={addOnForm.priceOverride}
+                                        onChange={(event) => setAddOnForm((current) => current ? { ...current, priceOverride: event.target.value } : current)}
+                                        className={getAdminFieldClass(!!addOnFieldErrors.priceOverride)}
+                                    />
+                                </Field>
+                            ) : (
+                                <p className="rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+                                    {tx("admin.branches.usingBasePriceValue", { price: formatTHB(selectedAddOn.basePrice) })}
+                                </p>
+                            )}
+
+                            <Field label={tx("admin.branches.field.addOnAvailabilityNote")} helper={tx("admin.branches.addOnAvailabilityNoteHelper")} error={addOnFieldErrors.availabilityNote}>
+                                <textarea
+                                    value={addOnForm.availabilityNote}
+                                    onChange={(event) => setAddOnForm((current) => current ? { ...current, availabilityNote: event.target.value } : current)}
+                                    rows={3}
+                                    className={getAdminFieldClass(!!addOnFieldErrors.availabilityNote)}
+                                />
                             </Field>
                         </form>
                     ) : null}

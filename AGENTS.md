@@ -9,6 +9,33 @@ This repository is now a production-style food ordering platform with two major 
 - customer ordering web app
 - admin and branch operations console
 
+==================================================
+MANDATORY FIRST STEP
+==================================================
+
+Before making any change:
+1. Read `AGENTS.md`
+2. Read all relevant files under `docs/`
+3. Read current checkout/payment/cart flow in frontend and Go backend
+4. Read current SQL migrations under `/sql`
+5. Read current transaction/order schema and any seed/test helpers
+6. Read current admin dashboard/admin role logic
+7. Read current branch role scope logic:
+    - manager_branch
+    - manager
+    - owner
+8. Read current payment detail page, cart drawer, checkout services, and backend checkout transaction flow
+   Treat `AGENTS.md` and `docs/` as the source of truth.
+
+After every meaningful change:
+- update docs
+- update `AGENTS.md`
+- if schema changes, add new versioned SQL under `/sql`
+- if behavior/API changes, update docs and tests
+- if cleanup/migration is needed for stale cart mismatch data, include SQL/scripts and document them
+- do not leave docs stale
+- do not leave data migration unclear
+
 The platform supports:
 
 - mobile-first customer ordering
@@ -19,6 +46,7 @@ The platform supports:
 - admin login with backend-owned sessions
 - employee, attendance, OT, payroll, and branch operations
 - stock-aware menu availability
+- branch-aware add-on sellability and price overrides
 - pluggable payment gateways with Omise first
 - rider-based branch delivery workflow
 
@@ -78,11 +106,14 @@ All schema work lives under `sql/` as versioned migrations:
 - `V5__operations_preset_data.sql`
 - `V6__operations_indexes.sql`
 - `V7__admin_workflows_and_baan_seed.sql`
+- `V8__branch_add_on_controls.sql`
+- `V9__baan_json_preset_seed.sql`
 
 Rules:
 
 - add schema changes only via a new `V*__*.sql`
 - keep seed/preset data deterministic
+- regenerate BAAN preset SQL through `scripts/generate-baan-seed.js` when the source JSON changes
 - update docs whenever tables, indexes, or constraints change
 
 ## Frontend Route Map
@@ -152,6 +183,7 @@ Customer and admin auth/session state are intentionally separate.
 - branch open/close and fulfillment controls
 - branch creation with optional menu copy from an existing branch
 - stock-aware branch product overrides
+- branch-level add-on price and sellability overrides
 - branch-level stock quantity, reorder level, and product temporary closure controls
 - order queue management
 - order detail modal with defensive empty states and backend-shaped item arrays

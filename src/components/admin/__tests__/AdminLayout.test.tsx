@@ -81,6 +81,7 @@ describe("AdminLayout", () => {
         expect(screen.getByText("admin.nav.riders")).toBeInTheDocument();
         expect(screen.queryByText("admin.nav.employees")).not.toBeInTheDocument();
         expect(screen.queryByText("admin.nav.payroll")).not.toBeInTheDocument();
+        expect(screen.getByTestId("admin-sidebar-scroll")).toBeInTheDocument();
     });
 
     it("persists the admin locale switch through router state", async () => {

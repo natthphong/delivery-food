@@ -4,6 +4,7 @@ import { normalizeAdminBranchProduct, normalizeAdminOrder } from "@/services/nor
 import type { ApiResponse } from "@/utils/apiClient";
 import type {
     AdminBranchProduct,
+    BranchProductAddOnOperationsUpdateRequest,
     AdminDashboard,
     AdminPaymentRecord,
     AttendanceCorrectionRequest,
@@ -142,6 +143,14 @@ export async function fetchBranchProducts(branchId: number) {
 export async function updateBranchProduct(branchId: number, productId: number, payload: BranchProductOperationsUpdateRequest) {
     const { data } = await adminAxios.patch<ApiResponse<{ products: AdminBranchProduct[] }>>(
         `/v1/admin/branches/${branchId}/products/${productId}`,
+        payload
+    );
+    return unwrapResponse(data).products.map(normalizeAdminBranchProduct);
+}
+
+export async function updateBranchProductAddOn(branchId: number, productId: number, addOnId: number, payload: BranchProductAddOnOperationsUpdateRequest) {
+    const { data } = await adminAxios.patch<ApiResponse<{ products: AdminBranchProduct[] }>>(
+        `/v1/admin/branches/${branchId}/products/${productId}/add-ons/${addOnId}`,
         payload
     );
     return unwrapResponse(data).products.map(normalizeAdminBranchProduct);

@@ -311,17 +311,22 @@ func (s *Store) GetBranchMenuPage(
 
 	addOnRows, err := s.Pool.Query(ctx, `
 		SELECT
-			product_id,
-			id,
-			group_name,
-			name,
-			price::double precision,
-			is_required,
-			sort_order
-		FROM product_add_ons
-		WHERE product_id = ANY($1)
+			pa.product_id,
+			pa.id,
+			pa.group_name,
+			pa.name,
+			COALESCE(bpa.price_override, pa.price)::double precision,
+			pa.is_required,
+			pa.sort_order
+		FROM product_add_ons pa
+		LEFT JOIN branch_product_add_ons bpa
+			ON bpa.branch_id = $1
+			AND bpa.product_add_on_id = pa.id
+		WHERE pa.product_id = ANY($2)
+			AND COALESCE(bpa.is_enabled, TRUE) = TRUE
+			AND COALESCE(bpa.is_temporarily_closed, FALSE) = FALSE
 		ORDER BY product_id, sort_order, id
-	`, productIDs)
+	`, branchID, productIDs)
 	if err != nil {
 		return model.BranchSummary{}, nil, 0, err
 	}

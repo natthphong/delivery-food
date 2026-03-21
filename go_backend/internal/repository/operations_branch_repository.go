@@ -34,14 +34,27 @@ type BranchOperationsUpdateParams struct {
 	SupportsRiderDelivery *bool
 	RiderDeliveryFee      *float64
 	OperationalNote       *string
+	ClearOperationalNote  bool
 }
 
 type BranchProductOperationsUpdateParams struct {
-	IsEnabled           *bool
-	IsTemporarilyClosed *bool
-	StockQty            *int
-	ReorderLevel        *int
-	AvailabilityNote    *string
+	IsEnabled             *bool
+	IsTemporarilyClosed   *bool
+	StockQty              *int
+	ReorderLevel          *int
+	AvailabilityNote      *string
+	ClearAvailabilityNote bool
+	PriceOverride         *float64
+	ClearPriceOverride    bool
+}
+
+type BranchProductAddOnOperationsUpdateParams struct {
+	IsEnabled             *bool
+	IsTemporarilyClosed   *bool
+	AvailabilityNote      *string
+	ClearAvailabilityNote bool
+	PriceOverride         *float64
+	ClearPriceOverride    bool
 }
 
 func (s *Store) GetDefaultCompanyID(ctx context.Context) (int64, error) {
@@ -127,6 +140,8 @@ func (s *Store) ListAdminBranchProducts(ctx context.Context, branchID int64) ([]
 			p.name,
 			p.image_url,
 			COALESCE(bp.price_override, p.base_price)::double precision,
+			p.base_price::double precision,
+			bp.price_override::double precision,
 			bp.stock_qty,
 			bp.is_enabled,
 			bp.is_temporarily_closed,
@@ -162,6 +177,7 @@ func (s *Store) ListAdminBranchProducts(ctx context.Context, branchID int64) ([]
 	for rows.Next() {
 		var (
 			imageURL         sql.NullString
+			priceOverride    sql.NullFloat64
 			stockQty         sql.NullInt32
 			availabilityNote sql.NullString
 			reorderLevel     sql.NullInt32
@@ -174,6 +190,8 @@ func (s *Store) ListAdminBranchProducts(ctx context.Context, branchID int64) ([]
 			&item.ProductName,
 			&imageURL,
 			&item.Price,
+			&item.BasePrice,
+			&priceOverride,
 			&stockQty,
 			&item.IsEnabled,
 			&item.IsTemporarilyClosed,
@@ -185,6 +203,7 @@ func (s *Store) ListAdminBranchProducts(ctx context.Context, branchID int64) ([]
 			return nil, err
 		}
 		item.ImageURL = nullString(imageURL)
+		item.PriceOverride = nullFloat(priceOverride)
 		item.StockQty = nullInt(stockQty)
 		item.AvailabilityNote = nullString(availabilityNote)
 		item.ReorderLevel = nullInt(reorderLevel)
@@ -193,9 +212,85 @@ func (s *Store) ListAdminBranchProducts(ctx context.Context, branchID int64) ([]
 				return nil, err
 			}
 		}
+		item.AddOns = make([]model.AdminBranchProductAddOn, 0)
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(items) == 0 {
+		return items, nil
+	}
+
+	productIDs := make([]int64, 0, len(items))
+	indexByProductID := make(map[int64]int, len(items))
+	for index := range items {
+		productIDs = append(productIDs, items[index].ProductID)
+		indexByProductID[items[index].ProductID] = index
+	}
+
+	addOnRows, err := s.Pool.Query(ctx, `
+		SELECT
+			pa.product_id,
+			$1::bigint AS branch_id,
+			pa.id,
+			pa.group_name,
+			pa.name,
+			COALESCE(bpa.price_override, pa.price)::double precision,
+			pa.price::double precision,
+			bpa.price_override::double precision,
+			COALESCE(bpa.is_enabled, TRUE),
+			COALESCE(bpa.is_temporarily_closed, FALSE),
+			bpa.availability_note,
+			pa.is_required,
+			pa.sort_order
+		FROM product_add_ons pa
+		LEFT JOIN branch_product_add_ons bpa
+			ON bpa.branch_id = $1
+			AND bpa.product_add_on_id = pa.id
+		WHERE pa.product_id = ANY($2)
+		ORDER BY pa.product_id, pa.group_name, pa.sort_order, pa.id
+	`, branchID, productIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer addOnRows.Close()
+
+	for addOnRows.Next() {
+		var (
+			productID        int64
+			priceOverride    sql.NullFloat64
+			availabilityNote sql.NullString
+			addOn            model.AdminBranchProductAddOn
+		)
+		if err := addOnRows.Scan(
+			&productID,
+			&addOn.BranchID,
+			&addOn.AddOnID,
+			&addOn.GroupName,
+			&addOn.Name,
+			&addOn.Price,
+			&addOn.BasePrice,
+			&priceOverride,
+			&addOn.IsEnabled,
+			&addOn.IsTemporarilyClosed,
+			&availabilityNote,
+			&addOn.IsRequired,
+			&addOn.SortOrder,
+		); err != nil {
+			return nil, err
+		}
+		index, ok := indexByProductID[productID]
+		if !ok {
+			continue
+		}
+		addOn.ProductID = productID
+		addOn.PriceOverride = nullFloat(priceOverride)
+		addOn.AvailabilityNote = nullString(availabilityNote)
+		items[index].AddOns = append(items[index].AddOns, addOn)
+	}
+	return items, addOnRows.Err()
 }
 
 func (s *Store) CreateBranch(ctx context.Context, tx DBTX, params BranchCreateParams) (int64, error) {
@@ -273,19 +368,27 @@ func (s *Store) UpdateBranchOperations(ctx context.Context, tx DBTX, branchID in
 			supports_pickup = COALESCE($5, supports_pickup),
 			supports_rider_delivery = COALESCE($6, supports_rider_delivery),
 			rider_delivery_fee = COALESCE($7, rider_delivery_fee),
-			operational_note = COALESCE($8, operational_note),
+			operational_note = CASE
+				WHEN $9 THEN NULL
+				WHEN $8 IS NOT NULL THEN $8
+				ELSE operational_note
+			END,
 			updated_at = NOW()
 		WHERE id = $1
-	`, branchID, name, params.IsForceClosed, params.AcceptingOrders, params.SupportsPickup, params.SupportsRiderDelivery, riderFee, operationalNote)
+	`, branchID, name, params.IsForceClosed, params.AcceptingOrders, params.SupportsPickup, params.SupportsRiderDelivery, riderFee, operationalNote, params.ClearOperationalNote)
 	return err
 }
 
 func (s *Store) UpdateBranchProductOperations(ctx context.Context, tx DBTX, branchID, productID int64, params BranchProductOperationsUpdateParams) error {
 	var (
+		priceOverride    sql.NullFloat64
 		stockQty         sql.NullInt32
 		reorderLevel     sql.NullInt32
 		availabilityNote sql.NullString
 	)
+	if params.PriceOverride != nil {
+		priceOverride = sql.NullFloat64{Float64: *params.PriceOverride, Valid: true}
+	}
 	if params.StockQty != nil {
 		stockQty = sql.NullInt32{Int32: int32(*params.StockQty), Valid: true}
 	}
@@ -302,11 +405,102 @@ func (s *Store) UpdateBranchProductOperations(ctx context.Context, tx DBTX, bran
 			is_temporarily_closed = COALESCE($4, is_temporarily_closed),
 			stock_qty = COALESCE($5, stock_qty),
 			reorder_level = COALESCE($6, reorder_level),
-			availability_note = COALESCE($7, availability_note),
+			availability_note = CASE
+				WHEN $8 THEN NULL
+				WHEN $7 IS NOT NULL THEN $7
+				ELSE availability_note
+			END,
+			price_override = CASE
+				WHEN $10 THEN NULL
+				WHEN $9 IS NOT NULL THEN $9
+				ELSE price_override
+			END,
 			updated_at = NOW()
 		WHERE branch_id = $1 AND product_id = $2
-	`, branchID, productID, params.IsEnabled, params.IsTemporarilyClosed, stockQty, reorderLevel, availabilityNote)
+	`, branchID, productID, params.IsEnabled, params.IsTemporarilyClosed, stockQty, reorderLevel, availabilityNote, params.ClearAvailabilityNote, priceOverride, params.ClearPriceOverride)
 	return err
+}
+
+func (s *Store) UpdateBranchProductAddOnOperations(ctx context.Context, tx DBTX, branchID, productID, addOnID int64, params BranchProductAddOnOperationsUpdateParams) error {
+	var (
+		priceOverride    sql.NullFloat64
+		availabilityNote sql.NullString
+	)
+	if params.PriceOverride != nil {
+		priceOverride = sql.NullFloat64{Float64: *params.PriceOverride, Valid: true}
+	}
+	if params.AvailabilityNote != nil {
+		availabilityNote = sql.NullString{String: strings.TrimSpace(*params.AvailabilityNote), Valid: strings.TrimSpace(*params.AvailabilityNote) != ""}
+	}
+	tag, err := tx.Exec(ctx, `
+		WITH target AS (
+			SELECT 1
+			FROM product_add_ons pa
+			JOIN branch_products bp
+				ON bp.product_id = pa.product_id
+				AND bp.branch_id = $1
+			WHERE pa.id = $2
+				AND pa.product_id = $3
+		),
+		existing AS (
+			SELECT
+				is_enabled,
+				is_temporarily_closed,
+				price_override,
+				availability_note
+			FROM branch_product_add_ons
+			WHERE branch_id = $1
+				AND product_add_on_id = $2
+		)
+		INSERT INTO branch_product_add_ons (
+			branch_id,
+			product_add_on_id,
+			is_enabled,
+			is_temporarily_closed,
+			price_override,
+			availability_note
+		)
+		SELECT
+			$1,
+			$2,
+			COALESCE($4, existing.is_enabled, TRUE),
+			COALESCE($5, existing.is_temporarily_closed, FALSE),
+			CASE
+				WHEN $8 THEN NULL
+				WHEN $6 IS NOT NULL THEN $6
+				ELSE existing.price_override
+			END,
+			CASE
+				WHEN $9 THEN NULL
+				WHEN $7 IS NOT NULL THEN $7
+				ELSE existing.availability_note
+			END
+		FROM target
+		LEFT JOIN existing ON TRUE
+		)
+		ON CONFLICT (branch_id, product_add_on_id)
+		DO UPDATE SET
+			is_enabled = COALESCE(EXCLUDED.is_enabled, branch_product_add_ons.is_enabled),
+			is_temporarily_closed = COALESCE(EXCLUDED.is_temporarily_closed, branch_product_add_ons.is_temporarily_closed),
+			price_override = CASE
+				WHEN $8 THEN NULL
+				WHEN $6 IS NOT NULL THEN $6
+				ELSE branch_product_add_ons.price_override
+			END,
+			availability_note = CASE
+				WHEN $9 THEN NULL
+				WHEN $7 IS NOT NULL THEN $7
+				ELSE branch_product_add_ons.availability_note
+			END,
+			updated_at = NOW()
+	`, branchID, addOnID, productID, params.IsEnabled, params.IsTemporarilyClosed, priceOverride, availabilityNote, params.ClearPriceOverride, params.ClearAvailabilityNote)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) CopyBranchProducts(ctx context.Context, tx DBTX, sourceBranchID, targetBranchID int64, productIDs []int64) error {
@@ -347,6 +541,40 @@ func (s *Store) CopyBranchProducts(ctx context.Context, tx DBTX, sourceBranchID,
 			is_temporarily_closed = EXCLUDED.is_temporarily_closed,
 			availability_note = EXCLUDED.availability_note,
 			reorder_level = EXCLUDED.reorder_level,
+			updated_at = NOW()
+	`, sourceBranchID, targetBranchID, productIDs)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO branch_product_add_ons (
+			branch_id,
+			product_add_on_id,
+			is_enabled,
+			is_temporarily_closed,
+			price_override,
+			availability_note
+		)
+		SELECT
+			$2,
+			bpa.product_add_on_id,
+			bpa.is_enabled,
+			bpa.is_temporarily_closed,
+			bpa.price_override,
+			bpa.availability_note
+		FROM branch_product_add_ons bpa
+		JOIN product_add_ons pa ON pa.id = bpa.product_add_on_id
+		WHERE bpa.branch_id = $1
+			AND (
+				COALESCE(array_length($3::bigint[], 1), 0) = 0
+				OR pa.product_id = ANY($3)
+			)
+		ON CONFLICT (branch_id, product_add_on_id)
+		DO UPDATE SET
+			is_enabled = EXCLUDED.is_enabled,
+			is_temporarily_closed = EXCLUDED.is_temporarily_closed,
+			price_override = EXCLUDED.price_override,
+			availability_note = EXCLUDED.availability_note,
 			updated_at = NOW()
 	`, sourceBranchID, targetBranchID, productIDs)
 	return err

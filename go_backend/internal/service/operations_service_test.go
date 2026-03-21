@@ -119,3 +119,46 @@ func TestCanCreateBranchRequiresOwnerManagerOrBootstrap(t *testing.T) {
 		})
 	}
 }
+
+func TestScopedBranchIDsRestrictsManagerBranchToAssignedBranches(t *testing.T) {
+	claims := &backendauth.AccessClaims{
+		Roles:     []string{"manager_branch"},
+		BranchIDs: []int64{2, 4},
+	}
+
+	got, err := scopedBranchIDs(claims, []int64{4})
+	if err != nil {
+		t.Fatalf("scopedBranchIDs() unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(got, []int64{4}) {
+		t.Fatalf("scopedBranchIDs() = %v, want [4]", got)
+	}
+
+	if _, err := scopedBranchIDs(claims, []int64{5}); err == nil {
+		t.Fatal("scopedBranchIDs() expected forbidden error for out-of-scope branch")
+	}
+}
+
+func TestScopedBranchIDsAllowsManagerAndBootstrapAcrossBranches(t *testing.T) {
+	manager := &backendauth.AccessClaims{
+		Roles: []string{"manager"},
+	}
+	got, err := scopedBranchIDs(manager, []int64{9})
+	if err != nil {
+		t.Fatalf("manager scopedBranchIDs() unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(got, []int64{9}) {
+		t.Fatalf("manager scopedBranchIDs() = %v, want [9]", got)
+	}
+
+	bootstrap := &backendauth.AccessClaims{
+		ActorType: "bootstrap_admin",
+	}
+	got, err = scopedBranchIDs(bootstrap, []int64{7, 3})
+	if err != nil {
+		t.Fatalf("bootstrap scopedBranchIDs() unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(got, []int64{3, 7}) {
+		t.Fatalf("bootstrap scopedBranchIDs() = %v, want [3 7]", got)
+	}
+}

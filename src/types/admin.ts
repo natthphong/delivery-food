@@ -146,12 +146,30 @@ export type AdminBranchProductCategory = {
     name: string;
 };
 
+export type AdminBranchProductAddOn = {
+    branchId: number;
+    productId: number;
+    addOnId: number;
+    groupName: string;
+    name: string;
+    price: number;
+    basePrice: number;
+    priceOverride?: number | null;
+    isEnabled: boolean;
+    isTemporarilyClosed: boolean;
+    availabilityNote?: string | null;
+    isRequired: boolean;
+    sortOrder: number;
+};
+
 export type AdminBranchProduct = {
     branchId: number;
     productId: number;
     productName: string;
     imageUrl?: string | null;
     price: number;
+    basePrice: number;
+    priceOverride?: number | null;
     stockQty?: number | null;
     isEnabled: boolean;
     isTemporarilyClosed: boolean;
@@ -159,6 +177,7 @@ export type AdminBranchProduct = {
     reorderLevel?: number | null;
     isLowStock: boolean;
     categories: AdminBranchProductCategory[];
+    addOns: AdminBranchProductAddOn[];
 };
 
 export type PaymentProvider = {
@@ -316,6 +335,7 @@ export type BranchOperationsUpdateRequest = {
     supportsRiderDelivery?: boolean;
     riderDeliveryFee?: number;
     operationalNote?: string | null;
+    clearOperationalNote?: boolean;
 };
 
 export type BranchProductOperationsUpdateRequest = {
@@ -324,6 +344,18 @@ export type BranchProductOperationsUpdateRequest = {
     stockQty?: number | null;
     reorderLevel?: number | null;
     availabilityNote?: string | null;
+    clearAvailabilityNote?: boolean;
+    priceOverride?: number | null;
+    clearPriceOverride?: boolean;
+};
+
+export type BranchProductAddOnOperationsUpdateRequest = {
+    isEnabled?: boolean;
+    isTemporarilyClosed?: boolean;
+    availabilityNote?: string | null;
+    clearAvailabilityNote?: boolean;
+    priceOverride?: number | null;
+    clearPriceOverride?: boolean;
 };
 
 export type StockAdjustmentRequest = {

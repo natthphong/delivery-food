@@ -37,7 +37,7 @@ Start with [`AGENTS.md`](./AGENTS.md). It is the repository source of truth.
 - OT request/review
 - payroll settings, periods, and generated entries
 - branch open/close, creation, and menu-copy controls
-- modal-based branch product availability and stock adjustments
+- modal-based branch product pricing, availability, add-on editing, and stock adjustments
 - stock adjustments
 - order queue management with kitchen-ready actions and safe detail rendering
 - rider queue management
@@ -113,6 +113,13 @@ Current migration set:
 - `V5__operations_preset_data.sql`
 - `V6__operations_indexes.sql`
 - `V7__admin_workflows_and_baan_seed.sql`
+- `V8__branch_add_on_controls.sql`
+- `V9__baan_json_preset_seed.sql`
+
+Preset catalog generation:
+
+- source JSON lives in `tmp/baan-branch.json` and `tmp/baan-menu.json`
+- regenerate the committed BAAN preset SQL with `node scripts/generate-baan-seed.js --write sql/V9__baan_json_preset_seed.sql`
 
 ## Local Development
 

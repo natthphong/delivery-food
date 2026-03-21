@@ -1,6 +1,6 @@
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import AdminBranchesPage from "@/pages/admin/branches";
 import auth from "@/store/authSlice";
@@ -14,6 +14,7 @@ const fetchBranchProducts = jest.fn();
 const createAdminBranch = jest.fn();
 const updateAdminBranch = jest.fn();
 const updateBranchProduct = jest.fn();
+const updateBranchProductAddOn = jest.fn();
 const adjustBranchStock = jest.fn();
 
 jest.mock("next/router", () => ({
@@ -81,6 +82,7 @@ jest.mock("@/services/admin", () => ({
     createAdminBranch: (...args: unknown[]) => createAdminBranch(...args),
     updateAdminBranch: (...args: unknown[]) => updateAdminBranch(...args),
     updateBranchProduct: (...args: unknown[]) => updateBranchProduct(...args),
+    updateBranchProductAddOn: (...args: unknown[]) => updateBranchProductAddOn(...args),
     adjustBranchStock: (...args: unknown[]) => adjustBranchStock(...args),
 }));
 
@@ -117,6 +119,8 @@ function makeProduct(productId: number, productName: string, categoryId: number,
         productName,
         imageUrl: null,
         price: 89,
+        basePrice: 89,
+        priceOverride: null,
         stockQty: 8,
         isEnabled: true,
         isTemporarilyClosed: false,
@@ -124,6 +128,23 @@ function makeProduct(productId: number, productName: string, categoryId: number,
         reorderLevel: 4,
         isLowStock: false,
         categories: [{ id: categoryId, name: categoryName }],
+        addOns: [
+            {
+                branchId: 1,
+                productId,
+                addOnId: productId * 10,
+                groupName: "extras",
+                name: "Fried Egg",
+                price: 12,
+                basePrice: 12,
+                priceOverride: null,
+                isEnabled: true,
+                isTemporarilyClosed: false,
+                availabilityNote: null,
+                isRequired: false,
+                sortOrder: 1,
+            },
+        ],
     };
 }
 
@@ -166,6 +187,7 @@ describe("AdminBranchesPage", () => {
         createAdminBranch.mockReset();
         updateAdminBranch.mockReset();
         updateBranchProduct.mockReset();
+        updateBranchProductAddOn.mockReset();
         adjustBranchStock.mockReset();
 
         fetchAdminBranches.mockResolvedValue([makeBranch(1, "Siam"), makeBranch(2, "Ari")]);
@@ -179,6 +201,7 @@ describe("AdminBranchesPage", () => {
             return [makeProduct(11, "Baan Kaprao", 202, "Kaprao")];
         });
         createAdminBranch.mockResolvedValue(makeBranch(3, "New branch"));
+        updateBranchProductAddOn.mockImplementation(async () => [makeProduct(11, "Baan Kaprao", 202, "Kaprao")]);
     });
 
     it("creates a branch with menu copy selections from an existing branch", async () => {
@@ -207,5 +230,32 @@ describe("AdminBranchesPage", () => {
                 productIds: [21],
             })
         );
+    });
+
+    it("updates an add-on override from the product modal", async () => {
+        renderPage();
+
+        await userEvent.click(await screen.findByRole("button", { name: "admin.branches.productEditAction" }));
+        await userEvent.click(await screen.findByRole("button", { name: "admin.branches.addOnEditAction" }));
+        const addOnModal = await screen.findByText("admin.branches.addOnModalTitle");
+        const addOnScope = within(addOnModal.parentElement as HTMLElement);
+
+        await userEvent.click(addOnScope.getByRole("button", { name: "admin.branches.priceMode.override" }));
+        const addOnPriceInput = addOnScope.getAllByRole("textbox")[0];
+        await userEvent.clear(addOnPriceInput);
+        await userEvent.type(addOnPriceInput, "18");
+        await userEvent.click(addOnScope.getAllByRole("checkbox")[1]);
+        await userEvent.click(addOnScope.getByRole("button", { name: "admin.branches.addOnSaveAction" }));
+
+        await waitFor(() => expect(updateBranchProductAddOn).toHaveBeenCalledWith(
+            1,
+            11,
+            110,
+            expect.objectContaining({
+                priceOverride: 18,
+                clearPriceOverride: false,
+                isTemporarilyClosed: true,
+            })
+        ));
     });
 });

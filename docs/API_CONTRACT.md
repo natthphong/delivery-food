@@ -352,6 +352,7 @@ Returns normalized admin session:
 - `PATCH /v1/admin/branches/{id}`
 - `GET /v1/admin/branches/{id}/products`
 - `PATCH /v1/admin/branches/{id}/products/{productId}`
+- `PATCH /v1/admin/branches/{id}/products/{productId}/add-ons/{addOnId}`
 - `POST /v1/admin/branches/{id}/stock`
 
 `POST /v1/admin/branches` supports:
@@ -371,6 +372,24 @@ Returns normalized admin session:
 - `stockQty`
 - `reorderLevel`
 - `availabilityNote`
+- `clearAvailabilityNote`
+- `priceOverride`
+- `clearPriceOverride`
+
+`GET /v1/admin/branches/{id}/products` returns:
+
+- product `basePrice`
+- product `priceOverride`
+- nested `addOns` with effective/base pricing and current branch sellability state
+
+`PATCH /v1/admin/branches/{id}/products/{productId}/add-ons/{addOnId}` supports:
+
+- `isEnabled`
+- `isTemporarilyClosed`
+- `availabilityNote`
+- `clearAvailabilityNote`
+- `priceOverride`
+- `clearPriceOverride`
 
 `POST /v1/admin/branches/{id}/stock` request:
 

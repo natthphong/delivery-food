@@ -1,4 +1,4 @@
-import { normalizeCart, normalizeOrder } from "@/services/normalizers";
+import { normalizeAdminBranchProduct, normalizeCart, normalizeOrder } from "@/services/normalizers";
 
 describe("normalizers", () => {
     it("normalizes null cart item add-ons into empty arrays", () => {
@@ -69,5 +69,29 @@ describe("normalizers", () => {
         } as any);
 
         expect(order.items[0].addOns).toEqual([]);
+    });
+
+    it("normalizes admin branch product add-ons and base price defaults", () => {
+        const product = normalizeAdminBranchProduct({
+            branchId: 1,
+            productId: 10,
+            productName: "Kaprao",
+            imageUrl: null,
+            price: 95,
+            basePrice: undefined,
+            priceOverride: null,
+            stockQty: 8,
+            isEnabled: true,
+            isTemporarilyClosed: false,
+            availabilityNote: null,
+            reorderLevel: 4,
+            isLowStock: false,
+            categories: null,
+            addOns: null,
+        } as any);
+
+        expect(product.basePrice).toBe(95);
+        expect(product.categories).toEqual([]);
+        expect(product.addOns).toEqual([]);
     });
 });

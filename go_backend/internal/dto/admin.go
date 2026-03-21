@@ -82,6 +82,7 @@ type BranchOperationsUpdateRequest struct {
 	SupportsRiderDelivery *bool    `json:"supportsRiderDelivery"`
 	RiderDeliveryFee      *float64 `json:"riderDeliveryFee"`
 	OperationalNote       *string  `json:"operationalNote"`
+	ClearOperationalNote  bool     `json:"clearOperationalNote"`
 }
 
 type BranchCreateRequest struct {
@@ -105,11 +106,23 @@ type BranchCreateRequest struct {
 }
 
 type BranchProductOperationsUpdateRequest struct {
-	IsEnabled           *bool   `json:"isEnabled"`
-	IsTemporarilyClosed *bool   `json:"isTemporarilyClosed"`
-	StockQty            *int    `json:"stockQty"`
-	ReorderLevel        *int    `json:"reorderLevel"`
-	AvailabilityNote    *string `json:"availabilityNote"`
+	IsEnabled             *bool    `json:"isEnabled"`
+	IsTemporarilyClosed   *bool    `json:"isTemporarilyClosed"`
+	StockQty              *int     `json:"stockQty"`
+	ReorderLevel          *int     `json:"reorderLevel"`
+	AvailabilityNote      *string  `json:"availabilityNote"`
+	ClearAvailabilityNote bool     `json:"clearAvailabilityNote"`
+	PriceOverride         *float64 `json:"priceOverride"`
+	ClearPriceOverride    bool     `json:"clearPriceOverride"`
+}
+
+type BranchProductAddOnOperationsUpdateRequest struct {
+	IsEnabled             *bool    `json:"isEnabled"`
+	IsTemporarilyClosed   *bool    `json:"isTemporarilyClosed"`
+	AvailabilityNote      *string  `json:"availabilityNote"`
+	ClearAvailabilityNote bool     `json:"clearAvailabilityNote"`
+	PriceOverride         *float64 `json:"priceOverride"`
+	ClearPriceOverride    bool     `json:"clearPriceOverride"`
 }
 
 type StockAdjustmentRequest struct {

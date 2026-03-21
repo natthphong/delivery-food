@@ -362,6 +362,28 @@ func (h *OperationsHandler) BranchRoutes(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		httpapi.WriteOK(w, map[string]any{"products": items})
+	case r.Method == http.MethodPatch && len(parts) == 5 && parts[1] == "products" && parts[3] == "add-ons":
+		productID, err := parsePathID(parts[2])
+		if err != nil {
+			httpapi.WriteError(w, err)
+			return
+		}
+		addOnID, err := parsePathID(parts[4])
+		if err != nil {
+			httpapi.WriteError(w, err)
+			return
+		}
+		var request dto.BranchProductAddOnOperationsUpdateRequest
+		if err := httpapi.DecodeJSON(r, &request); err != nil {
+			httpapi.WriteError(w, err)
+			return
+		}
+		items, err := h.service.UpdateBranchProductAddOn(r.Context(), claims, branchID, productID, addOnID, request)
+		if err != nil {
+			httpapi.WriteError(w, err)
+			return
+		}
+		httpapi.WriteOK(w, map[string]any{"products": items})
 	case r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "stock":
 		var request dto.StockAdjustmentRequest
 		if err := httpapi.DecodeJSON(r, &request); err != nil {

@@ -36,6 +36,7 @@ The repository preserves a strict split:
 - attendance rules
 - stock validation
 - branch cloning/menu copy workflows
+- branch-level product and add-on pricing / sellability overrides
 - order status transitions and allowed-action calculation
 - rider job status changes
 - SQL query design
@@ -104,6 +105,8 @@ Important operational guardrails:
 
 - owner/bootstrap admin/manager can create branches
 - branch-scoped users cannot create branches outside their role allowance
+- owner/manager can manage branch controls across broader scope
+- manager_branch can manage only the branches inside `branchIds`, including branch open/close, fulfillment toggles, branch-product overrides, and branch add-on overrides
 - admin order actions are rendered from backend-computed `allowedStatuses`
 - order detail is shaped in Go so `items` is always an array
 
@@ -150,10 +153,12 @@ Important patterns already implemented:
 
 - branch search uses joined/lateral SQL to avoid frontend fan-out
 - branch menu batches add-ons after paged product reads
+- customer catalog and cart reads apply branch add-on override state and effective pricing in SQL-backed backend reads
 - cart is grouped by branch server-side
 - checkout validates sellable state and commits transaction/order/cart changes in one DB transaction
 - payroll generation computes from attendance + OT + pay model in backend
 - branch creation can copy all or selected source-branch menu items within backend workflow rules
+- BAAN preset data is generated from committed JSON source files through `scripts/generate-baan-seed.js` and committed as versioned SQL
 - admin order detail uses a dedicated read path and normalizes empty item collections
 - rider job changes sync order status in the same transaction
 
