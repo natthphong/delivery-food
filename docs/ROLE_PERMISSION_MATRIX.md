@@ -33,10 +33,12 @@
 - order management
 - rider queue read
 - payment read
+- no branch-creation workflow
 
 ### `manager`
 
 - manager_branch capabilities across broader scope
+- branch creation and branch menu-copy workflow
 
 ### `owner`
 
@@ -45,6 +47,7 @@
 - payroll manage
 - payments manage
 - settings manage
+- branch creation and branch menu-copy workflow
 
 ## Source Of Truth
 
@@ -53,3 +56,9 @@ The canonical permission seeds live in:
 - `sql/V5__operations_preset_data.sql`
 
 The backend enforces permissions from JWT/admin claims, not from frontend UI visibility.
+
+Additional service-level rules:
+
+- frontend navigation hides unavailable actions for convenience only
+- backend validates branch scope before reads/writes
+- backend validates order status transitions and returns only allowed next actions to the admin UI

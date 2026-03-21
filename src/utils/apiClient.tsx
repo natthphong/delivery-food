@@ -3,7 +3,11 @@ import Axios from "axios";
 import Router from "next/router";
 import { store } from "@/store";
 import { setTokens, logout } from "@/store/authSlice";
-import { saveTokens } from "@utils/tokenStorage";
+import { clearCart, clearConfig, clearTokens, clearUser, saveTokens } from "@utils/tokenStorage";
+import { clearCart as clearCartState } from "@/store/cartSlice";
+import { clearConfig as clearConfigState } from "@/store/configSlice";
+import { notify } from "@/utils/notify";
+import { t } from "@/utils/i18n";
 
 export type ApiResponse<T> = { code: string; message: string; body: T };
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
@@ -15,10 +19,48 @@ const axios = Axios.create({
 
 let isRefreshing = false;
 let queue: Array<(t: string | null) => void> = [];
+let lastSessionExpiredNoticeAt = 0;
 const flush = (t: string | null) => {
     queue.forEach((fn) => fn(t));
     queue = [];
 };
+
+function getRequestPath(config: any): string {
+    const rawUrl = typeof config?.url === "string" ? config.url : "";
+    if (!rawUrl) return "";
+    if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
+        try {
+            return new URL(rawUrl).pathname;
+        } catch {
+            return rawUrl;
+        }
+    }
+    return rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`;
+}
+
+function isAuthRequest(config: any) {
+    const path = getRequestPath(config);
+    return path === "/v1/auth/login" || path === "/v1/auth/refresh";
+}
+
+function clearCustomerState() {
+    store.dispatch(logout());
+    store.dispatch(clearCartState());
+    store.dispatch(clearConfigState());
+    clearTokens();
+    clearUser();
+    clearCart();
+    clearConfig();
+}
+
+function notifySessionExpired() {
+    const now = Date.now();
+    if (now - lastSessionExpiredNoticeAt < 3000) {
+        return;
+    }
+    lastSessionExpiredNoticeAt = now;
+    notify(t("common.errors.sessionExpired" as any), "warning");
+}
 
 axios.interceptors.request.use((config) => {
     const token = store.getState().auth.accessToken;
@@ -36,8 +78,8 @@ axios.interceptors.response.use(
         const status = response?.status;
         const original = config;
 
-        const isJwtError = status === 401 || status === 400;
-        if (isJwtError && !original._retry) {
+        const isJwtError = status === 401;
+        if (isJwtError && original && !original._retry && !isAuthRequest(original)) {
             original._retry = true;
 
             if (!isRefreshing) {
@@ -52,6 +94,7 @@ axios.interceptors.response.use(
                     if (!tokens?.accessToken || !tokens?.refreshToken) {
                         throw new Error("Invalid refresh response");
                     }
+                    lastSessionExpiredNoticeAt = 0;
                     store.dispatch(setTokens(tokens));
                     saveTokens(tokens);
                     isRefreshing = false;
@@ -64,8 +107,11 @@ axios.interceptors.response.use(
                 } catch {
                     isRefreshing = false;
                     flush(null);
-                    store.dispatch(logout());
-                    Router.replace("/login");
+                    clearCustomerState();
+                    notifySessionExpired();
+                    if (Router.pathname !== "/login") {
+                        void Router.replace("/login");
+                    }
                     return Promise.reject(error);
                 }
             }
@@ -73,8 +119,10 @@ axios.interceptors.response.use(
             return new Promise((resolve, reject) => {
                 queue.push((token) => {
                     if (!token) {
-                        store.dispatch(logout());
-                        Router.replace("/login");
+                        clearCustomerState();
+                        if (Router.pathname !== "/login") {
+                            void Router.replace("/login");
+                        }
                         return reject(error);
                     }
                     original.headers = {

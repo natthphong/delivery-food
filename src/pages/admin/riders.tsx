@@ -15,8 +15,11 @@ import { notify } from "@/utils/notify";
 import { formatTHB } from "@/utils/currency";
 import { claimRiderJob, fetchRiderJobs, updateRiderJobStatus } from "@/services/admin";
 import type { DeliveryJob } from "@/types/admin";
+import { useI18n } from "@/utils/i18n";
+import { parseApiError } from "@/utils/apiErrors";
 
 export default function AdminRidersPage() {
+    const { t } = useI18n();
     const session = useAppSelector((state) => state.adminAuth.session);
     const canRead = hasAnyAdminPermission(session, ["rider.jobs.read", "rider.jobs.claim", "orders.manage"]);
     const canClaim = hasAdminPermission(session, "rider.jobs.claim");
@@ -55,9 +58,9 @@ export default function AdminRidersPage() {
             const updated = await claimRiderJob(selectedJob.id);
             setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
             setSelectedJobId(updated.id);
-            notify("Rider job claimed.", "success");
+            notify(t("common.notifications.claimed" as any), "success");
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || "Unable to claim rider job.", "error");
+            notify(parseApiError(error, t("common.errors.riderClaimFailed" as any)).message, "error");
         }
     };
 
@@ -68,9 +71,9 @@ export default function AdminRidersPage() {
             const updated = await updateRiderJobStatus(selectedJob.id, { status: nextStatus, failedReason });
             setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
             setSelectedJobId(updated.id);
-            notify("Rider job updated.", "success");
+            notify(t("common.notifications.updated" as any), "success");
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || "Unable to update rider job.", "error");
+            notify(parseApiError(error, t("common.errors.riderUpdateFailed" as any)).message, "error");
         }
     };
 

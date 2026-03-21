@@ -5,6 +5,8 @@ import { adminLogout, setAdminSession, setAdminTokens } from "@/store/adminAuthS
 import { clearAdminSession, clearAdminTokens, saveAdminSession, saveAdminTokens } from "@/utils/tokenStorage";
 import type { ApiResponse } from "@/utils/apiClient";
 import type { AdminSession } from "@/types/admin";
+import { notify } from "@/utils/notify";
+import { t } from "@/utils/i18n";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
 
@@ -15,6 +17,7 @@ const adminAxios = Axios.create({
 
 let isRefreshing = false;
 let queue: Array<(token: string | null) => void> = [];
+let lastSessionExpiredNoticeAt = 0;
 
 function flush(token: string | null) {
     queue.forEach((resolver) => resolver(token));
@@ -25,6 +28,33 @@ function clearAdminState() {
     store.dispatch(adminLogout());
     clearAdminTokens();
     clearAdminSession();
+}
+
+function getRequestPath(config: any): string {
+    const rawUrl = typeof config?.url === "string" ? config.url : "";
+    if (!rawUrl) return "";
+    if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
+        try {
+            return new URL(rawUrl).pathname;
+        } catch {
+            return rawUrl;
+        }
+    }
+    return rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`;
+}
+
+function isAdminAuthRequest(config: any) {
+    const path = getRequestPath(config);
+    return path === "/v1/admin/auth/login" || path === "/v1/admin/auth/refresh";
+}
+
+function notifySessionExpired() {
+    const now = Date.now();
+    if (now - lastSessionExpiredNoticeAt < 3000) {
+        return;
+    }
+    lastSessionExpiredNoticeAt = now;
+    notify(t("common.errors.sessionExpired" as any), "warning");
 }
 
 adminAxios.interceptors.request.use((config) => {
@@ -42,7 +72,7 @@ adminAxios.interceptors.response.use(
         const { response, config } = error || {};
         const original = config;
         const status = response?.status;
-        if ((status === 401 || status === 400) && original && !original._retry) {
+        if (status === 401 && original && !original._retry && !isAdminAuthRequest(original)) {
             original._retry = true;
             if (!isRefreshing) {
                 isRefreshing = true;
@@ -59,6 +89,7 @@ adminAxios.interceptors.response.use(
                     if (!payload?.accessToken || !payload?.refreshToken) {
                         throw new Error("invalid_refresh_response");
                     }
+                    lastSessionExpiredNoticeAt = 0;
                     store.dispatch(setAdminTokens({ accessToken: payload.accessToken, refreshToken: payload.refreshToken }));
                     if (payload.session) {
                         store.dispatch(setAdminSession(payload.session));
@@ -76,7 +107,10 @@ adminAxios.interceptors.response.use(
                     isRefreshing = false;
                     flush(null);
                     clearAdminState();
-                    void Router.replace("/admin/login");
+                    notifySessionExpired();
+                    if (Router.pathname !== "/admin/login") {
+                        void Router.replace("/admin/login");
+                    }
                     return Promise.reject(error);
                 }
             }
@@ -85,7 +119,9 @@ adminAxios.interceptors.response.use(
                 queue.push((token) => {
                     if (!token) {
                         clearAdminState();
-                        void Router.replace("/admin/login");
+                        if (Router.pathname !== "/admin/login") {
+                            void Router.replace("/admin/login");
+                        }
                         reject(error);
                         return;
                     }

@@ -9,6 +9,7 @@
 - `V4__operations_schema.sql`
 - `V5__operations_preset_data.sql`
 - `V6__operations_indexes.sql`
+- `V7__admin_workflows_and_baan_seed.sql`
 
 ## Domain Groups
 
@@ -128,12 +129,15 @@ Current payment hardening reuses these existing fields:
 - rider delivery fee is non-negative
 - reorder level is non-negative when present
 - transaction and order statuses are constrained
+- order status constraint now includes `READY`
 
 ## Preset Data
 
 Preset migrations provide:
 
 - demo catalog + branches
+- BAAN-menu-inspired category/product/add-on refresh for local development
+- per-branch menu availability and stock presets for the seeded branches
 - operational configs
 - role and permission matrix
 - payroll default settings

@@ -10,6 +10,7 @@ import { formatTHB } from "@/utils/currency";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import { notify } from "@/utils/notify";
+import { parseApiError } from "@/utils/apiErrors";
 
 type CartDrawerProps = {
     open: boolean;
@@ -59,7 +60,7 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
             const nextCart = await updateCartItem(itemId, quantity);
             dispatch(setCart(nextCart));
         } catch (error: any) {
-            const message = error?.response?.data?.message || error?.message || t(I18N_KEYS.CART_UPDATE_ERROR);
+            const message = parseApiError(error, t(I18N_KEYS.CART_UPDATE_ERROR)).message;
             if (typeof error?.response?.status === "number" && (error.response.status === 404 || error.response.status === 409)) {
                 await syncCartFromServer().catch(() => undefined);
             }
@@ -76,7 +77,7 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
             dispatch(setCart(nextCart));
             setSelectedIds((current) => current.filter((id) => id !== itemId));
         } catch (error: any) {
-            const message = error?.response?.data?.message || error?.message || t(I18N_KEYS.CART_UPDATE_ERROR);
+            const message = parseApiError(error, t(I18N_KEYS.CART_UPDATE_ERROR)).message;
             if (typeof error?.response?.status === "number" && (error.response.status === 404 || error.response.status === 409)) {
                 await syncCartFromServer().catch(() => undefined);
             }
@@ -98,7 +99,7 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                 return current.filter((id) => !branchItemIds.has(id));
             });
         } catch (error: any) {
-            const message = error?.response?.data?.message || error?.message || t(I18N_KEYS.CART_UPDATE_ERROR);
+            const message = parseApiError(error, t(I18N_KEYS.CART_UPDATE_ERROR)).message;
             if (typeof error?.response?.status === "number" && (error.response.status === 404 || error.response.status === 409)) {
                 await syncCartFromServer().catch(() => undefined);
             }
@@ -196,6 +197,7 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                                     <ul className="mt-4 space-y-3">
                                         {group.items.map((item) => {
                                             const checked = selectedIds.includes(item.id);
+                                            const addOns = Array.isArray(item.addOns) ? item.addOns : [];
                                             return (
                                                 <li key={item.id} className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
                                                     <div className="flex gap-3">
@@ -220,9 +222,9 @@ export default function CartDrawer({ open, onClose }: CartDrawerProps) {
                                                             <div className="flex items-start justify-between gap-3">
                                                                 <div>
                                                                     <p className="text-sm font-semibold text-slate-900">{item.productName}</p>
-                                                                    {item.addOns.length > 0 ? (
+                                                                    {addOns.length > 0 ? (
                                                                         <p className="mt-1 text-xs text-slate-500">
-                                                                            {item.addOns.map((addOn) => addOn.name).join(", ")}
+                                                                            {addOns.map((addOn) => addOn.name).join(", ")}
                                                                         </p>
                                                                     ) : null}
                                                                 </div>

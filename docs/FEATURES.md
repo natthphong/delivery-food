@@ -6,6 +6,8 @@
 
 - Firebase login
 - LINE LIFF login
+- dedicated login/signup screens with the shared app locale switch
+- minimal LINE callback handoff screen without the customer navbar
 - access token + refresh token session flow
 - bootstrap hydration from `/v1/bootstrap`
 - backend email verification link flow
@@ -35,6 +37,7 @@
 ### Customer account
 
 - profile editing
+- shared localized error feedback for profile/account actions
 - wallet balance display
 - transaction history
 - order history with fulfillment and rider status detail
@@ -47,6 +50,7 @@
 - owner bootstrap login from environment credentials
 - staff account login backed by `staff_accounts`
 - dedicated admin refresh tokens and admin session scope
+- admin Thai/English locale switch using the shared frontend i18n store
 
 ### Roles and permissions
 
@@ -62,6 +66,7 @@ Role-aware menus exist in the frontend, but Go remains authoritative for access 
 
 - create employee
 - edit employee
+- modal-based employee entry with inline field validation and submit-level error feedback
 - activate/deactivate employee
 - assign roles
 - assign one or more branches
@@ -92,15 +97,18 @@ Role-aware menus exist in the frontend, but Go remains authoritative for access 
 - accepting orders toggle
 - pickup / rider-delivery enablement
 - rider delivery fee configuration
+- create branch with copy-all or copy-selected menu flow from another branch
 - branch product enable/disable
 - temporary product closure
 - stock quantity and reorder level
 - stock movement recording
+- cleaner branch/product editing through modal workflows
 
 ### Orders, riders, and payments
 
 - branch order queue view
-- order status updates
+- safe order detail inspection with empty/fallback states
+- order status updates including kitchen `READY` handoff
 - rider job queue
 - rider claim and delivery status progression
 - payment records
@@ -114,6 +122,7 @@ Preset data includes:
 
 - demo company
 - demo catalog and branches
+- BAAN-menu-inspired categories, products, images, and branch menu availability
 - role and permission matrix
 - payroll defaults
 - Omise payment provider

@@ -141,6 +141,11 @@ export type BranchStockMovement = {
     createdAt: string;
 };
 
+export type AdminBranchProductCategory = {
+    id: number;
+    name: string;
+};
+
 export type AdminBranchProduct = {
     branchId: number;
     productId: number;
@@ -153,6 +158,7 @@ export type AdminBranchProduct = {
     availabilityNote?: string | null;
     reorderLevel?: number | null;
     isLowStock: boolean;
+    categories: AdminBranchProductCategory[];
 };
 
 export type PaymentProvider = {
@@ -242,6 +248,26 @@ export type EmployeeUpsertRequest = {
     username?: string | null;
     password?: string | null;
     mustResetPassword: boolean;
+};
+
+export type BranchCreateRequest = {
+    slug?: string | null;
+    name: string;
+    description?: string | null;
+    imageUrl?: string | null;
+    addressLine?: string | null;
+    lat?: number | null;
+    lng?: number | null;
+    isForceClosed: boolean;
+    acceptingOrders: boolean;
+    supportsPickup: boolean;
+    supportsRiderDelivery: boolean;
+    riderDeliveryFee: number;
+    operationalNote?: string | null;
+    copyFromBranchId?: number | null;
+    copyMode: "none" | "all" | "selected";
+    categoryIds: number[];
+    productIds: number[];
 };
 
 export type AttendanceCorrectionRequest = {

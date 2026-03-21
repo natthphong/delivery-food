@@ -287,16 +287,29 @@ func (h *OperationsHandler) PayrollPeriodRoutes(w http.ResponseWriter, r *http.R
 
 func (h *OperationsHandler) Branches(w http.ResponseWriter, r *http.Request) {
 	claims, _ := middleware.ClaimsFromContext(r.Context())
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		items, err := h.service.ListBranches(r.Context(), claims)
+		if err != nil {
+			httpapi.WriteError(w, err)
+			return
+		}
+		httpapi.WriteOK(w, map[string]any{"branches": items})
+	case http.MethodPost:
+		var request dto.BranchCreateRequest
+		if err := httpapi.DecodeJSON(r, &request); err != nil {
+			httpapi.WriteError(w, err)
+			return
+		}
+		item, err := h.service.CreateBranch(r.Context(), claims, request)
+		if err != nil {
+			httpapi.WriteError(w, err)
+			return
+		}
+		httpapi.WriteOK(w, map[string]any{"branch": item})
+	default:
 		httpapi.WriteError(w, apperror.NotFound("route not found"))
-		return
 	}
-	items, err := h.service.ListBranches(r.Context(), claims)
-	if err != nil {
-		httpapi.WriteError(w, err)
-		return
-	}
-	httpapi.WriteOK(w, map[string]any{"branches": items})
 }
 
 func (h *OperationsHandler) BranchRoutes(w http.ResponseWriter, r *http.Request) {
@@ -384,7 +397,7 @@ func (h *OperationsHandler) OrderRoutes(w http.ResponseWriter, r *http.Request) 
 	claims, _ := middleware.ClaimsFromContext(r.Context())
 	path := strings.TrimPrefix(r.URL.Path, "/v1/admin/orders/")
 	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) != 2 || parts[1] != "status" {
+	if len(parts) < 1 || parts[0] == "" {
 		httpapi.WriteError(w, apperror.NotFound("route not found"))
 		return
 	}
@@ -393,20 +406,28 @@ func (h *OperationsHandler) OrderRoutes(w http.ResponseWriter, r *http.Request) 
 		httpapi.WriteError(w, err)
 		return
 	}
-	if r.Method != http.MethodPatch {
+	switch {
+	case r.Method == http.MethodGet && len(parts) == 1:
+		item, err := h.service.GetOrderDetail(r.Context(), claims, orderID)
+		if err != nil {
+			httpapi.WriteError(w, err)
+			return
+		}
+		httpapi.WriteOK(w, map[string]any{"order": item})
+	case r.Method == http.MethodPatch && len(parts) == 2 && parts[1] == "status":
+		var request dto.OrderStatusUpdateRequest
+		if err := httpapi.DecodeJSON(r, &request); err != nil {
+			httpapi.WriteError(w, err)
+			return
+		}
+		if err := h.service.UpdateOrderStatus(r.Context(), claims, orderID, request); err != nil {
+			httpapi.WriteError(w, err)
+			return
+		}
+		httpapi.WriteOK(w, map[string]any{"updated": true})
+	default:
 		httpapi.WriteError(w, apperror.NotFound("route not found"))
-		return
 	}
-	var request dto.OrderStatusUpdateRequest
-	if err := httpapi.DecodeJSON(r, &request); err != nil {
-		httpapi.WriteError(w, err)
-		return
-	}
-	if err := h.service.UpdateOrderStatus(r.Context(), claims, orderID, request); err != nil {
-		httpapi.WriteError(w, err)
-		return
-	}
-	httpapi.WriteOK(w, map[string]any{"updated": true})
 }
 
 func (h *OperationsHandler) RiderJobs(w http.ResponseWriter, r *http.Request) {

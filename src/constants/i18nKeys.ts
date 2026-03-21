@@ -366,6 +366,7 @@ export const I18N_KEYS = {
     PAYMENT_ORDER_TITLE: "payment.order.title",
     ORDER_STATUS_PENDING: "order.status.pending",
     ORDER_STATUS_PREPARE: "order.status.prepare",
+    ORDER_STATUS_READY: "order.status.ready",
     ORDER_STATUS_DELIVERY: "order.status.delivery",
     ORDER_STATUS_COMPLETED: "order.status.completed",
     ORDER_STATUS_REJECTED: "order.status.rejected",

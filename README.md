@@ -24,6 +24,9 @@ Start with [`AGENTS.md`](./AGENTS.md). It is the repository source of truth.
 - pickup and rider delivery
 - wallet and Omise PromptPay payment flows
 - expired-payment retry flow and backend email verification
+- dedicated `/login` and `/signup` screens with shared TH/EN locale switching
+- LINE callback handoff on `/web-hook-line` with a minimal auth shell and SSR-safe locale boot
+- shared localized error handling instead of raw backend error text in normal flows
 - account, order history, and transaction history
 
 ### Admin / operations
@@ -33,11 +36,13 @@ Start with [`AGENTS.md`](./AGENTS.md). It is the repository source of truth.
 - attendance clocking and corrections
 - OT request/review
 - payroll settings, periods, and generated entries
-- branch open/close and menu availability controls
+- branch open/close, creation, and menu-copy controls
+- modal-based branch product availability and stock adjustments
 - stock adjustments
-- order queue management
+- order queue management with kitchen-ready actions and safe detail rendering
 - rider queue management
 - payment/provider/webhook visibility
+- admin locale switch with shared app i18n persistence
 - Resend email notifications and LINE order notifications
 
 ## Architecture
@@ -107,6 +112,7 @@ Current migration set:
 - `V4__operations_schema.sql`
 - `V5__operations_preset_data.sql`
 - `V6__operations_indexes.sql`
+- `V7__admin_workflows_and_baan_seed.sql`
 
 ## Local Development
 
@@ -172,5 +178,6 @@ npm run verify
 - [`docs/EMPLOYEE_PAYROLL.md`](./docs/EMPLOYEE_PAYROLL.md)
 - [`docs/PAYMENT_GATEWAYS.md`](./docs/PAYMENT_GATEWAYS.md)
 - [`docs/NOTIFICATIONS.md`](./docs/NOTIFICATIONS.md)
+- [`docs/PRESET_DATA.md`](./docs/PRESET_DATA.md)
 - [`docs/RIDER_DELIVERY.md`](./docs/RIDER_DELIVERY.md)
 - [`docs/ROLE_PERMISSION_MATRIX.md`](./docs/ROLE_PERMISSION_MATRIX.md)

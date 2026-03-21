@@ -337,6 +337,7 @@ func (s *Store) GetCart(ctx context.Context, userID int64) (model.Cart, error) {
 		}
 		item.ImageURL = nullString(productImage)
 		item.StockQty = nullInt(stockQty)
+		item.AddOns = make([]model.CartAddOn, 0)
 		itemIDs = append(itemIDs, item.ID)
 
 		groupState, ok := groupMap[item.BranchID]
@@ -485,6 +486,7 @@ func (s *Store) GetCartItemsByIDs(ctx context.Context, userID int64, itemIDs []i
 		}
 		item.ImageURL = nullString(imageURL)
 		item.StockQty = nullInt(stockQty)
+		item.AddOns = make([]model.CartAddOn, 0)
 		cartID = itemCartID
 		items = append(items, item)
 	}
@@ -596,6 +598,7 @@ func (s *Store) GetCartItemsByIDsForUpdate(ctx context.Context, tx DBTX, userID 
 		}
 		item.ImageURL = nullString(imageURL)
 		item.StockQty = nullInt(stockQty)
+		item.AddOns = make([]model.CartAddOn, 0)
 		cartID = itemCartID
 		items = append(items, item)
 	}

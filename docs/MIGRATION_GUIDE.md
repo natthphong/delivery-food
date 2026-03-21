@@ -29,11 +29,14 @@ Added and expanded:
 
 - dedicated admin route space under `/admin/*`
 - separate admin token/session handling
+- shared locale handling across customer and admin auth surfaces
 - improved customer checkout for pickup vs rider delivery
 - richer payment detail rendering from backend `paymentAction`
 - payment expiry + retry UX
 - account-driven admin entry instead of a customer navigation tab
 - responsive customer and admin surfaces
+- focused `/login` and `/signup` screens without customer top navigation
+- modal-based admin employee/branch workflows
 
 ### Database
 
@@ -46,8 +49,7 @@ Extended with:
 - branch stock movements
 - payment providers and webhook events
 - fulfillment mode and rider delivery tables/fields
-
-For the current UX/payment hardening pass, no new migration file was required.
+- `READY` order state and refreshed BAAN-menu-inspired preset catalog data in `V7__admin_workflows_and_baan_seed.sql`
 
 Existing transaction fields already cover:
 
@@ -69,14 +71,17 @@ npm run backend:migrate
 ```
 
 5. restart backend and frontend
+6. if you need the refreshed local/demo catalog, ensure `V7__admin_workflows_and_baan_seed.sql` has been applied
 
 ## Breaking/Important Behavioral Differences
 
 - admin auth is separate from customer auth
 - branch/product availability is enforced by backend operations state
+- admin order actions are gated by backend-computed valid transitions, including `READY`
 - checkout now includes fulfillment mode and can create rider jobs
 - payment records can be provider-backed and include gateway payment actions
 - payroll data is computed from attendance + OT approvals instead of being implicit
+- branch creation can copy all or selected menu items from another branch through backend workflow rules
 
 ## Development Rules Going Forward
 

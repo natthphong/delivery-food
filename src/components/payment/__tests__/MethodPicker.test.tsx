@@ -2,13 +2,17 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import MethodPicker from "@/components/payment/MethodPicker";
 
-jest.mock("@/utils/i18n", () => ({
-    useI18n: () => ({
-        locale: "en",
-        t: (key: string) => key,
-        setLocale: jest.fn(),
-    }),
-}));
+jest.mock("@/utils/i18n", () => {
+    const translate = (key: string) => key;
+    return {
+        useI18n: () => ({
+            locale: "en",
+            t: translate,
+            setLocale: jest.fn(),
+        }),
+        t: translate,
+    };
+});
 
 describe("MethodPicker", () => {
     it("renders available methods and allows selecting another option", async () => {

@@ -21,13 +21,17 @@ jest.mock("next/router", () => ({
     }),
 }));
 
-jest.mock("@/utils/i18n", () => ({
-    useI18n: () => ({
-        locale: "en",
-        t: (key: string) => key,
-        setLocale: jest.fn(),
-    }),
-}));
+jest.mock("@/utils/i18n", () => {
+    const translate = (key: string) => key;
+    return {
+        useI18n: () => ({
+            locale: "en",
+            t: translate,
+            setLocale: jest.fn(),
+        }),
+        t: translate,
+    };
+});
 
 jest.mock("@/utils/logout", () => ({
     logoutCustomer: jest.fn(),

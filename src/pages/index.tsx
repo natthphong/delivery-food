@@ -10,6 +10,7 @@ import { getCurrentPositionWithPermission } from "@utils/geo";
 import { useI18n } from "@/utils/i18n";
 import { I18N_KEYS } from "@/constants/i18nKeys";
 import { searchBranches } from "@/services/catalog";
+import { parseApiError } from "@/utils/apiErrors";
 
 const SearchPage: NextPage = () => {
     const router = useRouter();
@@ -51,7 +52,7 @@ const SearchPage: NextPage = () => {
             })
             .catch((err: any) => {
                 if (ignore) return;
-                setError(err?.message || t(I18N_KEYS.SEARCH_ERROR_DEFAULT));
+                setError(parseApiError(err, t(I18N_KEYS.SEARCH_ERROR_DEFAULT)).message);
                 setBranches([]);
             })
             .finally(() => {

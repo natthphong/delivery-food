@@ -1,7 +1,13 @@
+import { getLocale } from "@/utils/i18n";
+
+function localeTag() {
+    return getLocale() === "th" ? "th-TH" : "en-US";
+}
+
 export function formatAdminDate(value?: string | null) {
     if (!value) return "-";
     try {
-        return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+        return new Intl.DateTimeFormat(localeTag(), { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
     } catch {
         return value;
     }
@@ -10,7 +16,7 @@ export function formatAdminDate(value?: string | null) {
 export function formatAdminDateOnly(value?: string | null) {
     if (!value) return "-";
     try {
-        return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(value));
+        return new Intl.DateTimeFormat(localeTag(), { dateStyle: "medium" }).format(new Date(value));
     } catch {
         return value;
     }
@@ -30,7 +36,7 @@ export function formatMinutesLabel(minutes: number) {
 
 export function statusTone(status: string) {
     const normalized = status.toLowerCase();
-    if (["accepted", "prepare", "completed", "delivered", "open", "active", "approved"].includes(normalized)) {
+    if (["accepted", "prepare", "ready", "completed", "delivered", "open", "active", "approved"].includes(normalized)) {
         return "bg-emerald-50 text-emerald-700";
     }
     if (["pending", "waiting_for_rider", "assigned_to_rider"].includes(normalized)) {

@@ -16,6 +16,7 @@ import { addCartItem } from "@/services/cart";
 import { notify } from "@/utils/notify";
 import type { BranchProduct } from "@/components/branch/BranchProductCard";
 import type { BranchSummary } from "@/types";
+import { parseApiError } from "@/utils/apiErrors";
 
 type Product = BranchProduct;
 
@@ -111,7 +112,7 @@ const BranchPage: NextPage = () => {
                 setError(null);
             } catch (err: any) {
                 if (ignore) return;
-                setError(err?.message || t(I18N_KEYS.BRANCH_LOAD_ERROR));
+                setError(parseApiError(err, t(I18N_KEYS.BRANCH_LOAD_ERROR)).message);
                 setProducts([]);
             } finally {
                 if (!ignore) setLoading(false);
@@ -162,7 +163,7 @@ const BranchPage: NextPage = () => {
             setSelectedAddOns({});
             setQuantity(1);
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || t(I18N_KEYS.BRANCH_SAVE_ERROR), "error");
+            notify(parseApiError(error, t(I18N_KEYS.BRANCH_SAVE_ERROR)).message, "error");
         } finally {
             setSaving(false);
         }

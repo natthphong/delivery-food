@@ -1,5 +1,6 @@
 import adminAxios from "@/utils/adminApiClient";
 import { unwrapResponse } from "@/services/api";
+import { normalizeAdminBranchProduct, normalizeAdminOrder } from "@/services/normalizers";
 import type { ApiResponse } from "@/utils/apiClient";
 import type {
     AdminBranchProduct,
@@ -7,6 +8,7 @@ import type {
     AdminPaymentRecord,
     AttendanceCorrectionRequest,
     AttendanceSession,
+    BranchCreateRequest,
     BranchOperationsUpdateRequest,
     BranchProductOperationsUpdateRequest,
     DeliveryJob,
@@ -122,6 +124,11 @@ export async function fetchAdminBranches() {
     return unwrapResponse(data).branches;
 }
 
+export async function createAdminBranch(payload: BranchCreateRequest) {
+    const { data } = await adminAxios.post<ApiResponse<{ branch: BranchSummary }>>("/v1/admin/branches", payload);
+    return unwrapResponse(data).branch;
+}
+
 export async function updateAdminBranch(branchId: number, payload: BranchOperationsUpdateRequest) {
     const { data } = await adminAxios.patch<ApiResponse<{ branch: BranchSummary }>>(`/v1/admin/branches/${branchId}`, payload);
     return unwrapResponse(data).branch;
@@ -129,7 +136,7 @@ export async function updateAdminBranch(branchId: number, payload: BranchOperati
 
 export async function fetchBranchProducts(branchId: number) {
     const { data } = await adminAxios.get<ApiResponse<{ products: AdminBranchProduct[] }>>(`/v1/admin/branches/${branchId}/products`);
-    return unwrapResponse(data).products;
+    return unwrapResponse(data).products.map(normalizeAdminBranchProduct);
 }
 
 export async function updateBranchProduct(branchId: number, productId: number, payload: BranchProductOperationsUpdateRequest) {
@@ -137,17 +144,22 @@ export async function updateBranchProduct(branchId: number, productId: number, p
         `/v1/admin/branches/${branchId}/products/${productId}`,
         payload
     );
-    return unwrapResponse(data).products;
+    return unwrapResponse(data).products.map(normalizeAdminBranchProduct);
 }
 
 export async function adjustBranchStock(branchId: number, payload: StockAdjustmentRequest) {
     const { data } = await adminAxios.post<ApiResponse<{ products: AdminBranchProduct[] }>>(`/v1/admin/branches/${branchId}/stock`, payload);
-    return unwrapResponse(data).products;
+    return unwrapResponse(data).products.map(normalizeAdminBranchProduct);
 }
 
 export async function fetchAdminOrders(status?: string) {
     const { data } = await adminAxios.get<ApiResponse<{ orders: AdminOrder[] }>>("/v1/admin/orders", { params: { status } });
-    return unwrapResponse(data).orders;
+    return unwrapResponse(data).orders.map(normalizeAdminOrder);
+}
+
+export async function fetchAdminOrderDetail(orderId: number) {
+    const { data } = await adminAxios.get<ApiResponse<{ order: AdminOrder }>>(`/v1/admin/orders/${orderId}`);
+    return normalizeAdminOrder(unwrapResponse(data).order);
 }
 
 export async function updateAdminOrderStatus(orderId: number, payload: { status: string; note: string }) {

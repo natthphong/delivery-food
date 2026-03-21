@@ -226,13 +226,22 @@ func (s *NotificationService) NotifyOrderReady(ctx context.Context, user model.U
 	if s == nil {
 		return nil
 	}
-	message := fmt.Sprintf("คำสั่งซื้อ #%d พร้อมแล้ว", order.ID)
+	branchName := "-"
+	if order.Branch != nil && strings.TrimSpace(order.Branch.Name) != "" {
+		branchName = order.Branch.Name
+	}
+	fulfillmentLabel := "pickup"
+	if strings.TrimSpace(order.FulfillmentMode) == "rider_delivery" {
+		fulfillmentLabel = "delivery handoff"
+	}
+	itemSummary := summarizeOrderItems(order)
+	message := fmt.Sprintf("คำสั่งซื้อ #%d พร้อมแล้วที่ %s\n%s", order.ID, branchName, itemSummary)
 	if user.Email != nil && strings.TrimSpace(*user.Email) != "" {
 		if err := s.mailer.Send(ctx, EmailMessage{
 			To:      []string{strings.TrimSpace(*user.Email)},
 			Subject: fmt.Sprintf("Order #%d is ready", order.ID),
-			Text:    fmt.Sprintf("Order #%d is ready for pickup or completion.", order.ID),
-			HTML:    fmt.Sprintf(`<p>Order <strong>#%d</strong> is ready.</p>`, order.ID),
+			Text:    fmt.Sprintf("Order #%d from %s is ready for %s.\n%s", order.ID, branchName, fulfillmentLabel, itemSummary),
+			HTML:    fmt.Sprintf(`<p>Order <strong>#%d</strong> from %s is ready for %s.</p><p>%s</p>`, order.ID, branchName, fulfillmentLabel, itemSummary),
 		}); err != nil {
 			return err
 		}
@@ -285,4 +294,28 @@ func (s *NotificationService) pushLine(ctx context.Context, user model.User, mes
 		return nil
 	}
 	return s.line.PushText(ctx, user.AuthSubject, message)
+}
+
+func summarizeOrderItems(order model.Order) string {
+	if len(order.Items) == 0 {
+		return "ไม่พบรายการอาหารในคำสั่งซื้อนี้"
+	}
+	parts := make([]string, 0, notificationMinInt(len(order.Items), 3))
+	for index, item := range order.Items {
+		if index >= 3 {
+			break
+		}
+		parts = append(parts, fmt.Sprintf("%dx %s", item.Quantity, item.ProductName))
+	}
+	if len(order.Items) > 3 {
+		parts = append(parts, fmt.Sprintf("+%d more", len(order.Items)-3))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func notificationMinInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

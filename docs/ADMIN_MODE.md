@@ -33,6 +33,20 @@ The admin session includes:
 - `/admin/riders`
 - `/admin/payments`
 
+## UX Conventions
+
+- grouped role-aware navigation with a Thai/English locale switch in the admin shell
+- modal-first create/edit flows for employees, branches, branch controls, stock, and order detail
+- inline field validation plus submit-level error summaries for operational forms
+- backend-driven order actions via `allowedStatuses` instead of frontend-only transition guesses
+
+## Operational Notes
+
+- branch creation is limited to bootstrap admin, owner, and manager roles
+- branch creation can optionally copy all or selected menu items from an existing branch
+- order detail should always render safely because backend and frontend normalize `items` to an array
+- kitchen/staff can move orders into `READY` before pickup completion or rider handoff
+
 ## Security Notes
 
 - frontend menus are role-aware, but only for UX

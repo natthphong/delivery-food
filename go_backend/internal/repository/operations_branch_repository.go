@@ -3,10 +3,28 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"strings"
 
 	"github.com/natthaohong/delivery-food/go_backend/internal/model"
 )
+
+type BranchCreateParams struct {
+	CompanyID             int64
+	Slug                  string
+	Name                  string
+	Description           *string
+	ImageURL              *string
+	AddressLine           *string
+	Lat                   *float64
+	Lng                   *float64
+	IsForceClosed         bool
+	AcceptingOrders       bool
+	SupportsPickup        bool
+	SupportsRiderDelivery bool
+	RiderDeliveryFee      float64
+	OperationalNote       *string
+}
 
 type BranchOperationsUpdateParams struct {
 	Name                  *string
@@ -114,6 +132,18 @@ func (s *Store) ListAdminBranchProducts(ctx context.Context, branchID int64) ([]
 			bp.is_temporarily_closed,
 			bp.availability_note,
 			bp.reorder_level,
+			COALESCE((
+				SELECT json_agg(
+					json_build_object(
+						'id', c.id,
+						'name', c.name
+					)
+					ORDER BY c.sort_order, c.name, c.id
+				)
+				FROM product_categories pc
+				JOIN categories c ON c.id = pc.category_id
+				WHERE pc.product_id = p.id
+			), '[]'::json),
 			CASE
 				WHEN bp.stock_qty IS NULL OR bp.reorder_level IS NULL THEN FALSE
 				ELSE bp.stock_qty <= bp.reorder_level
@@ -135,6 +165,7 @@ func (s *Store) ListAdminBranchProducts(ctx context.Context, branchID int64) ([]
 			stockQty         sql.NullInt32
 			availabilityNote sql.NullString
 			reorderLevel     sql.NullInt32
+			categoriesJSON   []byte
 			item             model.AdminBranchProduct
 		)
 		if err := rows.Scan(
@@ -148,6 +179,7 @@ func (s *Store) ListAdminBranchProducts(ctx context.Context, branchID int64) ([]
 			&item.IsTemporarilyClosed,
 			&availabilityNote,
 			&reorderLevel,
+			&categoriesJSON,
 			&item.IsLowStock,
 		); err != nil {
 			return nil, err
@@ -156,9 +188,65 @@ func (s *Store) ListAdminBranchProducts(ctx context.Context, branchID int64) ([]
 		item.StockQty = nullInt(stockQty)
 		item.AvailabilityNote = nullString(availabilityNote)
 		item.ReorderLevel = nullInt(reorderLevel)
+		if len(categoriesJSON) > 0 {
+			if err := json.Unmarshal(categoriesJSON, &item.Categories); err != nil {
+				return nil, err
+			}
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (s *Store) CreateBranch(ctx context.Context, tx DBTX, params BranchCreateParams) (int64, error) {
+	var (
+		description     sql.NullString
+		imageURL        sql.NullString
+		addressLine     sql.NullString
+		lat             sql.NullFloat64
+		lng             sql.NullFloat64
+		operationalNote sql.NullString
+		branchID        int64
+	)
+	if params.Description != nil {
+		description = sql.NullString{String: strings.TrimSpace(*params.Description), Valid: strings.TrimSpace(*params.Description) != ""}
+	}
+	if params.ImageURL != nil {
+		imageURL = sql.NullString{String: strings.TrimSpace(*params.ImageURL), Valid: strings.TrimSpace(*params.ImageURL) != ""}
+	}
+	if params.AddressLine != nil {
+		addressLine = sql.NullString{String: strings.TrimSpace(*params.AddressLine), Valid: strings.TrimSpace(*params.AddressLine) != ""}
+	}
+	if params.Lat != nil {
+		lat = sql.NullFloat64{Float64: *params.Lat, Valid: true}
+	}
+	if params.Lng != nil {
+		lng = sql.NullFloat64{Float64: *params.Lng, Valid: true}
+	}
+	if params.OperationalNote != nil {
+		operationalNote = sql.NullString{String: strings.TrimSpace(*params.OperationalNote), Valid: strings.TrimSpace(*params.OperationalNote) != ""}
+	}
+	err := tx.QueryRow(ctx, `
+		INSERT INTO branches (
+			company_id,
+			slug,
+			name,
+			description,
+			image_url,
+			address_line,
+			lat,
+			lng,
+			is_force_closed,
+			accepting_orders,
+			supports_pickup,
+			supports_rider_delivery,
+			rider_delivery_fee,
+			operational_note
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		RETURNING id
+	`, params.CompanyID, strings.TrimSpace(params.Slug), strings.TrimSpace(params.Name), description, imageURL, addressLine, lat, lng, params.IsForceClosed, params.AcceptingOrders, params.SupportsPickup, params.SupportsRiderDelivery, params.RiderDeliveryFee, operationalNote).Scan(&branchID)
+	return branchID, err
 }
 
 func (s *Store) UpdateBranchOperations(ctx context.Context, tx DBTX, branchID int64, params BranchOperationsUpdateParams) error {
@@ -218,6 +306,49 @@ func (s *Store) UpdateBranchProductOperations(ctx context.Context, tx DBTX, bran
 			updated_at = NOW()
 		WHERE branch_id = $1 AND product_id = $2
 	`, branchID, productID, params.IsEnabled, params.IsTemporarilyClosed, stockQty, reorderLevel, availabilityNote)
+	return err
+}
+
+func (s *Store) CopyBranchProducts(ctx context.Context, tx DBTX, sourceBranchID, targetBranchID int64, productIDs []int64) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO branch_products (
+			branch_id,
+			product_id,
+			is_enabled,
+			stock_qty,
+			price_override,
+			is_recommended,
+			sort_order,
+			is_temporarily_closed,
+			availability_note,
+			reorder_level
+		)
+		SELECT
+			$2,
+			bp.product_id,
+			bp.is_enabled,
+			bp.stock_qty,
+			bp.price_override,
+			bp.is_recommended,
+			bp.sort_order,
+			FALSE,
+			NULL,
+			bp.reorder_level
+		FROM branch_products bp
+		WHERE bp.branch_id = $1
+			AND (COALESCE(array_length($3::bigint[], 1), 0) = 0 OR bp.product_id = ANY($3))
+		ON CONFLICT (branch_id, product_id)
+		DO UPDATE SET
+			is_enabled = EXCLUDED.is_enabled,
+			stock_qty = EXCLUDED.stock_qty,
+			price_override = EXCLUDED.price_override,
+			is_recommended = EXCLUDED.is_recommended,
+			sort_order = EXCLUDED.sort_order,
+			is_temporarily_closed = EXCLUDED.is_temporarily_closed,
+			availability_note = EXCLUDED.availability_note,
+			reorder_level = EXCLUDED.reorder_level,
+			updated_at = NOW()
+	`, sourceBranchID, targetBranchID, productIDs)
 	return err
 }
 

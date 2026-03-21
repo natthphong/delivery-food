@@ -17,13 +17,21 @@
 
 1. branch rider sees jobs in their scoped queue
 2. rider claims a waiting job
-3. job status can move through:
+3. kitchen/staff can move the order into `READY` before rider handoff
+4. job status can move through:
    - `assigned_to_rider`
    - `picked_up`
    - `delivered`
    - `failed_delivery`
    - `cancelled`
-4. backend syncs related order status where appropriate
+5. backend syncs related order status where appropriate
+
+Admin order transitions relevant to rider delivery:
+
+- `PENDING` -> `PREPARE` or `READY`
+- `PREPARE` -> `READY`
+- `READY` -> `DELIVERY`
+- `DELIVERY` -> `COMPLETED`
 
 ## Branch Scope
 

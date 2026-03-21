@@ -11,6 +11,7 @@ import { fetchTransactionDetail, retryTransactionPayment } from "@/services/paym
 import type { Order, TransactionDetail, TxnStatus } from "@/types/transaction";
 import { useAppDispatch } from "@/store";
 import { setUser } from "@/store/authSlice";
+import { parseApiError } from "@/utils/apiErrors";
 
 const OrderLocationMap = dynamic(() => import("@/components/order/LocationMap"), { ssr: false });
 
@@ -43,6 +44,8 @@ function orderStatusLabel(order: Order, t: ReturnType<typeof useI18n>["t"]) {
     switch (order.status) {
     case "PREPARE":
         return t(I18N_KEYS.ORDER_STATUS_PREPARE);
+    case "READY":
+        return t(I18N_KEYS.ORDER_STATUS_READY);
     case "DELIVERY":
         return t(I18N_KEYS.ORDER_STATUS_DELIVERY);
     case "COMPLETED":
@@ -83,7 +86,7 @@ export default function PaymentDetailPage() {
             }
         } catch (error: any) {
             if (!silent) {
-                notify(error?.response?.data?.message || error?.message || t(I18N_KEYS.PAYMENT_DETAIL_ERROR), "error");
+                notify(parseApiError(error, t(I18N_KEYS.PAYMENT_DETAIL_ERROR)).message, "error");
                 setDetail(null);
             }
         } finally {
@@ -138,7 +141,7 @@ export default function PaymentDetailPage() {
             notify(t(I18N_KEYS.PAYMENT_CREATED_SUCCESS), "success");
             await router.replace(`/payment/${payload.transaction.id}`);
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || t(I18N_KEYS.PAYMENT_DETAIL_ERROR), "error");
+            notify(parseApiError(error, t(I18N_KEYS.PAYMENT_DETAIL_ERROR)).message, "error");
         } finally {
             setRetrying(false);
         }
@@ -291,22 +294,25 @@ export default function PaymentDetailPage() {
                                         )}
                                     </div>
                                     <ul className="mt-4 space-y-3">
-                                        {order.items.map((item) => (
-                                            <li key={item.id} className="rounded-2xl bg-slate-50 p-3">
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div>
-                                                        <p className="text-sm font-semibold text-slate-900">{item.productName}</p>
-                                                        <p className="mt-1 text-xs text-slate-500">
-                                                            {t(I18N_KEYS.CHECKOUT_ITEM_QTY)} {item.quantity}
-                                                        </p>
-                                                        {item.addOns.length > 0 ? (
-                                                            <p className="mt-1 text-xs text-slate-500">{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
-                                                        ) : null}
+                                        {order.items.map((item) => {
+                                            const addOns = Array.isArray(item.addOns) ? item.addOns : [];
+                                            return (
+                                                <li key={item.id} className="rounded-2xl bg-slate-50 p-3">
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <p className="text-sm font-semibold text-slate-900">{item.productName}</p>
+                                                            <p className="mt-1 text-xs text-slate-500">
+                                                                {t(I18N_KEYS.CHECKOUT_ITEM_QTY)} {item.quantity}
+                                                            </p>
+                                                            {addOns.length > 0 ? (
+                                                                <p className="mt-1 text-xs text-slate-500">{addOns.map((addOn) => addOn.name).join(", ")}</p>
+                                                            ) : null}
+                                                        </div>
+                                                        <p className="text-sm font-semibold text-emerald-600">{formatTHB(item.lineTotal)}</p>
                                                     </div>
-                                                    <p className="text-sm font-semibold text-emerald-600">{formatTHB(item.lineTotal)}</p>
-                                                </div>
-                                            </li>
-                                        ))}
+                                                </li>
+                                            );
+                                        })}
                                     </ul>
                                     <div className="mt-4 grid gap-2 text-sm text-slate-500">
                                         <p>{t(I18N_KEYS.PAYMENT_DELIVERY_FEE)}: {formatTHB(order.deliveryFee || 0)}</p>

@@ -30,6 +30,7 @@ Guidelines:
 Key customer screens:
 
 - home/branch discovery should feel like an ordering app, not a marketing page
+- login/signup should feel like focused app screens and should not reuse the customer top tab bar
 - branch detail should surface fulfillment support and operational notes early
 - checkout should keep fulfillment, payment, and final total tightly grouped
 - payment detail should show QR, expiry, or retry action above the fold
@@ -46,10 +47,12 @@ Priority:
 Guidelines:
 
 - favor split-pane layouts on tablet/desktop for list + detail workflows
+- prefer modal/drawer entry for create/edit work instead of long in-page forms
 - keep filters and forms readable without horizontal scroll
 - preserve mobile access by stacking sections cleanly
 - use status pills and compact summary cards for scanability
 - keep admin chrome light, practical, and consistent with the customer palette
+- make validation impossible to miss with inline field errors, helper copy, and submit-level summaries
 
 ## Component Standards
 

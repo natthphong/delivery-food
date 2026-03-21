@@ -77,6 +77,7 @@ All schema work lives under `sql/` as versioned migrations:
 - `V4__operations_schema.sql`
 - `V5__operations_preset_data.sql`
 - `V6__operations_indexes.sql`
+- `V7__admin_workflows_and_baan_seed.sql`
 
 Rules:
 
@@ -95,6 +96,7 @@ Rules:
 - `/payment/[txnId]`
 - `/account`
 - `/login`
+- `/signup`
 - `/verify-email`
 - `/web-hook-line`
 
@@ -119,15 +121,20 @@ Customer and admin auth/session state are intentionally separate.
 ### Customer app
 
 - Firebase + LINE login
+- LINE callback handoff on `/web-hook-line` uses a minimal auth shell instead of the customer layout
+- locale boot is SSR-safe on first render, then hydrates persisted/browser locale after mount
+- minimal login/signup screens with shared locale switching and no customer top nav
 - bootstrap hydration
 - branch search by keyword/category/location
 - branch operating state and fulfillment mode visibility
 - menu browsing with stock-aware and branch-aware availability
 - add-ons and normalized cart
+- cart and order item `addOns` must be normalized to empty arrays before render/persistence
 - pickup or rider-delivery checkout
 - wallet and Omise PromptPay flows in the active checkout experience
 - legacy manual QR/slip support kept backend-side but hidden from customer checkout
 - payment detail with provider-backed QR rendering, expiry handling, and retry flow
+- shared frontend error mapping converts backend codes/messages into localized user-safe copy
 - logout, backend email verification, and order/provider notification delivery
 - profile, order history, and transaction history
 
@@ -136,13 +143,19 @@ Customer and admin auth/session state are intentionally separate.
 - bootstrap owner login from `ADMIN_USERNAME` and `ADMIN_PASSWORD`
 - staff-account login through employee management
 - role + permission + branch-scope session model
+- shared Thai/English locale switch using the same i18n persistence model as the customer app
 - employee creation/update with roles, branches, and compensation data
+- modal-based employee and branch create/edit workflows with inline validation and submit-level feedback
 - attendance clock in / clock out / correction flows
 - OT request and review
 - payroll settings, payroll periods, and generated payroll entries
 - branch open/close and fulfillment controls
+- branch creation with optional menu copy from an existing branch
 - stock-aware branch product overrides
+- branch-level stock quantity, reorder level, and product temporary closure controls
 - order queue management
+- order detail modal with defensive empty states and backend-shaped item arrays
+- kitchen-ready order transition before pickup completion or rider handoff
 - rider job queue, claim, and delivery status transitions
 - payment provider list, payment records, and webhook event visibility
 
@@ -157,6 +170,23 @@ Supported roles:
 - `rider`
 
 Permissions are stored in SQL and enforced by Go middleware/services. Frontend navigation is role-aware but not authoritative.
+
+## Order Operations Model
+
+Supported operational order statuses:
+
+- `PENDING`
+- `PREPARE`
+- `READY`
+- `DELIVERY`
+- `COMPLETED`
+- `REJECTED`
+
+Operational notes:
+
+- backend returns admin order detail with `items` normalized to an empty array
+- backend also returns `allowedStatuses` so admin UI can render only valid actions
+- `READY` is the kitchen handoff state before pickup completion or rider-delivery dispatch
 
 ## Payment Architecture
 
@@ -175,6 +205,7 @@ Notification delivery is also backend-owned.
 - `NotificationService` wraps email + LINE delivery
 - Resend is used through the `Mailer` abstraction
 - LINE bot push is used through the `LineMessenger` abstraction
+- order-ready notifications include branch context and a short item summary where available
 - frontend never sees provider secrets or notification credentials
 
 ## Rider Delivery Model
@@ -205,12 +236,14 @@ Typical statuses:
 - strong cart/checkout/payment hierarchy
 - large touch targets
 - sticky CTAs where helpful
+- auth routes stay focused on sign-in/sign-up tasks and do not reuse the customer top navigation
 
 ### Admin app
 
 - web/tablet first, mobile usable
 - operational dashboard look
 - clean white surfaces with emerald accents
+- grouped navigation, modal-first editing, and strong inline validation/error feedback
 - page -> component -> service structure still applies
 
 ## Change Checklist
@@ -271,5 +304,6 @@ npm run verify
 - [`docs/EMPLOYEE_PAYROLL.md`](./docs/EMPLOYEE_PAYROLL.md)
 - [`docs/PAYMENT_GATEWAYS.md`](./docs/PAYMENT_GATEWAYS.md)
 - [`docs/NOTIFICATIONS.md`](./docs/NOTIFICATIONS.md)
+- [`docs/PRESET_DATA.md`](./docs/PRESET_DATA.md)
 - [`docs/RIDER_DELIVERY.md`](./docs/RIDER_DELIVERY.md)
 - [`docs/ROLE_PERMISSION_MATRIX.md`](./docs/ROLE_PERMISSION_MATRIX.md)

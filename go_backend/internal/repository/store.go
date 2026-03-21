@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -74,4 +75,18 @@ func scanError(context string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("%s: %w", context, err)
+}
+
+func IsUniqueViolation(err error, constraint string) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	if pgErr.Code != "23505" {
+		return false
+	}
+	if constraint == "" {
+		return true
+	}
+	return pgErr.ConstraintName == constraint
 }

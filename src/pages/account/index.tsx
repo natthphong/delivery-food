@@ -12,6 +12,7 @@ import { formatTHB } from "@/utils/currency";
 import { fetchOrders, fetchTransactions, sendVerificationEmail, updateProfile } from "@/services/app";
 import type { Order, TransactionSummary } from "@/types/transaction";
 import { logoutCustomer } from "@/utils/logout";
+import { parseApiError } from "@/utils/apiErrors";
 
 type TabKey = "profile" | "transactions" | "orders";
 
@@ -29,6 +30,10 @@ export default function AccountPage() {
     const [sendingVerification, setSendingVerification] = useState(false);
     const [transactions, setTransactions] = useState<TransactionSummary[]>([]);
     const [orders, setOrders] = useState<Order[]>([]);
+    const [profileFormError, setProfileFormError] = useState<string | null>(null);
+    const [profileFieldErrors, setProfileFieldErrors] = useState<Record<string, string>>({});
+    const [transactionsError, setTransactionsError] = useState<string | null>(null);
+    const [ordersError, setOrdersError] = useState<string | null>(null);
 
     useEffect(() => {
         const currentTab = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
@@ -45,12 +50,28 @@ export default function AccountPage() {
 
     useEffect(() => {
         if (tab === "transactions") {
-            fetchTransactions().then(setTransactions).catch(() => setTransactions([]));
+            fetchTransactions()
+                .then((items) => {
+                    setTransactions(items);
+                    setTransactionsError(null);
+                })
+                .catch((error) => {
+                    setTransactions([]);
+                    setTransactionsError(parseApiError(error, t(I18N_KEYS.ACCOUNT_LOAD_ERROR)).message);
+                });
         }
         if (tab === "orders") {
-            fetchOrders().then(setOrders).catch(() => setOrders([]));
+            fetchOrders()
+                .then((items) => {
+                    setOrders(items);
+                    setOrdersError(null);
+                })
+                .catch((error) => {
+                    setOrders([]);
+                    setOrdersError(parseApiError(error, t(I18N_KEYS.ACCOUNT_LOAD_ERROR)).message);
+                });
         }
-    }, [tab]);
+    }, [t, tab]);
 
     const cartSummary = useMemo(
         () => t(I18N_KEYS.ACCOUNT_CART_SUMMARY, { count: cart.totalQuantity }),
@@ -65,11 +86,18 @@ export default function AccountPage() {
     const handleSave = async () => {
         try {
             setSaving(true);
+            setProfileFormError(null);
+            setProfileFieldErrors({});
             const nextUser = await updateProfile({ displayName, email, phone });
             dispatch(setUser(nextUser));
+            setProfileFormError(null);
+            setProfileFieldErrors({});
             notify(t(I18N_KEYS.ACCOUNT_PROFILE_UPDATED), "success");
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || t(I18N_KEYS.ACCOUNT_ERROR_UPDATE_FAILED), "error");
+            const parsed = parseApiError(error, t(I18N_KEYS.ACCOUNT_ERROR_UPDATE_FAILED));
+            setProfileFormError(parsed.message);
+            setProfileFieldErrors(parsed.fieldErrors);
+            notify(parsed.message, "error");
         } finally {
             setSaving(false);
         }
@@ -81,7 +109,7 @@ export default function AccountPage() {
             await sendVerificationEmail(locale);
             notify(t(I18N_KEYS.ACCOUNT_MESSAGE_VERIFICATION_SENT), "info");
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || t(I18N_KEYS.ACCOUNT_ERROR_VERIFY_EMAIL), "error");
+            notify(parseApiError(error, t(I18N_KEYS.ACCOUNT_ERROR_VERIFY_EMAIL)).message, "error");
         } finally {
             setSendingVerification(false);
         }
@@ -113,6 +141,8 @@ export default function AccountPage() {
         switch (status) {
         case "PREPARE":
             return t(I18N_KEYS.ORDER_STATUS_PREPARE);
+        case "READY":
+            return t(I18N_KEYS.ORDER_STATUS_READY);
         case "DELIVERY":
             return t(I18N_KEYS.ORDER_STATUS_DELIVERY);
         case "COMPLETED":
@@ -175,32 +205,64 @@ export default function AccountPage() {
                     <section className="grid gap-6 lg:grid-cols-[1fr_0.82fr]">
                         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                             <h2 className="text-lg font-semibold text-slate-900">{t(I18N_KEYS.ACCOUNT_PROFILE_DETAILS)}</h2>
+                            {profileFormError ? (
+                                <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">
+                                    {profileFormError}
+                                </div>
+                            ) : null}
                             <div className="mt-5 grid gap-4 sm:grid-cols-2">
                                 <label className="space-y-2">
                                     <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t(I18N_KEYS.ACCOUNT_DISPLAY_NAME)}</span>
                                     <input
                                         value={displayName}
-                                        onChange={(event) => setDisplayName(event.target.value)}
-                                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                                        onChange={(event) => {
+                                            setDisplayName(event.target.value);
+                                            setProfileFormError(null);
+                                            setProfileFieldErrors((current) => ({ ...current, displayName: "" }));
+                                        }}
+                                        className={`w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:ring-4 ${
+                                            profileFieldErrors.displayName
+                                                ? "border-rose-300 focus:border-rose-300 focus:ring-rose-100"
+                                                : "border-slate-200 focus:border-emerald-400 focus:ring-emerald-100"
+                                        }`}
                                     />
+                                    {profileFieldErrors.displayName ? <p className="text-xs text-rose-600">{profileFieldErrors.displayName}</p> : null}
                                 </label>
                                 <label className="space-y-2">
                                     <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t(I18N_KEYS.ACCOUNT_EMAIL)}</span>
                                     <input
                                         type="email"
                                         value={email}
-                                        onChange={(event) => setEmail(event.target.value)}
-                                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                                        onChange={(event) => {
+                                            setEmail(event.target.value);
+                                            setProfileFormError(null);
+                                            setProfileFieldErrors((current) => ({ ...current, email: "" }));
+                                        }}
+                                        className={`w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:ring-4 ${
+                                            profileFieldErrors.email
+                                                ? "border-rose-300 focus:border-rose-300 focus:ring-rose-100"
+                                                : "border-slate-200 focus:border-emerald-400 focus:ring-emerald-100"
+                                        }`}
                                     />
+                                    {profileFieldErrors.email ? <p className="text-xs text-rose-600">{profileFieldErrors.email}</p> : null}
                                 </label>
                                 <label className="space-y-2">
                                     <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t(I18N_KEYS.ACCOUNT_PHONE)}</span>
                                     <input
                                         type="tel"
                                         value={phone}
-                                        onChange={(event) => setPhone(event.target.value)}
-                                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
+                                        onChange={(event) => {
+                                            setPhone(event.target.value);
+                                            setProfileFormError(null);
+                                            setProfileFieldErrors((current) => ({ ...current, phone: "" }));
+                                        }}
+                                        className={`w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:ring-4 ${
+                                            profileFieldErrors.phone
+                                                ? "border-rose-300 focus:border-rose-300 focus:ring-rose-100"
+                                                : "border-slate-200 focus:border-emerald-400 focus:ring-emerald-100"
+                                        }`}
                                     />
+                                    {profileFieldErrors.phone ? <p className="text-xs text-rose-600">{profileFieldErrors.phone}</p> : null}
                                 </label>
                             </div>
                             <div className="mt-5 flex flex-wrap gap-3">
@@ -254,6 +316,11 @@ export default function AccountPage() {
                     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                         <h2 className="text-lg font-semibold text-slate-900">{t(I18N_KEYS.ACCOUNT_TAB_TRANSACTIONS)}</h2>
                         <div className="mt-5 space-y-3">
+                            {transactionsError ? (
+                                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">
+                                    {transactionsError}
+                                </div>
+                            ) : null}
                             {transactions.length === 0 ? (
                                 <p className="text-sm text-slate-500">{t(I18N_KEYS.ACCOUNT_TRANSACTIONS_EMPTY)}</p>
                             ) : (
@@ -288,6 +355,11 @@ export default function AccountPage() {
                     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                         <h2 className="text-lg font-semibold text-slate-900">{t(I18N_KEYS.ACCOUNT_TAB_ORDERS)}</h2>
                         <div className="mt-5 space-y-3">
+                            {ordersError ? (
+                                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">
+                                    {ordersError}
+                                </div>
+                            ) : null}
                             {orders.length === 0 ? (
                                 <p className="text-sm text-slate-500">{t(I18N_KEYS.ACCOUNT_ORDERS_EMPTY)}</p>
                             ) : (

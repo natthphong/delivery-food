@@ -97,3 +97,45 @@ func TestNotificationServiceNotifyOrderPlacedForLineLinkedUser(t *testing.T) {
 		t.Fatalf("line text = %q, want order id", line.text[0])
 	}
 }
+
+func TestNotificationServiceNotifyOrderReadyIncludesItemSummary(t *testing.T) {
+	email := "customer@example.com"
+	mailer := &mailerStub{}
+	line := &lineStub{}
+	service := &NotificationService{
+		mailer: mailer,
+		line:   line,
+	}
+
+	branchName := "Ari"
+	err := service.NotifyOrderReady(context.Background(), model.User{
+		ID:           4,
+		Email:        &email,
+		AuthProvider: "line",
+		AuthSubject:  "line-ready-user",
+	}, model.Order{
+		ID:              88,
+		Status:          "READY",
+		FulfillmentMode: "pickup",
+		Branch:          &model.BranchSummary{Name: branchName},
+		Items: []model.OrderItem{
+			{ProductName: "Baan Kaprao", Quantity: 2},
+			{ProductName: "Thai Milk Tea", Quantity: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NotifyOrderReady() error = %v", err)
+	}
+	if len(mailer.messages) != 1 {
+		t.Fatalf("expected 1 email, got %d", len(mailer.messages))
+	}
+	if !strings.Contains(mailer.messages[0].Text, "2x Baan Kaprao") {
+		t.Fatalf("email text = %q, want summarized items", mailer.messages[0].Text)
+	}
+	if len(line.text) != 1 {
+		t.Fatalf("expected 1 line push, got %d", len(line.text))
+	}
+	if !strings.Contains(line.text[0], "1x Thai Milk Tea") {
+		t.Fatalf("line text = %q, want second item summary", line.text[0])
+	}
+}

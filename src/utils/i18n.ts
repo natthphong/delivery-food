@@ -14,7 +14,7 @@ const LEGACY_STORAGE_KEY = "locale";
 const DEFAULT_LOCALE: Locale = "en";
 const DICTIONARY = dictionary as Dictionary;
 
-let cachedLocale: Locale | null = null;
+let cachedLocale: Locale = DEFAULT_LOCALE;
 
 function normalizeLocale(input: string | null | undefined): Locale | null {
     if (!input) return null;
@@ -28,6 +28,12 @@ function updateDocumentLanguage(locale: Locale) {
     if (typeof document !== "undefined") {
         document.documentElement.lang = locale;
     }
+}
+
+function applyLocale(locale: Locale): Locale {
+    cachedLocale = locale;
+    updateDocumentLanguage(locale);
+    return locale;
 }
 
 function resolveFromStorage(): Locale | null {
@@ -67,26 +73,26 @@ function readLocaleParam(value: string | string[] | null | undefined): Locale | 
 }
 
 function persistLocale(locale: Locale) {
-    cachedLocale = locale;
+    applyLocale(locale);
     if (typeof window !== "undefined") {
         window.localStorage.setItem(STORAGE_KEY, locale);
         window.localStorage.setItem(LEGACY_STORAGE_KEY, locale);
     }
-    updateDocumentLanguage(locale);
 }
 
-function resolveLocale(queryValue?: string | string[]): Locale {
+export function resolveInitialLocale(queryValue?: string | string[]): Locale {
+    const fromQuery = readLocaleParam(queryValue);
+    if (fromQuery) {
+        return applyLocale(fromQuery);
+    }
+    return applyLocale(cachedLocale);
+}
+
+export function hydrateLocaleFromRuntime(queryValue?: string | string[]): Locale {
     const fromQuery = readLocaleParam(queryValue ?? getLangFromLocation());
     if (fromQuery) {
-        if (cachedLocale === fromQuery) {
-            return fromQuery;
-        }
         persistLocale(fromQuery);
         return fromQuery;
-    }
-
-    if (cachedLocale) {
-        return cachedLocale;
     }
 
     const storageLocale = resolveFromStorage();
@@ -101,11 +107,16 @@ function resolveLocale(queryValue?: string | string[]): Locale {
 }
 
 export function getLocale(): Locale {
-    return resolveLocale();
+    return cachedLocale;
 }
 
 export function setLocale(locale: Locale) {
     persistLocale(locale);
+}
+
+export function __resetLocaleForTests() {
+    cachedLocale = DEFAULT_LOCALE;
+    updateDocumentLanguage(DEFAULT_LOCALE);
 }
 
 function interpolate(value: string, params?: TranslationParams): string {
@@ -160,11 +171,18 @@ export function t(
 
 export function useI18n() {
     const router = useRouter();
-    const [locale, setLocaleState] = useState<Locale>(() => resolveLocale(router.query.lang));
+    const [locale, setLocaleState] = useState<Locale>(() => resolveInitialLocale(router.query.lang));
+
+    useEffect(() => {
+        const resolved = resolveInitialLocale(router.query.lang);
+        if (resolved !== locale) {
+            setLocaleState(resolved);
+        }
+    }, [router.query.lang, locale]);
 
     useEffect(() => {
         if (!router.isReady) return;
-        const resolved = resolveLocale(router.query.lang);
+        const resolved = hydrateLocaleFromRuntime(router.query.lang);
         if (resolved !== locale) {
             setLocaleState(resolved);
         }

@@ -775,6 +775,9 @@ func (s *Store) attachOrderItems(ctx context.Context, orders []model.Order) erro
 	orderIDs := make([]int64, 0, len(orders))
 	orderIndex := make(map[int64]int, len(orders))
 	for index, order := range orders {
+		if orders[index].Items == nil {
+			orders[index].Items = make([]model.OrderItem, 0)
+		}
 		orderIDs = append(orderIDs, order.ID)
 		orderIndex[order.ID] = index
 	}
@@ -806,6 +809,7 @@ func (s *Store) attachOrderItems(ctx context.Context, orders []model.Order) erro
 			return err
 		}
 		item.ProductID = nullInt64(productID)
+		item.AddOns = make([]model.CartAddOn, 0)
 		item.LineTotal = item.UnitPrice * float64(item.Quantity)
 		order := &orders[orderIndex[orderID]]
 		order.Items = append(order.Items, item)

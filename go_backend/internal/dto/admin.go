@@ -44,10 +44,10 @@ type AttendanceCorrectionRequest struct {
 }
 
 type OTRequestCreate struct {
-	BranchID             int64  `json:"branchId"`
-	AttendanceSessionID  *int64 `json:"attendanceSessionId"`
-	RequestedMinutes     int    `json:"requestedMinutes"`
-	Reason               string `json:"reason"`
+	BranchID            int64  `json:"branchId"`
+	AttendanceSessionID *int64 `json:"attendanceSessionId"`
+	RequestedMinutes    int    `json:"requestedMinutes"`
+	Reason              string `json:"reason"`
 }
 
 type OTReviewRequest struct {
@@ -82,6 +82,26 @@ type BranchOperationsUpdateRequest struct {
 	SupportsRiderDelivery *bool    `json:"supportsRiderDelivery"`
 	RiderDeliveryFee      *float64 `json:"riderDeliveryFee"`
 	OperationalNote       *string  `json:"operationalNote"`
+}
+
+type BranchCreateRequest struct {
+	Slug                  *string  `json:"slug"`
+	Name                  string   `json:"name"`
+	Description           *string  `json:"description"`
+	ImageURL              *string  `json:"imageUrl"`
+	AddressLine           *string  `json:"addressLine"`
+	Lat                   *float64 `json:"lat"`
+	Lng                   *float64 `json:"lng"`
+	IsForceClosed         bool     `json:"isForceClosed"`
+	AcceptingOrders       bool     `json:"acceptingOrders"`
+	SupportsPickup        bool     `json:"supportsPickup"`
+	SupportsRiderDelivery bool     `json:"supportsRiderDelivery"`
+	RiderDeliveryFee      float64  `json:"riderDeliveryFee"`
+	OperationalNote       *string  `json:"operationalNote"`
+	CopyFromBranchID      *int64   `json:"copyFromBranchId"`
+	CopyMode              string   `json:"copyMode"`
+	CategoryIDs           []int64  `json:"categoryIds"`
+	ProductIDs            []int64  `json:"productIds"`
 }
 
 type BranchProductOperationsUpdateRequest struct {

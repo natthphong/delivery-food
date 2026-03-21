@@ -62,4 +62,5 @@ LINE delivery is skipped automatically when the user is not LINE-linked.
 - keep messages short and operational
 - no emoji
 - backend owns channel-specific wording
+- order-ready copy should include branch context and a short item summary when order items exist
 - frontend should not duplicate provider notification logic

@@ -1,6 +1,7 @@
 // src/utils/tokenStorage.ts
 import type { Cart, UserRecord } from "@/types";
 import type { AdminSession } from "@/types/admin";
+import { normalizeCart } from "../services/normalizers";
 
 export type StoredTokens = { accessToken: string; refreshToken: string };
 const KEY = "auth_tokens_v1";
@@ -77,7 +78,7 @@ export function clearConfig() {
 
 export function saveCart(cart: Cart) {
     if (typeof window === "undefined") return;
-    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    localStorage.setItem(CART_KEY, JSON.stringify(normalizeCart(cart)));
 }
 
 export function loadCart(): Cart | null {
@@ -85,7 +86,7 @@ export function loadCart(): Cart | null {
     const raw = localStorage.getItem(CART_KEY);
     if (!raw) return null;
     try {
-        return JSON.parse(raw) as Cart;
+        return normalizeCart(JSON.parse(raw) as Cart);
     } catch {
         return null;
     }

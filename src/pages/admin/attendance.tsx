@@ -15,8 +15,11 @@ import { notify } from "@/utils/notify";
 import { clockIn, clockOut, correctAttendance, fetchAdminBranches, fetchAttendance, fetchEmployees } from "@/services/admin";
 import type { BranchSummary } from "@/types";
 import type { AttendanceSession, Employee } from "@/types/admin";
+import { useI18n } from "@/utils/i18n";
+import { parseApiError } from "@/utils/apiErrors";
 
 export default function AdminAttendancePage() {
+    const { t } = useI18n();
     const session = useAppSelector((state) => state.adminAuth.session);
     const canRead = hasAnyAdminPermission(session, ["attendance.read", "attendance.manage", "attendance.self"]);
     const canReadAll = hasAnyAdminPermission(session, ["attendance.read", "attendance.manage"]);
@@ -77,21 +80,21 @@ export default function AdminAttendancePage() {
 
     const handleSelfClock = async (mode: "in" | "out") => {
         if (!selfBranchId) {
-            notify("Select a branch before clocking.", "warning");
+            notify(t("common.validation.selectSourceBranch" as any), "warning");
             return;
         }
         try {
             if (mode === "in") {
                 await clockIn({ branchId: Number(selfBranchId), note: selfNote });
-                notify("Clock-in recorded.", "success");
+                notify(t("common.notifications.clockedIn" as any), "success");
             } else {
                 await clockOut({ branchId: Number(selfBranchId), note: selfNote });
-                notify("Clock-out recorded.", "success");
+                notify(t("common.notifications.clockedOut" as any), "success");
             }
             setSelfNote("");
             await reload();
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || "Unable to update attendance.", "error");
+            notify(parseApiError(error, t("common.errors.attendanceUpdateFailed" as any)).message, "error");
         }
     };
 
@@ -105,10 +108,10 @@ export default function AdminAttendancePage() {
                 status: correctionStatus,
                 correctionNote,
             });
-            notify("Attendance corrected.", "success");
+            notify(t("common.notifications.corrected" as any), "success");
             await reload();
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || "Unable to correct attendance.", "error");
+            notify(parseApiError(error, t("common.errors.attendanceCorrectionFailed" as any)).message, "error");
         }
     };
 

@@ -27,6 +27,8 @@ import {
 } from "@/services/admin";
 import type { BranchSummary } from "@/types";
 import type { OTRequest, PayrollEntry, PayrollPeriod, PayrollSettings } from "@/types/admin";
+import { useI18n } from "@/utils/i18n";
+import { parseApiError } from "@/utils/apiErrors";
 
 const emptySettings: PayrollSettings = {
     id: 0,
@@ -40,6 +42,7 @@ const emptySettings: PayrollSettings = {
 };
 
 export default function AdminPayrollPage() {
+    const { t } = useI18n();
     const session = useAppSelector((state) => state.adminAuth.session);
     const canPayrollRead = hasAnyAdminPermission(session, ["payroll.read", "payroll.manage"]);
     const canPayrollManage = hasAdminPermission(session, "payroll.manage");
@@ -127,9 +130,9 @@ export default function AdminPayrollPage() {
                 defaultOtMultiplier: Number(settingsForm.defaultOtMultiplier),
             });
             setSettings(next);
-            notify("Payroll settings updated.", "success");
+            notify(t("common.notifications.updated" as any), "success");
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || "Unable to update payroll settings.", "error");
+            notify(parseApiError(error, t("common.errors.payrollSettingsSaveFailed" as any)).message, "error");
         }
     };
 
@@ -138,12 +141,12 @@ export default function AdminPayrollPage() {
         if (!canPayrollManage) return;
         try {
             const period = await createPayrollPeriod(periodForm);
-            notify("Payroll period created.", "success");
+            notify(t("common.notifications.created" as any), "success");
             setPeriods((current) => [period, ...current]);
             setSelectedPeriodId(period.id);
             setPeriodForm({ code: "", startsAt: "", endsAt: "", note: "" });
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || "Unable to create payroll period.", "error");
+            notify(parseApiError(error, t("common.errors.payrollPeriodCreateFailed" as any)).message, "error");
         }
     };
 
@@ -152,9 +155,9 @@ export default function AdminPayrollPage() {
         try {
             const detail = await generatePayrollPeriod(selectedPeriodId, { adjustmentDefault: Number(generateAdjustment) || 0 });
             setEntries(detail.entries);
-            notify("Payroll period generated.", "success");
+            notify(t("common.notifications.generated" as any), "success");
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || "Unable to generate payroll period.", "error");
+            notify(parseApiError(error, t("common.errors.payrollGenerateFailed" as any)).message, "error");
         }
     };
 
@@ -169,9 +172,9 @@ export default function AdminPayrollPage() {
             });
             setRequests((current) => [request, ...current]);
             setOtForm({ branchId: "", requestedMinutes: "60", reason: "" });
-            notify("OT request submitted.", "success");
+            notify(t("common.notifications.submitted" as any), "success");
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || "Unable to submit OT request.", "error");
+            notify(parseApiError(error, t("common.errors.otSubmitFailed" as any)).message, "error");
         }
     };
 
@@ -185,9 +188,9 @@ export default function AdminPayrollPage() {
                 reviewNote: review?.reviewNote || "",
             });
             setRequests((current) => current.map((item) => (item.id === requestId ? updated : item)));
-            notify("OT request updated.", "success");
+            notify(t("common.notifications.updated" as any), "success");
         } catch (error: any) {
-            notify(error?.response?.data?.message || error?.message || "Unable to review OT request.", "error");
+            notify(parseApiError(error, t("common.errors.otReviewFailed" as any)).message, "error");
         }
     };
 

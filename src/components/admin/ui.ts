@@ -13,4 +13,18 @@ export const adminButtonPrimaryClass =
 export const adminButtonSecondaryClass =
     "inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60";
 
+export const adminButtonDangerClass =
+    "inline-flex items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60";
+
 export const adminBadgeBaseClass = "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold";
+
+export const adminFieldLabelClass = "text-xs font-semibold uppercase tracking-[0.2em] text-slate-500";
+export const adminFieldHelperClass = "text-sm text-slate-500";
+export const adminFieldErrorClass = "text-sm font-medium text-rose-600";
+export const adminSurfaceMutedClass = "rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4";
+
+export function getAdminFieldClass(hasError = false) {
+    return hasError
+        ? "w-full rounded-2xl border border-rose-300 bg-rose-50/60 px-4 py-3 text-sm text-slate-900 outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-100"
+        : adminInputClass;
+}

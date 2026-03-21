@@ -12,7 +12,24 @@ Every response uses:
 }
 ```
 
-Errors keep the same envelope shape with an error `code`, message, and `body: null`.
+Errors keep the same envelope shape with an error `code` and `message`.
+Frontend maps stable `code` values first, then known `message` strings, into shared localized UI copy.
+Raw backend messages should not be shown directly in normal user flows.
+
+Validation failures may return structured `body.fieldErrors` data:
+
+```json
+{
+  "code": "VALIDATION_ERROR",
+  "message": "validation failed",
+  "body": {
+    "fieldErrors": {
+      "name": "Branch name is required",
+      "copyFromBranchId": "Select a source branch before copying menu items"
+    }
+  }
+}
+```
 
 ## Customer Auth
 
@@ -147,6 +164,11 @@ Behavior notes:
 
 ### `GET /v1/cart`
 
+Contract notes:
+
+- cart `groups` is always an array
+- cart item `addOns` is always an array, never `null`
+
 ### `POST /v1/cart/items`
 
 ```json
@@ -192,6 +214,11 @@ Response body:
 - `order`
 - `cart`
 - `user` when balance changed
+
+Contract notes:
+
+- checkout returns normalized `cart`
+- when `order` is present, `order.items` and each item `addOns` are always arrays
 
 ### `POST /v1/deposits`
 
@@ -321,14 +348,45 @@ Returns normalized admin session:
 ### Branches / Stock
 
 - `GET /v1/admin/branches`
+- `POST /v1/admin/branches`
 - `PATCH /v1/admin/branches/{id}`
 - `GET /v1/admin/branches/{id}/products`
 - `PATCH /v1/admin/branches/{id}/products/{productId}`
 - `POST /v1/admin/branches/{id}/stock`
 
+`POST /v1/admin/branches` supports:
+
+- base branch fields: `name`, `slug`, `description`, `imageUrl`, `addressLine`, `lat`, `lng`
+- operational fields: `acceptingOrders`, `isForceClosed`, `supportsPickup`, `supportsRiderDelivery`, `riderDeliveryFee`, `operationalNote`
+- optional menu copy workflow:
+  - `copyMode: "none" | "all" | "selected"`
+  - `copyFromBranchId`
+  - `categoryIds`
+  - `productIds`
+
+`PATCH /v1/admin/branches/{id}/products/{productId}` supports:
+
+- `isEnabled`
+- `isTemporarilyClosed`
+- `stockQty`
+- `reorderLevel`
+- `availabilityNote`
+
+`POST /v1/admin/branches/{id}/stock` request:
+
+```json
+{
+  "productId": 7,
+  "deltaQty": 10,
+  "reason": "restock",
+  "note": "morning refill"
+}
+```
+
 ### Orders / Riders / Payments
 
 - `GET /v1/admin/orders`
+- `GET /v1/admin/orders/{id}`
 - `PATCH /v1/admin/orders/{id}/status`
 - `GET /v1/admin/rider/jobs`
 - `POST /v1/admin/rider/jobs/{id}/claim`
@@ -336,6 +394,21 @@ Returns normalized admin session:
 - `GET /v1/admin/payments`
 - `GET /v1/admin/payments/providers`
 - `GET /v1/admin/payments/webhooks`
+
+Admin order responses are normalized for safe rendering:
+
+- `items` is always an array
+- each order item `addOns` collection is always an array
+- `allowedStatuses` lists valid next actions for the current actor and order state
+
+Current operational order states:
+
+- `PENDING`
+- `PREPARE`
+- `READY`
+- `DELIVERY`
+- `COMPLETED`
+- `REJECTED`
 
 ## Health
 

@@ -16,8 +16,12 @@ The repository preserves a strict split:
 - page state
 - presentation logic
 - local persistence
+- shared locale persistence and translation lookup
+- SSR-safe locale initialization before hydration, then post-mount locale reconciliation from query/storage/browser runtime
 - role-aware navigation
 - customer/admin layout separation
+- defensive response normalization before render
+- shared API error mapping from backend code/message -> localized frontend copy
 - API consumption through `src/services`
 
 ### Backend owns
@@ -25,11 +29,14 @@ The repository preserves a strict split:
 - auth/session issuance
 - permission enforcement
 - business rules
+- validation error shaping
 - transactional writes
 - payment orchestration
 - payroll computation
 - attendance rules
 - stock validation
+- branch cloning/menu copy workflows
+- order status transitions and allowed-action calculation
 - rider job status changes
 - SQL query design
 
@@ -51,11 +58,13 @@ Two auth clients exist:
 - admin API client
 
 They intentionally use separate stored tokens and separate refresh flows.
+Each client also owns its own session-expiry recovery path and login redirect.
 
 Navigation rule:
 
 - admin is not rendered as a normal customer tab
 - admin entry appears only inside the account menu and only when an admin session exists
+- auth callback routes such as `/web-hook-line` should avoid rendering the full customer chrome
 
 ## Backend Request Flow
 
@@ -77,6 +86,8 @@ Every HTTP response uses:
 }
 ```
 
+Validation failures may also return structured `body.fieldErrors` data for field-level UI feedback.
+
 ## Permission Model
 
 The admin session carries:
@@ -88,6 +99,13 @@ The admin session carries:
 - optional employee/staff IDs
 
 Frontend navigation uses this for visibility. Backend services re-check permissions before every sensitive action.
+
+Important operational guardrails:
+
+- owner/bootstrap admin/manager can create branches
+- branch-scoped users cannot create branches outside their role allowance
+- admin order actions are rendered from backend-computed `allowedStatuses`
+- order detail is shaped in Go so `items` is always an array
 
 ## Payment Architecture
 
@@ -135,6 +153,8 @@ Important patterns already implemented:
 - cart is grouped by branch server-side
 - checkout validates sellable state and commits transaction/order/cart changes in one DB transaction
 - payroll generation computes from attendance + OT + pay model in backend
+- branch creation can copy all or selected source-branch menu items within backend workflow rules
+- admin order detail uses a dedicated read path and normalizes empty item collections
 - rider job changes sync order status in the same transaction
 
 ## Why This Shape

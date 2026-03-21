@@ -25,6 +25,7 @@ Customer routes:
 - `src/pages/payment/[txnId].tsx`
 - `src/pages/account/index.tsx`
 - `src/pages/login.tsx`
+- `src/pages/signup.tsx`
 - `src/pages/verify-email.tsx`
 - `src/pages/web-hook-line.tsx`
 
@@ -49,15 +50,18 @@ Admin routes:
 - `src/components/payment`: method picker, deposit modal, slip upload
 - `src/components/search`: branch discovery UI
 - `src/components/admin`: admin shell, cards, permissions, and shared admin UI primitives
+- `src/components/auth`: focused customer auth screens and flows
 - `src/components/common`: low-level reusable UI
 
 ### Frontend data and state
 
 - `src/services`: customer and admin API clients
+- `src/services/normalizers.ts`: defensive response shaping for orders and admin product payloads
 - `src/store`: `auth`, `adminAuth`, `cart`, `config`, `notifications`
 - `src/types`: customer, transaction, and admin payload types
 - `src/utils/apiClient.tsx`: customer axios client with refresh
 - `src/utils/adminApiClient.tsx`: admin axios client with separate refresh flow
+- `src/utils/apiErrors.ts`: response-envelope parsing for field-level and submit-level errors
 - `src/utils/tokenStorage.ts`: persisted customer/admin session helpers
 - `src/utils/logout.ts`: shared customer logout/reset helper
 
@@ -105,6 +109,7 @@ Current migration set:
 - `V4__operations_schema.sql`
 - `V5__operations_preset_data.sql`
 - `V6__operations_indexes.sql`
+- `V7__admin_workflows_and_baan_seed.sql`
 
 Legacy SQL under `sql/migrations/` is not the current source of truth.
 

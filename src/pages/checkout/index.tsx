@@ -18,6 +18,7 @@ import { CHECKOUT_DRAFT_KEY } from "@/components/cart/CartDrawer";
 import { fetchBranchMenu, fetchPaymentMethods } from "@/services/catalog";
 import { fetchCart } from "@/services/cart";
 import { checkout } from "@/services/payment";
+import { parseApiError } from "@/utils/apiErrors";
 
 const MapConfirm = dynamic(() => import("@/components/checkout/MapConfirm"), { ssr: false });
 
@@ -106,7 +107,7 @@ export default function CheckoutPage() {
                 setSelectedMethodId(items[0]?.id ?? null);
             })
             .catch((error: any) => {
-                notify(error?.message || t(I18N_KEYS.PAYMENT_METHOD_ERROR), "error");
+                notify(parseApiError(error, t(I18N_KEYS.PAYMENT_METHOD_ERROR)).message, "error");
                 setMethods([]);
             });
     }, [selectedGroup?.companyId, t]);
@@ -198,7 +199,7 @@ export default function CheckoutPage() {
             notify(t(I18N_KEYS.PAYMENT_CREATED_SUCCESS), "success");
             void router.push(`/payment/${result.transaction.id}`);
         } catch (error: any) {
-            const message = error?.response?.data?.message || error?.message || t(I18N_KEYS.PAYMENT_SUBMIT_ERROR);
+            const message = parseApiError(error, t(I18N_KEYS.PAYMENT_SUBMIT_ERROR)).message;
             if (typeof error?.response?.status === "number" && (error.response.status === 404 || error.response.status === 409)) {
                 clearDraft();
                 setDraft(null);
@@ -249,29 +250,32 @@ export default function CheckoutPage() {
                                     </div>
                                 ) : null}
                                 <ul className="mt-4 space-y-3">
-                                    {selectedGroup.items.map((item) => (
-                                        <li key={item.id} className="flex gap-3 rounded-2xl bg-slate-50 p-3">
-                                            {item.imageUrl ? (
-                                                <img src={item.imageUrl} alt={item.productName} className="h-20 w-20 rounded-2xl object-cover" />
-                                            ) : (
-                                                <div className="h-20 w-20 rounded-2xl bg-slate-100" />
-                                            )}
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div>
-                                                        <p className="text-sm font-semibold text-slate-900">{item.productName}</p>
-                                                        {item.addOns.length > 0 ? (
-                                                            <p className="mt-1 text-xs text-slate-500">{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
-                                                        ) : null}
+                                    {selectedGroup.items.map((item) => {
+                                        const addOns = Array.isArray(item.addOns) ? item.addOns : [];
+                                        return (
+                                            <li key={item.id} className="flex gap-3 rounded-2xl bg-slate-50 p-3">
+                                                {item.imageUrl ? (
+                                                    <img src={item.imageUrl} alt={item.productName} className="h-20 w-20 rounded-2xl object-cover" />
+                                                ) : (
+                                                    <div className="h-20 w-20 rounded-2xl bg-slate-100" />
+                                                )}
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <p className="text-sm font-semibold text-slate-900">{item.productName}</p>
+                                                            {addOns.length > 0 ? (
+                                                                <p className="mt-1 text-xs text-slate-500">{addOns.map((addOn) => addOn.name).join(", ")}</p>
+                                                            ) : null}
+                                                        </div>
+                                                        <p className="text-sm font-semibold text-emerald-600">{formatTHB(item.lineTotal)}</p>
                                                     </div>
-                                                    <p className="text-sm font-semibold text-emerald-600">{formatTHB(item.lineTotal)}</p>
+                                                    <p className="mt-2 text-xs text-slate-500">
+                                                        {t(I18N_KEYS.CHECKOUT_ITEM_QTY)} {item.quantity}
+                                                    </p>
                                                 </div>
-                                                <p className="mt-2 text-xs text-slate-500">
-                                                    {t(I18N_KEYS.CHECKOUT_ITEM_QTY)} {item.quantity}
-                                                </p>
-                                            </div>
-                                        </li>
-                                    ))}
+                                            </li>
+                                        );
+                                    })}
                                 </ul>
                             </section>
 

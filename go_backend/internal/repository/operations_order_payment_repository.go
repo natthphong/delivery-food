@@ -45,16 +45,54 @@ type ProviderTransactionRecord struct {
 }
 
 func (s *Store) GetAdminOrderByID(ctx context.Context, orderID int64) (model.AdminOrder, error) {
-	items, err := s.ListAdminOrders(ctx, AdminOrderListFilter{Limit: 1000})
+	row := s.Pool.QueryRow(ctx, `
+		SELECT
+			o.id,
+			o.user_id,
+			o.branch_id,
+			o.transaction_id,
+			o.status,
+			o.fulfillment_mode,
+			o.delivery_fee::double precision,
+			o.customer_note,
+			o.created_at,
+			o.updated_at,
+			u.display_name,
+			u.phone,
+			b.name,
+			b.image_url,
+			t.amount::double precision,
+			t.status,
+			pm.name,
+			dj.id,
+			dj.status,
+			rider.full_name
+		FROM orders o
+		JOIN users u ON u.id = o.user_id
+		JOIN branches b ON b.id = o.branch_id
+		JOIN transactions t ON t.id = o.transaction_id
+		LEFT JOIN payment_methods pm ON pm.id = t.payment_method_id
+		LEFT JOIN delivery_jobs dj ON dj.order_id = o.id
+		LEFT JOIN employees rider ON rider.id = dj.assigned_rider_employee_id
+		WHERE o.id = $1
+	`, orderID)
+	return scanAdminOrderSummary(row)
+}
+
+func (s *Store) GetAdminOrderDetail(ctx context.Context, orderID int64) (model.AdminOrder, error) {
+	item, err := s.GetAdminOrderByID(ctx, orderID)
 	if err != nil {
 		return model.AdminOrder{}, err
 	}
-	for _, item := range items {
-		if item.ID == orderID {
-			return item, nil
-		}
+	order, err := s.GetOrderByTransaction(ctx, item.UserID, item.TransactionID)
+	if err != nil {
+		return model.AdminOrder{}, err
 	}
-	return model.AdminOrder{}, sql.ErrNoRows
+	item.Order = order
+	item.CustomerName = item.CustomerName
+	item.CustomerPhone = item.CustomerPhone
+	item.PaymentMethodName = item.PaymentMethodName
+	return item, nil
 }
 
 func (s *Store) GetAdminDashboard(ctx context.Context, branchIDs []int64) (model.AdminDashboard, error) {
@@ -129,65 +167,9 @@ func (s *Store) ListAdminOrders(ctx context.Context, filter AdminOrderListFilter
 
 	items := make([]model.AdminOrder, 0)
 	for rows.Next() {
-		var (
-			customerName      sql.NullString
-			customerPhone     sql.NullString
-			customerNote      sql.NullString
-			branchName        sql.NullString
-			branchImage       sql.NullString
-			paymentMethodName sql.NullString
-			deliveryJobID     sql.NullInt64
-			deliveryJobStatus sql.NullString
-			riderName         sql.NullString
-			item              model.AdminOrder
-		)
-		item.Branch = &model.BranchSummary{}
-		item.Transaction = &model.TransactionSummary{}
-		if err := rows.Scan(
-			&item.ID,
-			&item.UserID,
-			&item.BranchID,
-			&item.TransactionID,
-			&item.Status,
-			&item.FulfillmentMode,
-			&item.DeliveryFee,
-			&customerNote,
-			&item.CreatedAt,
-			&item.UpdatedAt,
-			&customerName,
-			&customerPhone,
-			&branchName,
-			&branchImage,
-			&item.Transaction.Amount,
-			&item.Transaction.Status,
-			&paymentMethodName,
-			&deliveryJobID,
-			&deliveryJobStatus,
-			&riderName,
-		); err != nil {
+		item, err := scanAdminOrderSummary(rows)
+		if err != nil {
 			return nil, err
-		}
-		item.CustomerName = nullString(customerName)
-		item.CustomerPhone = nullString(customerPhone)
-		item.CustomerNote = nullString(customerNote)
-		item.PaymentMethodName = nullString(paymentMethodName)
-		item.Branch.ID = item.BranchID
-		item.Branch.Name = branchName.String
-		item.Branch.ImageURL = nullString(branchImage)
-		item.TotalAmount = item.Transaction.Amount
-		item.Transaction.ID = item.TransactionID
-		item.Transaction.UserID = item.UserID
-		item.Transaction.OrderID = &item.ID
-		if deliveryJobID.Valid {
-			item.DeliveryJob = &model.DeliveryJob{
-				ID:                deliveryJobID.Int64,
-				OrderID:           item.ID,
-				BranchID:          item.BranchID,
-				Status:            deliveryJobStatus.String,
-				AssignedRiderName: nullString(riderName),
-			}
-			branchLabel := item.Branch.Name
-			item.DeliveryJob.BranchName = &branchLabel
 		}
 		items = append(items, item)
 	}
@@ -201,6 +183,74 @@ func (s *Store) UpdateOrderStatus(ctx context.Context, tx DBTX, orderID int64, s
 		WHERE id = $1
 	`, orderID, strings.TrimSpace(status))
 	return err
+}
+
+func scanAdminOrderSummary(scanner interface {
+	Scan(dest ...interface{}) error
+}) (model.AdminOrder, error) {
+	var (
+		customerName      sql.NullString
+		customerPhone     sql.NullString
+		customerNote      sql.NullString
+		branchName        sql.NullString
+		branchImage       sql.NullString
+		paymentMethodName sql.NullString
+		deliveryJobID     sql.NullInt64
+		deliveryJobStatus sql.NullString
+		riderName         sql.NullString
+		item              model.AdminOrder
+	)
+	item.Branch = &model.BranchSummary{}
+	item.Transaction = &model.TransactionSummary{}
+	item.Items = make([]model.OrderItem, 0)
+	item.AllowedStatuses = make([]string, 0)
+	if err := scanner.Scan(
+		&item.ID,
+		&item.UserID,
+		&item.BranchID,
+		&item.TransactionID,
+		&item.Status,
+		&item.FulfillmentMode,
+		&item.DeliveryFee,
+		&customerNote,
+		&item.CreatedAt,
+		&item.UpdatedAt,
+		&customerName,
+		&customerPhone,
+		&branchName,
+		&branchImage,
+		&item.Transaction.Amount,
+		&item.Transaction.Status,
+		&paymentMethodName,
+		&deliveryJobID,
+		&deliveryJobStatus,
+		&riderName,
+	); err != nil {
+		return model.AdminOrder{}, err
+	}
+	item.CustomerName = nullString(customerName)
+	item.CustomerPhone = nullString(customerPhone)
+	item.CustomerNote = nullString(customerNote)
+	item.PaymentMethodName = nullString(paymentMethodName)
+	item.Branch.ID = item.BranchID
+	item.Branch.Name = branchName.String
+	item.Branch.ImageURL = nullString(branchImage)
+	item.TotalAmount = item.Transaction.Amount
+	item.Transaction.ID = item.TransactionID
+	item.Transaction.UserID = item.UserID
+	item.Transaction.OrderID = &item.ID
+	if deliveryJobID.Valid {
+		item.DeliveryJob = &model.DeliveryJob{
+			ID:                deliveryJobID.Int64,
+			OrderID:           item.ID,
+			BranchID:          item.BranchID,
+			Status:            deliveryJobStatus.String,
+			AssignedRiderName: nullString(riderName),
+		}
+		branchLabel := item.Branch.Name
+		item.DeliveryJob.BranchName = &branchLabel
+	}
+	return item, nil
 }
 
 func (s *Store) CreateDeliveryJob(ctx context.Context, tx DBTX, orderID, branchID int64, deliveryFee float64) (model.DeliveryJob, error) {

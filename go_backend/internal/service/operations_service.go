@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +15,8 @@ import (
 	"github.com/natthaohong/delivery-food/go_backend/internal/model"
 	"github.com/natthaohong/delivery-food/go_backend/internal/repository"
 )
+
+var branchSlugPattern = regexp.MustCompile(`[^a-z0-9]+`)
 
 type PayrollPeriodDetail struct {
 	Period  model.PayrollPeriod  `json:"period"`
@@ -70,14 +74,35 @@ func (s *OperationsService) UpsertEmployee(ctx context.Context, claims *backenda
 	if !hasPermission(claims, "employees.manage") {
 		return model.Employee{}, apperror.Forbidden("employee management is not allowed")
 	}
-	if strings.TrimSpace(request.EmployeeCode) == "" || strings.TrimSpace(request.FullName) == "" {
-		return model.Employee{}, apperror.BadRequest("employeeCode and fullName are required")
+
+	fieldErrors := make(map[string]string)
+	if strings.TrimSpace(request.EmployeeCode) == "" {
+		fieldErrors["employeeCode"] = "Employee code is required."
+	}
+	if strings.TrimSpace(request.FullName) == "" {
+		fieldErrors["fullName"] = "Full name is required."
 	}
 	if len(request.RoleCodes) == 0 {
-		return model.Employee{}, apperror.BadRequest("at least one role is required")
+		fieldErrors["roleCodes"] = "Select at least one role."
 	}
 	if len(request.BranchIDs) == 0 {
-		return model.Employee{}, apperror.BadRequest("at least one branch is required")
+		fieldErrors["branchIds"] = "Assign at least one branch."
+	}
+	if strings.TrimSpace(request.CompensationType) == "hourly" {
+		if request.HourlyWage == nil || *request.HourlyWage <= 0 {
+			fieldErrors["hourlyWage"] = "Hourly wage must be greater than 0."
+		}
+	}
+	if strings.TrimSpace(request.CompensationType) == "salary" {
+		if request.MonthlySalary == nil || *request.MonthlySalary <= 0 {
+			fieldErrors["monthlySalary"] = "Monthly salary must be greater than 0."
+		}
+	}
+	if employeeID == nil && request.Username != nil && strings.TrimSpace(*request.Username) != "" && (request.Password == nil || strings.TrimSpace(*request.Password) == "") {
+		fieldErrors["password"] = "Password is required when creating a staff login."
+	}
+	if len(fieldErrors) > 0 {
+		return model.Employee{}, apperror.Validation("Please review the employee form.", fieldErrors)
 	}
 
 	branchIDs, err := scopedBranchIDs(claims, request.BranchIDs)
@@ -90,7 +115,9 @@ func (s *OperationsService) UpsertEmployee(ctx context.Context, claims *backenda
 
 	joinedAt, err := parseOptionalDate(request.JoinedAt)
 	if err != nil {
-		return model.Employee{}, apperror.BadRequest("joinedAt must be YYYY-MM-DD")
+		return model.Employee{}, apperror.Validation("Please review the employee form.", map[string]string{
+			"joinedAt": "Joined date must use YYYY-MM-DD.",
+		})
 	}
 
 	roleCodes := normalizeRoleCodes(request.RoleCodes, request.EmploymentType)
@@ -100,7 +127,9 @@ func (s *OperationsService) UpsertEmployee(ctx context.Context, claims *backenda
 		primaryBranchID = &value
 	}
 	if !containsInt64(branchIDs, *primaryBranchID) {
-		return model.Employee{}, apperror.BadRequest("primaryBranchId must be part of branchIds")
+		return model.Employee{}, apperror.Validation("Please review the employee form.", map[string]string{
+			"primaryBranchId": "Primary branch must match one of the assigned branches.",
+		})
 	}
 
 	params := repository.EmployeeRecordParams{
@@ -155,6 +184,11 @@ func (s *OperationsService) UpsertEmployee(ctx context.Context, claims *backenda
 		err = s.store.UpdateEmployee(ctx, tx, targetEmployeeID, params)
 	}
 	if err != nil {
+		if repository.IsUniqueViolation(err, "employees_employee_code_key") {
+			return model.Employee{}, apperror.Validation("Please review the employee form.", map[string]string{
+				"employeeCode": "This employee code is already in use.",
+			})
+		}
 		return model.Employee{}, apperror.Internal("failed to persist employee", err)
 	}
 	if err := s.store.ReplaceEmployeeRoles(ctx, tx, targetEmployeeID, roleCodes); err != nil {
@@ -176,10 +210,14 @@ func (s *OperationsService) UpsertEmployee(ctx context.Context, claims *backenda
 	shouldManageStaffAccount := username != nil || passwordHash != nil || (existing != nil && existing.Username != nil)
 	if shouldManageStaffAccount {
 		if employeeID == nil && (username == nil || strings.TrimSpace(*username) == "") {
-			return model.Employee{}, apperror.BadRequest("username is required when creating a staff account")
+			return model.Employee{}, apperror.Validation("Please review the employee form.", map[string]string{
+				"username": "Username is required when creating a staff login.",
+			})
 		}
 		if employeeID == nil && passwordHash == nil {
-			return model.Employee{}, apperror.BadRequest("password is required when creating a staff account")
+			return model.Employee{}, apperror.Validation("Please review the employee form.", map[string]string{
+				"password": "Password is required when creating a staff login.",
+			})
 		}
 		if _, err := s.store.UpsertStaffAccount(ctx, tx, repository.StaffAccountUpsertParams{
 			EmployeeID:         targetEmployeeID,
@@ -188,6 +226,11 @@ func (s *OperationsService) UpsertEmployee(ctx context.Context, claims *backenda
 			MustResetPassword:  request.MustResetPassword,
 			StaffAccountStatus: mapEmployeeStatusToStaffStatus(request.Status),
 		}); err != nil {
+			if repository.IsUniqueViolation(err, "staff_accounts_username_key") {
+				return model.Employee{}, apperror.Validation("Please review the employee form.", map[string]string{
+					"username": "This username is already in use.",
+				})
+			}
 			return model.Employee{}, apperror.Internal("failed to persist staff account", err)
 		}
 	}
@@ -613,12 +656,114 @@ func (s *OperationsService) ListBranches(ctx context.Context, claims *backendaut
 	return items, nil
 }
 
+func (s *OperationsService) CreateBranch(ctx context.Context, claims *backendauth.AccessClaims, request dto.BranchCreateRequest) (model.BranchSummary, error) {
+	if !hasPermission(claims, "branches.manage") || !canCreateBranch(claims) {
+		return model.BranchSummary{}, apperror.Forbidden("branch creation is not allowed")
+	}
+
+	fieldErrors := make(map[string]string)
+	if strings.TrimSpace(request.Name) == "" {
+		fieldErrors["name"] = "Branch name is required."
+	}
+	if request.RiderDeliveryFee < 0 {
+		fieldErrors["riderDeliveryFee"] = "Rider delivery fee cannot be negative."
+	}
+	copyMode := normalizeCopyMode(request.CopyMode)
+	if copyMode == "invalid" {
+		fieldErrors["copyMode"] = "Copy mode must be none, all, or selected."
+	}
+	if copyMode != "none" && request.CopyFromBranchID == nil {
+		fieldErrors["copyFromBranchId"] = "Select a source branch before copying menu items."
+	}
+	if copyMode == "selected" && len(request.CategoryIDs) == 0 && len(request.ProductIDs) == 0 {
+		fieldErrors["productIds"] = "Choose at least one category or menu item to copy."
+	}
+	if len(fieldErrors) > 0 {
+		return model.BranchSummary{}, apperror.Validation("Please review the branch form.", fieldErrors)
+	}
+
+	companyID, err := s.store.GetDefaultCompanyID(ctx)
+	if err != nil {
+		return model.BranchSummary{}, apperror.Internal("failed to resolve company", err)
+	}
+
+	slug := buildBranchSlug(request.Name, request.Slug)
+	var copiedProductIDs []int64
+	if copyMode != "none" && request.CopyFromBranchID != nil {
+		if _, err := scopedBranchIDs(claims, []int64{*request.CopyFromBranchID}); err != nil {
+			return model.BranchSummary{}, err
+		}
+		sourceProducts, err := s.store.ListAdminBranchProducts(ctx, *request.CopyFromBranchID)
+		if err != nil {
+			return model.BranchSummary{}, apperror.Internal("failed to inspect source branch menu", err)
+		}
+		copiedProductIDs = selectBranchCopyProductIDs(sourceProducts, copyMode, request.CategoryIDs, request.ProductIDs)
+		if copyMode == "selected" && len(copiedProductIDs) == 0 {
+			return model.BranchSummary{}, apperror.Validation("Please review the branch form.", map[string]string{
+				"productIds": "No menu items matched the selected categories or products.",
+			})
+		}
+	}
+
+	tx, err := s.store.Begin(ctx)
+	if err != nil {
+		return model.BranchSummary{}, apperror.Internal("failed to begin branch creation", err)
+	}
+	defer tx.Rollback(ctx)
+
+	branchID, err := s.store.CreateBranch(ctx, tx, repository.BranchCreateParams{
+		CompanyID:             companyID,
+		Slug:                  slug,
+		Name:                  request.Name,
+		Description:           request.Description,
+		ImageURL:              request.ImageURL,
+		AddressLine:           request.AddressLine,
+		Lat:                   request.Lat,
+		Lng:                   request.Lng,
+		IsForceClosed:         request.IsForceClosed,
+		AcceptingOrders:       request.AcceptingOrders,
+		SupportsPickup:        request.SupportsPickup,
+		SupportsRiderDelivery: request.SupportsRiderDelivery,
+		RiderDeliveryFee:      request.RiderDeliveryFee,
+		OperationalNote:       request.OperationalNote,
+	})
+	if err != nil {
+		if repository.IsUniqueViolation(err, "branches_company_slug_unique") {
+			return model.BranchSummary{}, apperror.Validation("Please review the branch form.", map[string]string{
+				"slug": "This branch slug is already in use.",
+			})
+		}
+		return model.BranchSummary{}, apperror.Internal("failed to create branch", err)
+	}
+
+	if copyMode != "none" && request.CopyFromBranchID != nil {
+		if err := s.store.CopyBranchProducts(ctx, tx, *request.CopyFromBranchID, branchID, copiedProductIDs); err != nil {
+			return model.BranchSummary{}, apperror.Internal("failed to copy source branch menu", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return model.BranchSummary{}, apperror.Internal("failed to commit branch creation", err)
+	}
+
+	item, err := s.store.GetBranchSummary(ctx, branchID)
+	if err != nil {
+		return model.BranchSummary{}, apperror.Internal("failed to reload created branch", err)
+	}
+	return item, nil
+}
+
 func (s *OperationsService) UpdateBranch(ctx context.Context, claims *backendauth.AccessClaims, branchID int64, request dto.BranchOperationsUpdateRequest) (model.BranchSummary, error) {
 	if !hasPermission(claims, "branches.manage") {
 		return model.BranchSummary{}, apperror.Forbidden("branch management is not allowed")
 	}
 	if _, err := scopedBranchIDs(claims, []int64{branchID}); err != nil {
 		return model.BranchSummary{}, err
+	}
+	if request.RiderDeliveryFee != nil && *request.RiderDeliveryFee < 0 {
+		return model.BranchSummary{}, apperror.Validation("Please review the branch form.", map[string]string{
+			"riderDeliveryFee": "Rider delivery fee cannot be negative.",
+		})
 	}
 	tx, err := s.store.Begin(ctx)
 	if err != nil {
@@ -667,6 +812,16 @@ func (s *OperationsService) UpdateBranchProduct(ctx context.Context, claims *bac
 	if _, err := scopedBranchIDs(claims, []int64{branchID}); err != nil {
 		return nil, err
 	}
+	if request.StockQty != nil && *request.StockQty < 0 {
+		return nil, apperror.Validation("Please review the product override.", map[string]string{
+			"stockQty": "Stock quantity cannot be negative.",
+		})
+	}
+	if request.ReorderLevel != nil && *request.ReorderLevel < 0 {
+		return nil, apperror.Validation("Please review the product override.", map[string]string{
+			"reorderLevel": "Reorder level cannot be negative.",
+		})
+	}
 	tx, err := s.store.Begin(ctx)
 	if err != nil {
 		return nil, apperror.Internal("failed to begin stock update", err)
@@ -693,6 +848,19 @@ func (s *OperationsService) AdjustStock(ctx context.Context, claims *backendauth
 	}
 	if _, err := scopedBranchIDs(claims, []int64{branchID}); err != nil {
 		return nil, err
+	}
+	fieldErrors := make(map[string]string)
+	if request.ProductID <= 0 {
+		fieldErrors["productId"] = "Select a product before recording stock movement."
+	}
+	if request.DeltaQty == 0 {
+		fieldErrors["deltaQty"] = "Change quantity cannot be 0."
+	}
+	if strings.TrimSpace(request.Reason) == "" {
+		fieldErrors["reason"] = "Select a stock movement reason."
+	}
+	if len(fieldErrors) > 0 {
+		return nil, apperror.Validation("Please review the stock adjustment.", fieldErrors)
 	}
 	tx, err := s.store.Begin(ctx)
 	if err != nil {
@@ -727,14 +895,34 @@ func (s *OperationsService) ListOrders(ctx context.Context, claims *backendauth.
 	if err != nil {
 		return nil, apperror.Internal("failed to load orders", err)
 	}
+	for index := range items {
+		items[index] = enrichAdminOrder(items[index])
+	}
 	return items, nil
+}
+
+func (s *OperationsService) GetOrderDetail(ctx context.Context, claims *backendauth.AccessClaims, orderID int64) (model.AdminOrder, error) {
+	if !hasPermission(claims, "orders.read") && !hasPermission(claims, "orders.manage") {
+		return model.AdminOrder{}, apperror.Forbidden("order access is not allowed")
+	}
+	item, err := s.store.GetAdminOrderDetail(ctx, orderID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return model.AdminOrder{}, apperror.NotFound("order not found")
+		}
+		return model.AdminOrder{}, apperror.Internal("failed to load order detail", err)
+	}
+	if _, err := scopedBranchIDs(claims, []int64{item.BranchID}); err != nil {
+		return model.AdminOrder{}, err
+	}
+	return enrichAdminOrder(item), nil
 }
 
 func (s *OperationsService) UpdateOrderStatus(ctx context.Context, claims *backendauth.AccessClaims, orderID int64, request dto.OrderStatusUpdateRequest) error {
 	if !hasPermission(claims, "orders.manage") {
 		return apperror.Forbidden("order management is not allowed")
 	}
-	target, err := s.store.GetAdminOrderByID(ctx, orderID)
+	target, err := s.store.GetAdminOrderDetail(ctx, orderID)
 	if err != nil {
 		if repository.IsNotFound(err) {
 			return apperror.NotFound("order not found")
@@ -744,18 +932,33 @@ func (s *OperationsService) UpdateOrderStatus(ctx context.Context, claims *backe
 	if _, err := scopedBranchIDs(claims, []int64{target.BranchID}); err != nil {
 		return err
 	}
+	target = enrichAdminOrder(target)
+	nextStatus := strings.TrimSpace(request.Status)
+	if nextStatus == "" {
+		return apperror.Validation("Please review the order action.", map[string]string{
+			"status": "Choose the next status before saving.",
+		})
+	}
+	if nextStatus == target.Status {
+		return nil
+	}
+	if !containsString(target.AllowedStatuses, nextStatus) {
+		return apperror.Validation("Please review the order action.", map[string]string{
+			"status": fmt.Sprintf("Status %s is not allowed from %s for this order.", nextStatus, target.Status),
+		})
+	}
 	tx, err := s.store.Begin(ctx)
 	if err != nil {
 		return apperror.Internal("failed to begin order update", err)
 	}
 	defer tx.Rollback(ctx)
-	if err := s.store.UpdateOrderStatus(ctx, tx, orderID, request.Status); err != nil {
+	if err := s.store.UpdateOrderStatus(ctx, tx, orderID, nextStatus); err != nil {
 		return apperror.Internal("failed to update order status", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return apperror.Internal("failed to commit order update", err)
 	}
-	if s.notifier != nil && request.Status == "COMPLETED" {
+	if s.notifier != nil && nextStatus == "READY" {
 		user, userErr := s.store.GetUserByID(ctx, target.UserID)
 		order, orderErr := s.store.GetOrderByTransaction(ctx, target.UserID, target.TransactionID)
 		if userErr == nil && orderErr == nil {
@@ -1056,6 +1259,68 @@ func pointerBranchSlice(branchID *int64) []int64 {
 	return []int64{*branchID}
 }
 
+func canCreateBranch(claims *backendauth.AccessClaims) bool {
+	return claims != nil && (claims.ActorType == "bootstrap_admin" || hasRole(claims, "owner") || hasRole(claims, "manager"))
+}
+
+func normalizeCopyMode(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", "none":
+		return "none"
+	case "all":
+		return "all"
+	case "selected":
+		return "selected"
+	default:
+		return "invalid"
+	}
+}
+
+func buildBranchSlug(name string, requested *string) string {
+	source := name
+	if requested != nil && strings.TrimSpace(*requested) != "" {
+		source = *requested
+	}
+	normalized := strings.ToLower(strings.TrimSpace(source))
+	normalized = branchSlugPattern.ReplaceAllString(normalized, "-")
+	normalized = strings.Trim(normalized, "-")
+	if normalized == "" {
+		return fmt.Sprintf("branch-%d", time.Now().Unix())
+	}
+	return normalized
+}
+
+func selectBranchCopyProductIDs(products []model.AdminBranchProduct, copyMode string, categoryIDs []int64, productIDs []int64) []int64 {
+	if copyMode == "none" {
+		return nil
+	}
+	if copyMode == "all" {
+		return nil
+	}
+	productSet := make(map[int64]struct{}, len(productIDs))
+	for _, productID := range productIDs {
+		productSet[productID] = struct{}{}
+	}
+	categorySet := make(map[int64]struct{}, len(categoryIDs))
+	for _, categoryID := range categoryIDs {
+		categorySet[categoryID] = struct{}{}
+	}
+	selected := make([]int64, 0)
+	for _, product := range products {
+		if _, ok := productSet[product.ProductID]; ok {
+			selected = append(selected, product.ProductID)
+			continue
+		}
+		for _, category := range product.Categories {
+			if _, ok := categorySet[category.ID]; ok {
+				selected = append(selected, product.ProductID)
+				break
+			}
+		}
+	}
+	return uniqueInt64s(selected)
+}
+
 func filterAttendanceByEmployee(items []model.AttendanceSession, employeeID int64) []model.AttendanceSession {
 	filtered := make([]model.AttendanceSession, 0, len(items))
 	for _, item := range items {
@@ -1079,6 +1344,46 @@ func stringValue(value *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*value)
+}
+
+func enrichAdminOrder(item model.AdminOrder) model.AdminOrder {
+	if item.Items == nil {
+		item.Items = make([]model.OrderItem, 0)
+	}
+	item.AllowedStatuses = allowedOrderStatusTransitions(item)
+	return item
+}
+
+func allowedOrderStatusTransitions(item model.AdminOrder) []string {
+	current := strings.TrimSpace(item.Status)
+	mode := strings.TrimSpace(item.FulfillmentMode)
+	switch current {
+	case "PENDING":
+		if mode == "pickup" {
+			return []string{"PREPARE", "READY", "REJECTED"}
+		}
+		return []string{"PREPARE", "READY", "REJECTED"}
+	case "PREPARE":
+		return []string{"READY", "REJECTED"}
+	case "READY":
+		if mode == "pickup" {
+			return []string{"COMPLETED", "REJECTED"}
+		}
+		return []string{"DELIVERY", "REJECTED"}
+	case "DELIVERY":
+		return []string{"COMPLETED", "REJECTED"}
+	default:
+		return []string{}
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func mapDeliveryJobStatusToOrderStatus(status string) string {

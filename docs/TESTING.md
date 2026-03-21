@@ -19,10 +19,19 @@ npm run build
 - customer token, cart, config, and admin-session storage
 - cart selectors
 - cart drawer checkout-draft flow
+- cart null-add-on normalization and defensive rendering
 - navbar admin-entry visibility
 - payment method picker selection
 - payment detail expired/retry flow
 - role-aware admin navigation rendering
+- admin locale switch persistence
+- admin order detail null-item regression coverage
+- admin employee validation error rendering
+- admin branch creation with menu-copy flow
+- login/signup auth screen layout without customer nav
+- LINE callback minimal-layout regression coverage
+- SSR-safe locale initialization and runtime locale hydration
+- shared UI error mapping and account profile conflict feedback
 - response envelope unwrapping
 
 ## Backend
@@ -46,6 +55,9 @@ go test ./...
 - Omise checkout mapping and webhook normalization
 - payment expiry normalization
 - notification service email/LINE fan-out
+- admin order transition helpers
+- validation error response shaping
+- branch menu-copy selection helpers
 
 ## Recommended verification flow
 
@@ -67,4 +79,5 @@ npm run verify
 - Go tests are pure unit tests and do not require a running server
 - if you change API types or session storage, rerun both `npm test` and `npm run build`
 - if you change backend DTOs or payment/operations logic, rerun `go test ./...`
+- if you change admin workflows or preset data, also rerun `npm run backend:migrate` against a local dev database before manual QA
 - if you change pages under `src/pages`, keep test files outside routable page folders so Next.js does not treat them as pages during build

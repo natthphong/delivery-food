@@ -4,7 +4,7 @@ import type { DeliveryJob } from "@/types/admin";
 export type TxnStatus = "pending" | "accepted" | "rejected" | "expired";
 export type TxnType = "deposit" | "payment";
 export type TxnMethodType = "qr" | "balance" | "gateway";
-export type OrderStatus = "PENDING" | "PREPARE" | "DELIVERY" | "COMPLETED" | "REJECTED";
+export type OrderStatus = "PENDING" | "PREPARE" | "READY" | "DELIVERY" | "COMPLETED" | "REJECTED";
 
 export type PaymentAction = {
     type?: string;
